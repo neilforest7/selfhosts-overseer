@@ -43,8 +43,18 @@ export class ContainersController {
     return this.containers.restartOne(body.host as any, id, body.opId);
   }
 
+  @Post(':id/start')
+  async startContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
+    return this.containers.startOne(body.host as any, id, body.opId);
+  }
+
+  @Post(':id/stop')
+  async stopContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
+    return this.containers.stopOne(body.host as any, id, body.opId);
+  }
+
   @Post('compose/operate')
-  async composeOperate(@Body() body: { hostId: string; project: string; workingDir: string; op: 'down'|'pull'|'up'|'restart'; opId?: string }) {
+  async composeOperate(@Body() body: { hostId: string; project: string; workingDir: string; op: 'down'|'pull'|'up'|'restart'|'start'|'stop'; opId?: string }) {
     return this.containers.composeOperate(body.hostId, body.project, body.workingDir, body.op, body.opId);
   }
 
