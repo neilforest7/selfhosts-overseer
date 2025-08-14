@@ -82,8 +82,51 @@ export class TasksService {
     const timeoutSec = settings.commandTimeoutSeconds;
     let anyFailed = false;
 
+    // system hints: task start summary (write then broadcast structured event)
+    const startSummary = `>>> 任务开始: 命令 "${task.command}" · 目标 ${targets.length} 台 · 并发 ${settings.sshConcurrency} · 超时 ${timeoutSec}s`;
+    const startLog = await this.prisma.taskLog.create({
+      data: { taskId, stream: 'stdout', hostLabel: 'system', content: startSummary }
+    });
+    // 先同步推送 start，再进入具体主机执行，尽量保证它是流中的第一条
+    this.gateway.emitLog(taskId, {
+      eventId: startLog.id,
+      taskId,
+      type: 'task-start',
+      stream: 'system',
+      ts: new Date((startLog as any).ts ?? Date.now()).getTime(),
+      hostLabel: 'system',
+      content: startSummary
+    });
+    if (targets.length === 0) {
+      const msg = '未选择任何目标主机';
+      const warnLog = await this.prisma.taskLog.create({ data: { taskId, stream: 'stderr', hostLabel: 'system', content: msg } });
+      this.gateway.emitLog(taskId, {
+        eventId: warnLog.id,
+        taskId,
+        type: 'log',
+        stream: 'system',
+        ts: new Date((warnLog as any).ts ?? Date.now()).getTime(),
+        hostLabel: 'system',
+        content: msg
+      });
+    }
+
     const runOne = async (target: any) => {
       const prefix = `[${target.name}@${target.address}] `;
+      // per-host start hint (write then emit)
+      const hostStart = await this.prisma.taskLog.create({
+        data: { taskId, stream: 'stdout', hostLabel: `${target.name}@${target.address}`, content: '>>> 开始' }
+      });
+      this.gateway.emitLog(taskId, {
+        eventId: hostStart.id,
+        taskId,
+        type: 'host-start',
+        stream: 'stdout',
+        ts: new Date((hostStart as any).ts ?? Date.now()).getTime(),
+        hostId: target.id,
+        hostLabel: `${target.name}@${target.address}`,
+        content: '>>> 开始'
+      });
       
       // 获取主机详细信息以进行SSH认证
       const hostDetail = await this.prisma.host.findUnique({ where: { id: target.id } });
@@ -109,19 +152,51 @@ export class TasksService {
         connectTimeoutSeconds: Math.min(30, Math.max(5, Math.floor(timeoutSec / 2))),
         killAfterSeconds: timeoutSec,
         onStdout: async (d) => {
-          this.gateway.broadcast(taskId, 'data', prefix + d);
-          await this.prisma.taskLog.create({
+          const log = await this.prisma.taskLog.create({
             data: { taskId, stream: 'stdout', hostLabel: `${target.name}@${target.address}` , content: d }
+          });
+          this.gateway.emitLog(taskId, {
+            eventId: log.id,
+            taskId,
+            type: 'log',
+            stream: 'stdout',
+            ts: new Date((log as any).ts ?? Date.now()).getTime(),
+            hostId: target.id,
+            hostLabel: `${target.name}@${target.address}`,
+            content: d
           });
         },
         onStderr: async (d) => {
-          this.gateway.broadcast(taskId, 'stderr', prefix + d);
-          await this.prisma.taskLog.create({
+          const log = await this.prisma.taskLog.create({
             data: { taskId, stream: 'stderr', hostLabel: `${target.name}@${target.address}`, content: d }
+          });
+          this.gateway.emitLog(taskId, {
+            eventId: log.id,
+            taskId,
+            type: 'log',
+            stream: 'stderr',
+            ts: new Date((log as any).ts ?? Date.now()).getTime(),
+            hostId: target.id,
+            hostLabel: `${target.name}@${target.address}`,
+            content: d
           });
         }
       });
       if (code !== 0) anyFailed = true;
+      // per-host end hint (write then emit)
+      const hostEnd = await this.prisma.taskLog.create({
+        data: { taskId, stream: 'stdout', hostLabel: `${target.name}@${target.address}`, content: `<<< 结束 (code ${code})` }
+      });
+      this.gateway.emitLog(taskId, {
+        eventId: hostEnd.id,
+        taskId,
+        type: 'host-end',
+        stream: 'stdout',
+        ts: new Date((hostEnd as any).ts ?? Date.now()).getTime(),
+        hostId: target.id,
+        hostLabel: `${target.name}@${target.address}`,
+        content: `<<< 结束 (code ${code})`
+      });
     };
 
     const concurrency = settings.sshConcurrency;
@@ -141,6 +216,17 @@ export class TasksService {
     await this.prisma.taskRun.update({
       where: { id: taskId },
       data: { status: anyFailed ? 'failed' : 'succeeded', finishedAt: new Date() }
+    });
+    const endSummary = `<<< 任务结束 · 状态 ${anyFailed ? 'failed' : 'succeeded'}`;
+    const endLog = await this.prisma.taskLog.create({ data: { taskId, stream: 'stdout', hostLabel: 'system', content: endSummary } });
+    this.gateway.emitLog(taskId, {
+      eventId: endLog.id,
+      taskId,
+      type: 'task-end',
+      stream: 'system',
+      ts: new Date((endLog as any).ts ?? Date.now()).getTime(),
+      hostLabel: 'system',
+      content: endSummary
     });
     this.gateway.broadcast(taskId, 'end', { status: anyFailed ? 'failed' : 'succeeded' });
   }
