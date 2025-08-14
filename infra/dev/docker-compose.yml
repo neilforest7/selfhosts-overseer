@@ -1,0 +1,39 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: selfhost-postgres
+    environment:
+      POSTGRES_USER: selfhost
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: selfhost
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  pgweb:
+    image: sosedoff/pgweb:0.16.1
+    container_name: selfhost-pgweb
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgres://selfhost:secret@postgres:5432/selfhost?sslmode=disable
+    ports:
+      - "8081:8081"
+    command: ["--bind=0.0.0.0", "--listen=8081"]
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: selfhost-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+volumes:
+  postgres_data: {}
+

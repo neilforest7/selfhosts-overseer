@@ -1,0 +1,16 @@
+node_modules
+dist
+.next
+.turbo
+.out
+.env
+.env.local
+.tmp
+coverage
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+
+# Local Postgres database data (development only)
+infra/dev/data/postgres

@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SshAuthMethod {
+  password
+  privateKey
+}
+
+model AppSetting {
+  key   String @id
+  value String
+}
+
+model Host {
+  id       String   @id @default(cuid())
+  name     String
+  address  String
+  sshUser  String
+  port     Int?
+  tags     String[]
+  sshOptions Json?
+  sshAuthMethod SshAuthMethod @default(password)
+  sshPassword   String?
+  sshPrivateKey String?
+  sshPrivateKeyPassphrase String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TaskRun {
+  id          String   @id @default(cuid())
+  status      String
+  command     String
+  targets     String[]
+  stdoutRef   String?
+  stderrRef   String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime @default(now())
+  logs        TaskLog[]
+}
+
+model TaskLog {
+  id         String   @id @default(cuid())
+  taskId     String
+  ts         DateTime @default(now())
+  stream     String   // 'stdout' | 'stderr'
+  hostLabel  String?  // optional host display
+  content    String
+
+  task       TaskRun  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  @@index([taskId, ts])
+}
+
+// Containers and related
+model Container {
+  id              String   @id @default(cuid())
+  hostId          String
+  containerId     String
+  name            String
+  state           String?
+  status          String?
+   restartCount    Int?
+  imageName       String?
+  imageTag        String?
+  repoDigest      String?
+  remoteDigest    String?
+  updateAvailable Boolean  @default(false)
+  updateCheckedAt DateTime?
+  createdAt       DateTime @default(now())
+  startedAt       DateTime?
+  isComposeManaged Boolean @default(false)
+  composeProject  String?
+  composeService  String?
+  composeWorkingDir String?
+  // Derived grouping helpers
+  composeGroupKey   String?
+  composeFolderName String?
+  composeConfigFiles Json?
+  runCommand      String?
+  ports           Json?
+  mounts          Json?
+  networks        Json?
+  labels          Json?
+
+  @@unique([hostId, containerId])
+  @@index([hostId, composeGroupKey])
+}
+
+model ReverseProxyRoute {
+  id             String   @id @default(cuid())
+  hostId         String
+  provider       String   // "npm"
+  type           String   // http/stream/redirect
+  vpsName        String?
+  domain         String
+  forwardHost    String?
+  forwardPort    Int?
+  enabled        Boolean  @default(true)
+  certificateId  String?
+  certExpiresAt  DateTime?
+  rawAdvancedConfig String?
+  lastSyncedAt   DateTime?
+}
+
+model Certificate {
+  id         String   @id @default(cuid())
+  provider   String
+  cn         String
+  sans       String[]
+  issuer     String?
+  notBefore  DateTime?
+  notAfter   DateTime?
+  autoRenew  Boolean  @default(true)
+  lastSyncedAt DateTime?
+  createdAt  DateTime @default(now())
+}
+
+model HostNpmConfig {
+  hostId         String   @id
+  enabled        Boolean  @default(false)
+  dbType         String   @default("sqlite") // sqlite | mysql
+  connectionMode String   @default("container-local")
+  containerName  String?
+  sqlitePath     String?  @default("/data/database.sqlite")
+  mysqlUseContainerEnv Boolean? @default(false)
+  updatedAt      DateTime @updatedAt
+}
+
+// Optional: docker-compose projects indexed separately
+model ComposeProject {
+  id                 String   @id @default(cuid())
+  project            String
+  workingDir         String
+  configFiles        String[]
+  effectiveConfigHash String?
+  lastSyncedAt       DateTime?
+}
+
