@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -183,7 +183,7 @@ export default function ContainersSection() {
 
   // Compose 操作（改为直接调用后端 compose/operate 接口）
   const composeOperation = useMutation({
-    mutationFn: async ({ hostId, project, workingDir, operation }: { hostId: string; project: string; workingDir: string; operation: 'down' | 'pull' | 'up' | 'restart' }) => {
+    mutationFn: async ({ hostId, project, workingDir, operation }: { hostId: string; project: string; workingDir: string; operation: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop' }) => {
       const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       setOpId(id); setOpOpen(true); setOpTitle(`Compose ${operation}: ${project}`); setLogs([]);
       const r = await fetch('http://localhost:3001/api/v1/containers/compose/operate', {
@@ -230,24 +230,24 @@ export default function ContainersSection() {
         <div className="flex gap-2 items-center flex-wrap">
           <Input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="搜索容器/镜像" className="max-w-xs" />
           <Button variant={updateOnly ? 'secondary' : 'default'} onClick={()=>setUpdateOnly(v=>!v)}>{updateOnly ? '显示全部' : '仅看可更新'}</Button>
-          
-          <Select value={hostFilter || "all"} onValueChange={(value) => setHostFilter(value === "all" ? "" : value)}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="选择主机" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部主机</SelectItem>
-              {hostsQuery.data?.items?.map(host => (
-                <SelectItem key={host.id} value={host.name}>
-                  {host.name} ({host.address})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          
           <Button variant={composeOnly ? 'secondary' : 'ghost'} onClick={()=>setComposeOnly(v=>!v)}>{composeOnly ? '显示全部' : '仅 Compose'}</Button>
           
+          
+          
           <div className="ml-auto flex gap-2">
+            <Select value={hostFilter || "all"} onValueChange={(value) => setHostFilter(value === "all" ? "" : value)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="选择主机" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部主机</SelectItem>
+                {hostsQuery.data?.items?.map(host => (
+                  <SelectItem key={host.id} value={host.name}>
+                    {host.name} ({host.address})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button>发现容器</Button>
@@ -340,7 +340,7 @@ export default function ContainersSection() {
               })();
               const title = isCompose ? (folderBase || first.composeProject || 'compose') : first.name;
               
-              // 计算组的综合状态
+              // 计算组的综合状态（含部分运行判定）
               const getGroupStatus = () => {
                 // 状态优先级：error > restarting > starting > running > paused > stopped > created > unknown
                 const priorities = {
@@ -352,71 +352,80 @@ export default function ContainersSection() {
                   stopped: 3, exited: 3,
                   created: 2,
                   unknown: 1
-                };
+                } as const;
                 
                 let highestPriority = 0;
                 let bestStatus = { state: 'unknown', status: '' };
+                let runningCount = 0;
+                let stoppedCount = 0;
                 
                 for (const item of items) {
-                  const state = (item.state || '').toLowerCase();
-                  const status = (item.status || '').toLowerCase();
+                  const stateLower = (item.state || '').toLowerCase();
+                  const statusLower = (item.status || '').toLowerCase();
+                  const isRunning = stateLower.includes('running') || statusLower.includes('up');
+                  const isStopped = stateLower.includes('exited') || stateLower.includes('stopped') || statusLower.includes('exited') || statusLower.includes('stopped');
+                  if (isRunning) runningCount++; else if (isStopped) stoppedCount++;
                   
                   for (const [key, priority] of Object.entries(priorities)) {
-                    if ((state.includes(key) || status.includes(key)) && priority > highestPriority) {
+                    if ((stateLower.includes(key) || statusLower.includes(key)) && priority > highestPriority) {
                       highestPriority = priority;
                       bestStatus = { state: item.state || '', status: item.status || '' };
                     }
                   }
                 }
-                
-                return bestStatus;
+                const totalCount = items.length;
+                const partial = runningCount > 0 && stoppedCount > 0;
+                return { ...bestStatus, meta: { totalCount, runningCount, stoppedCount, partial, anyRunning: runningCount > 0, anyStopped: stoppedCount > 0 } } as const;
               };
               
               const groupStatus = getGroupStatus();
-              const statusBadge = getContainerStatusBadge(groupStatus.state, groupStatus.status);
+              const statusBadge = (groupStatus as any).meta?.partial
+                ? { variant: 'secondary' as const, text: '部分运行', color: 'bg-yellow-500' }
+                : getContainerStatusBadge(groupStatus.state, groupStatus.status);
               
               return (
-                <TableRow key={key}>
-                  <TableCell>
-                    <Badge variant={getHostBadgeColor(first.hostId)}>
-                      {getHostName(first.hostId)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusBadge.variant} className={`text-white ${statusBadge.color}`}>
-                      {statusBadge.text}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-medium">
-                          {title}
-                          {isCompose ? (
-                            <span className="ml-2"><Badge variant="secondary">compose</Badge></span>
-                          ) : (
-                            <span className="ml-2"><Badge variant="secondary">cli</Badge></span>
-                          )}
-                          <span className="ml-2 text-xs text-muted-foreground">{isCompose ? `${items.length} 个服务` : ''}</span>
+                <Fragment key={key}>
+                  <TableRow>
+                    <TableCell>
+                      <Badge variant={getHostBadgeColor(first.hostId)}>
+                        {getHostName(first.hostId)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={statusBadge.variant} className={`text-white ${statusBadge.color}`}>
+                        {statusBadge.text}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-medium">
+                            {title}
+                            {isCompose ? (
+                              <span className="ml-2"><Badge variant="secondary">compose</Badge></span>
+                            ) : (
+                              <span className="ml-2"><Badge variant="secondary">cli</Badge></span>
+                            )}
+                            <span className="ml-2 text-xs text-muted-foreground">{isCompose ? `${items.length} 个服务` : ''}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => setExpandedGroup(expandedGroup === key ? null : key)}
+                          >
+                            {expandedGroup === key ? '收起' : '展开'}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => setExpandedGroup(expandedGroup === key ? null : key)}
-                        >
-                          {expandedGroup === key ? '收起' : '展开'}
-                        </Button>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm">操作</Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm">操作</Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
                         {isCompose ? (
                           <>
                             <DropdownMenuItem onClick={() => {
@@ -428,6 +437,27 @@ export default function ContainersSection() {
                                 operation: 'restart' 
                               });
                             }}>重启服务</DropdownMenuItem>
+                            {(() => {
+                              const s = (groupStatus.state || '').toLowerCase();
+                              const ss = (groupStatus.status || '').toLowerCase();
+                              const running = s.includes('running') || ss.includes('up');
+                              const partial = Boolean((groupStatus as any).meta?.partial);
+                              const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
+                              return (
+                                <>
+                                  {(!running || partial) && (
+                                    <DropdownMenuItem onClick={() => {
+                                      composeOperation.mutate({ hostId: first.hostId, project: first.composeProject || 'unknown', workingDir, operation: 'start' });
+                                    }}>启动服务(start)</DropdownMenuItem>
+                                  )}
+                                  {(running || partial) && (
+                                    <DropdownMenuItem onClick={() => {
+                                      composeOperation.mutate({ hostId: first.hostId, project: first.composeProject || 'unknown', workingDir, operation: 'stop' });
+                                    }}>停止服务(stop)</DropdownMenuItem>
+                                  )}
+                                </>
+                              );
+                            })()}
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
                               composeOperation.mutate({ 
@@ -454,7 +484,7 @@ export default function ContainersSection() {
                                 workingDir, 
                                 operation: 'down' 
                               });
-                            }}>停止服务</DropdownMenuItem>
+                            }}>下线（down）</DropdownMenuItem>
                           </>
                         ) : (
                           <>
@@ -472,6 +502,30 @@ export default function ContainersSection() {
                                 toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
                               }
                             }}>更新容器</DropdownMenuItem>
+                                {(() => {
+                                  const s = (groupStatus.state || '').toLowerCase();
+                                  const ss = (groupStatus.status || '').toLowerCase();
+                                  const running = s.includes('running') || ss.includes('up');
+                                  return (
+                                    <>
+                                      {!running && (
+                                        <DropdownMenuItem onClick={async ()=>{
+                                          const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                                          setOpId(id); setOpOpen(true); setOpTitle(`启动 ${first.name}`); setLogs([]);
+                                          toast.info(`已触发启动：${first.name}`);
+                                          try {
+                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
+                                            if (!r.ok) throw new Error(await r.text());
+                                            toast.success(`启动请求已受理：${first.name}`);
+                                            qc.invalidateQueries({ queryKey: ['containers'] });
+                                          } catch (e: any) {
+                                            toast.error(`启动触发失败：${first.name} - ${e?.message || '未知错误'}`);
+                                          }
+                                        }}>启动容器</DropdownMenuItem>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                             <DropdownMenuItem onClick={async ()=>{
                               const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                               setOpId(id); setOpOpen(true); setOpTitle(`重启 ${first.name}`); setLogs([]);
@@ -484,6 +538,30 @@ export default function ContainersSection() {
                                 toast.error(`重启触发失败：${first.name} - ${e?.message || '未知错误'}`);
                               }
                             }}>重启容器</DropdownMenuItem>
+                                {(() => {
+                                  const s = (groupStatus.state || '').toLowerCase();
+                                  const ss = (groupStatus.status || '').toLowerCase();
+                                  const running = s.includes('running') || ss.includes('up');
+                                  return (
+                                    <>
+                                      {running && (
+                                        <DropdownMenuItem onClick={async ()=>{
+                                          const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                                          setOpId(id); setOpOpen(true); setOpTitle(`停止 ${first.name}`); setLogs([]);
+                                          toast.info(`已触发停止：${first.name}`);
+                                          try {
+                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
+                                            if (!r.ok) throw new Error(await r.text());
+                                            toast.success(`停止请求已受理：${first.name}`);
+                                            qc.invalidateQueries({ queryKey: ['containers'] });
+                                          } catch (e: any) {
+                                            toast.error(`停止触发失败：${first.name} - ${e?.message || '未知错误'}`);
+                                          }
+                                        }}>停止容器</DropdownMenuItem>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                           </>
                         )}
                         <DropdownMenuItem onClick={async ()=>{
@@ -492,110 +570,147 @@ export default function ContainersSection() {
                           await fetch('http://localhost:3001/api/v1/containers/check-updates', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
                           qc.invalidateQueries({ queryKey: ['containers'] });
                         }}>检查更新</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                  {expandedGroup === key && (
+                    <TableRow>
+                      <TableCell colSpan={isCompose ? 4 : 5}>
+                        <div className="rounded border p-4">
+                          <div className="mb-3 font-medium">
+                            容器详情 - {isCompose ? (first.composeFolderName || first.composeProject) : first.name}
+                          </div>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>状态</TableHead>
+                                <TableHead>名称</TableHead>
+                                <TableHead>镜像</TableHead>
+                                <TableHead>版本</TableHead>
+                                {!isCompose && <TableHead className="text-right">操作</TableHead>}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {items.map(i => {
+                                const containerStatusBadge = getContainerStatusBadge(i.state, i.status);
+                                return (
+                                  <TableRow key={i.id}>
+                                    <TableCell>
+                                      <Badge variant={containerStatusBadge.variant} className={`text-white ${containerStatusBadge.color}`}>
+                                        {containerStatusBadge.text}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="font-medium">{i.name}</div>
+                                      {i.updateAvailable ? (
+                                        <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                                          <Badge className="bg-amber-500 text-black hover:bg-amber-500">可更新</Badge>
+                                        </div>
+                                      ) : null}
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">{i.imageName}</TableCell>
+                                    <TableCell>
+                                      <Badge variant="secondary">{i.imageTag || 'latest'}</Badge>
+                                    </TableCell>
+                                    {!isCompose && (
+                                      <TableCell className="text-right">
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button variant="ghost" size="sm">操作</Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={async ()=>{
+                                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                                              setOpId(id); setOpOpen(true); setOpTitle(`更新 ${i.name}`); setLogs([]);
+                                              toast.info(`已触发更新：${i.name}`);
+                                              try {
+                                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
+                                                if (!r.ok) throw new Error(await r.text());
+                                                toast.success(`更新请求已受理：${i.name}`);
+                                                qc.invalidateQueries({ queryKey: ['containers'] });
+                                              } catch (e: any) {
+                                                toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
+                                              }
+                                            }}>更新</DropdownMenuItem>
+                                            {(() => {
+                                              const s = (groupStatus.state || '').toLowerCase();
+                                              const ss = (groupStatus.status || '').toLowerCase();
+                                              const running = s.includes('running') || ss.includes('up');
+                                              return (
+                                                <>
+                                                  {!running && (
+                                                    <DropdownMenuItem onClick={async ()=>{
+                                                      const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                                                      setOpId(id); setOpOpen(true); setOpTitle(`启动 ${i.name}`); setLogs([]);
+                                                      toast.info(`已触发启动：${i.name}`);
+                                                      try {
+                                                        const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
+                                                        if (!r.ok) throw new Error(await r.text());
+                                                        toast.success(`启动请求已受理：${i.name}`);
+                                                        qc.invalidateQueries({ queryKey: ['containers'] });
+                                                      } catch (e: any) {
+                                                        toast.error(`启动触发失败：${i.name} - ${e?.message || '未知错误'}`);
+                                                      }
+                                                    }}>启动</DropdownMenuItem>
+                                                  )}
+                                                </>
+                                              );
+                                            })()}
+                                            <DropdownMenuItem onClick={async ()=>{
+                                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                                              setOpId(id); setOpOpen(true); setOpTitle(`重启 ${i.name}`); setLogs([]);
+                                              toast.info(`已触发重启：${i.name}`);
+                                              try {
+                                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
+                                                if (!r.ok) throw new Error(await r.text());
+                                                toast.success(`重启请求已受理：${i.name}`);
+                                              } catch (e: any) {
+                                                toast.error(`重启触发失败：${i.name} - ${e?.message || '未知错误'}`);
+                                              }
+                                            }}>重启</DropdownMenuItem>
+                                            {(() => {
+                                              const s = (groupStatus.state || '').toLowerCase();
+                                              const ss = (groupStatus.status || '').toLowerCase();
+                                              const running = s.includes('running') || ss.includes('up');
+                                              return (
+                                                <>
+                                                  {running && (
+                                                    <DropdownMenuItem onClick={async ()=>{
+                                                      const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                                                      setOpId(id); setOpOpen(true); setOpTitle(`停止 ${i.name}`); setLogs([]);
+                                                      toast.info(`已触发停止：${i.name}`);
+                                                      try {
+                                                        const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
+                                                        if (!r.ok) throw new Error(await r.text());
+                                                        toast.success(`停止请求已受理：${i.name}`);
+                                                        qc.invalidateQueries({ queryKey: ['containers'] });
+                                                      } catch (e: any) {
+                                                        toast.error(`停止触发失败：${i.name} - ${e?.message || '未知错误'}`);
+                                                      }
+                                                    }}>停止</DropdownMenuItem>
+                                                  )}
+                                                </>
+                                              );
+                                            })()}
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </TableCell>
+                                    )}
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
               );
             })}
           </TableBody>
         </Table>
-        
-        {/* 展开的容器详情 */}
-        {expandedGroup && (() => {
-          const groupData = Object.entries(
-            (listQuery.data?.items || []).reduce((acc, item) => {
-              const composeKey = item.isComposeManaged ? (item.composeProject || 'unknown') : `CLI::{${item.name}}`;
-              const groupKey = `${item.hostId}::${composeKey}`;
-              (acc[groupKey] ||= []).push(item);
-              return acc;
-            }, {} as Record<string, ContainerItem[]>)
-          ).find(([key]) => key === expandedGroup);
-          
-          if (!groupData) return null;
-          
-          const [, items] = groupData;
-          const first = items[0];
-          const isCompose = Boolean(first.isComposeManaged);
-          
-          return (
-            <div className="mt-4 rounded border p-4">
-              <div className="mb-3 font-medium">
-                容器详情 - {isCompose ? (first.composeFolderName || first.composeProject) : first.name}
-              </div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>状态</TableHead>
-                    <TableHead>名称</TableHead>
-                    <TableHead>镜像</TableHead>
-                    {!isCompose && <TableHead className="text-right">操作</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {items.map(i => {
-                    const containerStatusBadge = getContainerStatusBadge(i.state, i.status);
-                    return (
-                      <TableRow key={i.id}>
-                        <TableCell>
-                          <Badge variant={containerStatusBadge.variant} className={`text-white ${containerStatusBadge.color}`}>
-                            {containerStatusBadge.text}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{i.name}</div>
-                          <div className="mt-1 flex flex-wrap gap-1 text-xs">
-                            <Badge variant="secondary">{i.imageTag || 'latest'}</Badge>
-                            {i.updateAvailable ? (
-                              <Badge className="bg-amber-500 text-black hover:bg-amber-500">可更新</Badge>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                      <TableCell className="text-muted-foreground">{i.imageName}</TableCell>
-                      {!isCompose && (
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm">操作</Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={async ()=>{
-                                const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                setOpId(id); setOpOpen(true); setOpTitle(`更新 ${i.name}`); setLogs([]);
-                                toast.info(`已触发更新：${i.name}`);
-                                try {
-                                  const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
-                                  if (!r.ok) throw new Error(await r.text());
-                                  toast.success(`更新请求已受理：${i.name}`);
-                                  qc.invalidateQueries({ queryKey: ['containers'] });
-                                } catch (e: any) {
-                                  toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
-                                }
-                              }}>更新</DropdownMenuItem>
-                              <DropdownMenuItem onClick={async ()=>{
-                                const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                setOpId(id); setOpOpen(true); setOpTitle(`重启 ${i.name}`); setLogs([]);
-                                toast.info(`已触发重启：${i.name}`);
-                                try {
-                                  const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
-                                  if (!r.ok) throw new Error(await r.text());
-                                  toast.success(`重启请求已受理：${i.name}`);
-                                } catch (e: any) {
-                                  toast.error(`重启触发失败：${i.name} - ${e?.message || '未知错误'}`);
-                                }
-                              }}>重启</DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          );
-        })()}
       </CardContent>
       <Dialog open={opOpen} onOpenChange={(o)=>{ setOpOpen(o); if(!o){ setLogs([]); setOpId(null); } }}>
         <DialogContent className="max-w-3xl">

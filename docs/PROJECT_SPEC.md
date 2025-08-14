@@ -63,7 +63,10 @@
      - CLI 容器：由 `docker inspect` 重建近似 `docker run` 的“用户输入部分”（端口/卷/env/重启策略等）
      - Compose 容器：读取容器标签识别 `project/service/working_dir/config_files`，并通过 `docker compose config` 展示有效配置
    - 操作：
-     - 重启容器：CLI 用 `docker restart`；Compose 用 `docker compose restart <service>`
+     - 启动/停止容器：
+       - CLI：`docker start <name|id>` / `docker stop <name|id>`
+       - Compose：`docker compose start <service>` / `docker compose stop <service>`
+     - 重启容器：CLI 用 `docker restart`；Compose 用 `docker compose restart <service>` 或 `cd <working_dir> && docker compose down && docker compose up -d`
      - 更新容器（默认先备份旧容器，失败自动回滚）
        - Compose：`docker compose pull <service>` → `docker compose up -d --no-deps <service>`
        - CLI：`docker pull` → `docker stop && docker rename <name> <name>_bk_<ts>` → 以重建参数 `docker run ...` → 健康检查通过后清理备份；失败自动回滚

@@ -21,8 +21,10 @@ description: 容器管理子系统（发现、版本检查、启动参数/Compos
   - `POST /api/v1/containers/discover`
   - `POST /api/v1/containers/check-updates`
   - `POST /api/v1/containers/:id/update`
+  - `POST /api/v1/containers/:id/start`
+  - `POST /api/v1/containers/:id/stop`
   - `POST /api/v1/containers/:id/restart`
-  - `POST /api/v1/containers/compose/operate`（`op=down|pull|up|restart`）
+  - `POST /api/v1/containers/compose/operate`（`op=down|pull|up|restart|start|stop`）
   - `POST /api/v1/containers/refresh-status`
   - `POST /api/v1/containers/cleanup-duplicates`
   - `POST /api/v1/containers/purge`

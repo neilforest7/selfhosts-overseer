@@ -344,6 +344,60 @@ export class ContainersService {
     return r;
   }
 
+  async startOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
+    const c = await this.prisma.container.findUnique({ where: { id: containerId } });
+    if (!c) return { ok: false, reason: 'not found' };
+    const hostCred = await this.getHostCredById(c.hostId);
+    if (!hostCred) return { ok: false, reason: 'no host' };
+
+    if (c.isComposeManaged && c.composeWorkingDir && c.composeService) {
+      const cmd = `cd ${c.composeWorkingDir} && docker compose start ${c.composeService}`;
+      const res = await this.docker.execShell(hostCred as any, cmd, 300);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${res.code}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
+      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
+      const r = { ok: res.code === 0 } as const;
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+
+    const res = await this.docker.exec(hostCred as any, ['start', c.containerId], 120);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}\n退出码: ${res.code}`);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
+    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
+    const r = { ok: res.code === 0 } as const;
+    if (opId) this.gateway.broadcast(opId, 'end', r);
+    return r;
+  }
+
+  async stopOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
+    const c = await this.prisma.container.findUnique({ where: { id: containerId } });
+    if (!c) return { ok: false, reason: 'not found' };
+    const hostCred = await this.getHostCredById(c.hostId);
+    if (!hostCred) return { ok: false, reason: 'no host' };
+
+    if (c.isComposeManaged && c.composeWorkingDir && c.composeService) {
+      const cmd = `cd ${c.composeWorkingDir} && docker compose stop ${c.composeService}`;
+      const res = await this.docker.execShell(hostCred as any, cmd, 300);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${res.code}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
+      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
+      const r = { ok: res.code === 0 } as const;
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+
+    const res = await this.docker.exec(hostCred as any, ['stop', c.containerId], 120);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}\n退出码: ${res.code}`);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
+    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
+    const r = { ok: res.code === 0 } as const;
+    if (opId) this.gateway.broadcast(opId, 'end', r);
+    return r;
+  }
+
   private async getHostCredById(hostId: string): Promise<{ id: string; address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string } | null> {
     const h = await this.prisma.host.findUnique({ where: { id: hostId } });
     if (!h) return null;
@@ -465,7 +519,7 @@ export class ContainersService {
   }
 
   // 组级 Compose 操作：在 composeWorkingDir 中执行 docker compose *
-  async composeOperate(hostId: string, project: string, workingDir: string, op: 'down'|'pull'|'up'|'restart', opId?: string): Promise<{ ok: boolean; code: number }> {
+  async composeOperate(hostId: string, project: string, workingDir: string, op: 'down'|'pull'|'up'|'restart'|'start'|'stop', opId?: string): Promise<{ ok: boolean; code: number }> {
     const h = await this.prisma.host.findUnique({ where: { id: hostId } });
     if (!h) return { ok: false, code: 1 };
     const cmd = (() => {
@@ -474,6 +528,8 @@ export class ContainersService {
         case 'pull': return `cd ${workingDir} && docker compose pull`;
         case 'up': return `cd ${workingDir} && docker compose up -d`;
         case 'restart': return `cd ${workingDir} && docker compose restart`;
+        case 'start': return `cd ${workingDir} && docker compose start`;
+        case 'stop': return `cd ${workingDir} && docker compose stop`;
       }
     })();
     // 附带解密后的凭据，避免 SSH 255
