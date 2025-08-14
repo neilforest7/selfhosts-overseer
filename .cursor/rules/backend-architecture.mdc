@@ -1,0 +1,25 @@
+---
+globs: apps/server/**/*.ts
+description: NestJS 分层架构、模块边界、任务队列与定时、SSH 执行器与 WebSocket 流、配置模块
+---
+### 后端（NestJS）架构与约定
+
+- 分层：Controller（IO 边界）→ Service（业务）→ Repository（数据访问）。
+- 配置模块：集中提供并校验并发阈值、超时、计划任务开关/频率、保留策略等。
+- 任务与并发：BullMQ 队列驱动；任务可重入、可超时、可重试；全局并发默认 50，可在设置中调整。
+- 实时回显：任务输出通过 WebSocket 推送，路径形如 `/api/v1/tasks/{taskRunId}/stream`。
+- SSH 执行器：统一封装系统 `ssh/scp/rsync` 调用，支持并发、超时、回显流、退出码；业务层禁止直接拼接命令串。
+- 数据访问：Prisma + PostgreSQL；核心模型参见 [docs/PROJECT_SPEC.md](mdc:docs/PROJECT_SPEC.md)。
+- 定时任务：
+  - 容器发现：每 10 分钟扫描并刷新缓存/数据库。
+  - 容器版本检查：每日 00:45。
+  - NPM 路由同步：默认每 10 分钟（详见反向代理拓扑规则）。
+- 模块边界（建议）：
+  - `HostsModule`（资产/连通性/SSH 指纹引导）
+  - `TasksModule`（并发命令/脚本执行与回显）
+  - `MetricsLogsModule`（VM/Loki 代理查询）
+  - `ContainersModule`（发现/更新/重启/Compose 有效配置）
+  - `ReverseProxyModule`（NPM 只读同步与拓扑）
+  - `ComposeModule`（项目与服务视图/更新）
+  - `SettingsModule`（全局设置读写与范围校验）
+

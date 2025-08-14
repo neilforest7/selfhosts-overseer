@@ -1,0 +1,20 @@
+---
+alwaysApply: false
+description: Grafana 仪表盘预置与路径、数据源、清单
+---
+### Grafana 仪表盘预置
+
+- 路径：
+  - Dashboards：`infra/observability/grafana/dashboards/*.json`
+  - Provisioning：`infra/observability/grafana/provisioning/dashboards/*.yaml`
+  - Datasources：`infra/observability/grafana/provisioning/datasources/vm_loki.yml`
+
+- 预置清单：
+  - System Overview（Node Exporter 主机总览）
+  - Host Detail（主机明细）
+  - Container Overview（cAdvisor 容器总览）
+  - Container Detail（cAdvisor 容器明细）
+  - Logs Explorer（Loki 日志浏览）
+
+- 说明：cAdvisor 默认关闭，但相关仪表已预置，启用 cAdvisor 后即可出图。
+

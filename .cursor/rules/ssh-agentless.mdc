@@ -1,0 +1,16 @@
+---
+alwaysApply: false
+description: Agentless SSH/分发执行器约定（StrictHostKeyChecking、并发/超时、回显流、文件分发）
+---
+### Agentless SSH 执行约定
+
+- 执行工具：系统 `ssh/scp/rsync`，启用 `StrictHostKeyChecking=yes`。
+- 指纹管理：首次接入前通过导入已知主机指纹完成绑定；执行器不自动放宽校验。
+- 并发与超时：统一由配置模块提供（默认并发 30、超时 100s），任务层严格传递。
+- 输出与编码：统一收集 `stdout/stderr` 并以 UTF-8 处理；实时回显通过 WebSocket 流发送。
+  - WebSocket 网关：基于 Socket.IO，客户端发送 `joinTask` 事件（`{ taskId }`）后订阅频道 `task:{taskId}`，接收 `data|stderr|end|error` 事件。
+- 文件分发：`rsync -az --partial --inplace`，支持限速与校验，失败重试 1 次（默认）。
+- 路由与代理：可选 `ProxyJump`；如需，按 Host 维度设置。
+
+参考：[docs/PROJECT_SPEC.md](mdc:docs/PROJECT_SPEC.md)
+

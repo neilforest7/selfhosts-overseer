@@ -1,0 +1,13 @@
+---
+alwaysApply: false
+description: n8n 告警联动与回调约定（Webhook 输入、回调执行、最小安全）
+---
+### n8n 集成约定
+
+- 告警输入：Prometheus/Loki 告警以 HTTP/Webhook 发送到 n8n；n8n 基于事件负载选择修复流程。
+- 回调执行：n8n 使用控制平面的公开 API 触发 `TaskRun`（无审批流）。
+- 安全最小化：仅单用户 Token；最小必要的审计（任务发起/目标/结果）。
+- 典型流程：告警 → n8n → 回调控制平面（执行诊断/修复脚本）→ 结果回传/记录。
+
+参考：[docs/PROJECT_SPEC.md](mdc:docs/PROJECT_SPEC.md)
+

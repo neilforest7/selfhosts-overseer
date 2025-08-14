@@ -1,0 +1,50 @@
+---
+alwaysApply: false
+description: 前后端与自动化所用 API 概览与约定路径
+---
+### API 概览（对前端、n8n、AI Agent）
+
+- Hosts
+  - GET `/api/v1/hosts`
+  - POST `/api/v1/hosts`
+  - PATCH `/api/v1/hosts/:id`
+  - DELETE `/api/v1/hosts/:id`
+  - POST `/api/v1/hosts/:id/test-connection`
+
+- 执行（任务）
+  - GET `/api/v1/tasks`（任务列表）
+  - POST `/api/v1/tasks/exec`（并发执行命令/脚本）
+  - GET `/api/v1/tasks/:id`（任务详情）
+  - GET `/api/v1/tasks/:id/logs`（增量日志，cursor/limit）
+  - GET `/api/v1/tasks/:id/logs/export?format=json|ndjson`
+  - WebSocket 回显：Socket.IO，客户端发送事件 `joinTask`，参数 `{ taskId }` 后订阅频道 `task:{taskId}`
+
+- 日志（本地/系统/容器）
+  - GET `/api/v1/logs/application?limit=`
+  - GET `/api/v1/logs/system?lines=`
+  - GET `/api/v1/logs/docker?container=&lines=`
+
+- 容器
+  - GET `/api/v1/containers?hostId=&hostName=&q=&updateAvailable=&composeManaged=`
+  - POST `/api/v1/containers/discover`
+  - POST `/api/v1/containers/check-updates`
+  - POST `/api/v1/containers/:id/update`
+  - POST `/api/v1/containers/:id/restart`
+  - POST `/api/v1/containers/compose/operate`（`op=down|pull|up|restart`）
+  - POST `/api/v1/containers/refresh-status`
+  - POST `/api/v1/containers/cleanup-duplicates`
+  - POST `/api/v1/containers/purge`
+
+- 反向代理
+  - GET `/api/v1/reverse-proxy/routes?hostId=`
+  - GET `/api/v1/certificates`
+
+- 设置
+  - GET `/api/v1/settings`
+  - PUT `/api/v1/settings`
+
+- 健康检查
+  - GET `/api/v1/health`
+
+参考：[docs/PROJECT_SPEC.md](mdc:docs/PROJECT_SPEC.md)
+

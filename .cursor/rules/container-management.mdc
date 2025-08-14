@@ -1,0 +1,29 @@
+---
+alwaysApply: false
+description: 容器管理子系统（发现、版本检查、启动参数/Compose、更新/重启、计划任务）
+---
+### 容器管理约定
+
+- 发现与元数据：定期执行 `docker ps -a` 与 `docker inspect`，归档状态、端口、挂载、网络、镜像与时间信息；识别 Compose 标签。
+- 启动参数：
+  - CLI 容器：由 `inspect` 重建接近用户 `docker run` 的参数（忽略 Docker 默认值）。
+  - Compose：读取 `project/service/working_dir/config_files`，通过 `docker compose config` 展示有效配置。
+- 版本检查：
+  - 默认每日 00:45 执行（可在前端设置中修改）。因暂不支持私有仓库，使用 `docker pull <image:tag>` 的输出判断是否可更新。
+- 更新与重启：
+  - 重启：CLI → `docker restart`；Compose → `docker compose restart <service>`。
+  - 更新：Compose 优先（`compose pull` → `compose up -d --no-deps`）；CLI 容器采用“先备份旧容器，失败自动回滚”的策略。
+- 范围限制：不提供“按标签批量更新”的能力（需求明确不启用）。
+
+#### 接口对齐（与后端实现）
+- 列表查询参数：`hostId`、`hostName`、`q`、`updateAvailable`、`composeManaged`（注意字段名）。
+- 主要操作：
+  - `POST /api/v1/containers/discover`
+  - `POST /api/v1/containers/check-updates`
+  - `POST /api/v1/containers/:id/update`
+  - `POST /api/v1/containers/:id/restart`
+  - `POST /api/v1/containers/compose/operate`（`op=down|pull|up|restart`）
+  - `POST /api/v1/containers/refresh-status`
+  - `POST /api/v1/containers/cleanup-duplicates`
+  - `POST /api/v1/containers/purge`
+

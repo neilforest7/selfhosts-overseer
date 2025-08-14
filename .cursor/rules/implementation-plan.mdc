@@ -1,0 +1,34 @@
+---
+alwaysApply: false
+description: 分阶段实施步骤（M0/M1/M2）与优先级清单
+---
+### 实施步骤与里程碑
+
+- M0 最小可用（优先落地）
+  1. Monorepo 骨架：`apps/web`、`apps/server`、`packages/shared`、`infra/observability`、`docs`
+  2. 后端基础：NestJS 项目初始化、`SettingsModule`、`HostsModule`、`TasksModule`、PostgreSQL/Prisma 接入
+  3. SSH 执行器与回显流：并发/超时/日志收集，WS 推送
+  4. 观测一键安装：Node Exporter/Promtail 安装脚本；VM/Loki/Grafana Compose，预置数据源/面板
+  5. 前端基础：shadcn/ui 脚手架、资产录入与连通性检查、一次命令执行与实时回显
+  6. 容器发现与元数据：列表、详情、重启、镜像拉取、Compose 有效配置展示
+
+- M1 自动化与更新
+  7. 告警 → n8n Webhook，n8n 回调触发 `TaskRun`
+  8. 容器更新（Compose/CLI），默认“先备份旧容器，失败自动回滚”
+  9. 定时更新检查（每日一次，前端可配置）
+
+- M2 强化
+  10. 可选轻量 Agent（Go）出站长连接与并发优化
+  11. cAdvisor 一键启用与 Grafana 容器面板
+  12. 网络拓扑：NPM 路由同步、拓扑图展示与证书到期报表
+
+### 验收清单（节选）
+
+- 设置页：并发阈值/超时/计划任务可读写，服务端范围校验生效
+- 任务执行：多主机并发执行可回显；失败可诊断
+- 观测：Grafana 预置面板出图；日志可检索
+- 容器：发现准确、重启/更新可用、Compose 配置可读
+- 拓扑：路由清单与证书到期可视，拓扑图正确映射上游
+
+参考：[docs/PROJECT_SPEC.md](mdc:docs/PROJECT_SPEC.md)
+

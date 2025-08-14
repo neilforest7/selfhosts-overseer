@@ -1,0 +1,28 @@
+---
+globs: apps/web/**/*.ts,apps/web/**/*.tsx
+---
+### shadcn/ui 风格与脚手架约定
+
+- 风格基线：
+  - 使用原生 shadcn/ui Default 风格与默认主题变量；避免品牌化/强定制。
+  - Tailwind 仅保留 shadcn/ui 所需的基础配置与色板（偏好 `zinc`）。
+  - 保持组件的默认半径、阴影、间距与排版，不全局覆写组件样式。
+  - 只能针对布局与容器做最小化样式调整；避免引入额外的 CSS 框架或大规模自定义。
+
+- 组件使用：
+  - 通过官方脚手架添加组件，保持模板结构不改动，必要时通过组合扩展而非修改原组件。
+  - 统一使用 `cn` 工具合并类名；保留 `class-variance-authority (cva)` 模式。
+
+- 脚手架（允许联网获取模板）：
+  - 初始化：`pnpm dlx shadcn-ui@latest init --yes --style default --color zinc --ts`（或等价 `npx`）
+  - 添加组件：`pnpm dlx shadcn-ui@latest add button input dialog dropdown-menu card table form`（按需增量引入）
+  - 不引入第三方 UI 套件替代 shadcn/ui；图标优先 `lucide-react`。
+
+- 主题与令牌：
+  - 保留默认 CSS 变量与 tokens；如需颜色强调，优先使用 shadcn 默认的变量，不新增自定义色板。
+  - 不修改全局 `--radius` 等基础变量，除非经产品确认且对齐全站。
+
+- 目录与文件：
+  - 组件落在 `apps/web/components/ui/*`（遵循 shadcn 约定），不要擅自移动或重命名核心 UI 组件。
+  - 样式文件仅在 `globals.css` 做少量布局类与 CSS 变量定义。
+

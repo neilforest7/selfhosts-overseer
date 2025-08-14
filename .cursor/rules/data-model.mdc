@@ -1,0 +1,42 @@
+---
+alwaysApply: false
+description: 核心数据模型字段清单（用于前后端类型与持久化对齐）
+---
+### 数据模型（核心）
+
+- `Host`
+  - id、name、address、sshUser、port?、tags[]、sshOptions(Json?)
+  - sshAuthMethod('password'|'privateKey')、sshPassword?、sshPrivateKey?、sshPrivateKeyPassphrase?
+  - createdAt、updatedAt
+
+- `TaskRun`
+  - id、status、command、targets[]、stdoutRef?、stderrRef?、startedAt?、finishedAt?、createdAt
+
+- `TaskLog`
+  - id、taskId、ts、stream('stdout'|'stderr')、hostLabel?、content
+
+- `Container`
+  - id、hostId、containerId、name、state?、status?、restartCount?、imageName?、imageTag?、repoDigest?、remoteDigest?
+  - updateAvailable、updateCheckedAt?、createdAt、startedAt?
+  - isComposeManaged、composeProject?、composeService?、composeWorkingDir?
+  - composeGroupKey?、composeFolderName?、composeConfigFiles(Json?)
+  - runCommand?、ports(Json?)、mounts(Json?)、networks(Json?)、labels(Json?)
+
+- `ComposeProject`
+  - id、project、workingDir、configFiles[]、effectiveConfigHash?、lastSyncedAt?
+
+- `ReverseProxyRoute`
+  - id、hostId、provider('npm')、type('http'|'stream'|'redirect')、vpsName?、domain
+  - forwardHost?、forwardPort?、enabled、certificateId?、certExpiresAt?、rawAdvancedConfig?、lastSyncedAt?
+
+- `Certificate`
+  - id、provider、cn、sans[]、issuer?、notBefore?、notAfter?、autoRenew、lastSyncedAt?、createdAt
+
+- `HostNpmConfig`
+  - hostId(id)、enabled、dbType('sqlite'|'mysql')、connectionMode('container-local')、containerName?
+  - sqlitePath（默认 `/data/database.sqlite`）
+  - mysqlUseContainerEnv（从容器 `DB_MYSQL_*` 读取）
+  - updatedAt
+
+参考：[docs/PROJECT_SPEC.md](mdc:docs/PROJECT_SPEC.md)
+

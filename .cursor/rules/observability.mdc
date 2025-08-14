@@ -1,0 +1,28 @@
+---
+alwaysApply: false
+description: 观测栈与保留策略、cAdvisor 可选安装、VictoriaMetrics 与 Loki 使用约定
+---
+### 观测栈约定
+
+- 指标：
+  - Prometheus 抓取各主机 Node Exporter，remote_write 至 VictoriaMetrics。
+  - VictoriaMetrics 保留期 7 天；Prometheus 本地可保留 24h 减少磁盘压力。
+
+- 日志：
+  - Promtail 采集系统与应用日志，写入 Loki，保留 7 天。
+  - 使用 `host`、`service`、`level` 等标签；避免高基数字段导致索引膨胀。
+
+- 可视化：
+  - Grafana 预置主机/系统/容器面板；数据源绑定 VM 与 Loki。
+  - 仪表盘与数据源通过 provisioning 自动加载：
+    - Dashboards：`infra/observability/grafana/dashboards/*.json`
+    - Provisioning：`infra/observability/grafana/provisioning/dashboards/*.yaml`
+    - Datasources：`infra/observability/grafana/provisioning/datasources/vm_loki.yml`
+  - 预置包含 cAdvisor 容器面板；即使 cAdvisor 默认关闭，启用后即可出图。
+
+- 容器级指标（可选）：
+  - cAdvisor 默认关闭；需时通过“一键部署”脚本安装，并在 Grafana 启用相关面板。
+
+- 告警：
+  - Prometheus/Loki 规则触发后以 HTTP/Webhook 上报至 n8n；由 n8n 回调控制平面执行动作。
+

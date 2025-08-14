@@ -1,0 +1,25 @@
+{
+  "name": "selfhost-serv-agent",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/web",
+    "apps/server",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n web,server -c green,blue \"npm --workspace apps/web run dev\" \"npm --workspace apps/server run start:dev\"",
+    "build": "npm --workspace apps/web run build && npm --workspace apps/server run build && npm --workspace packages/shared run build",
+    "start": "npm --workspace apps/server run start"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.10"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
+

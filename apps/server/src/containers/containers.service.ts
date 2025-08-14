@@ -1,0 +1,563 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { DockerService } from './docker.service';
+import { ExecGateway } from '../realtime/exec.gateway';
+import { CryptoService } from '../security/crypto.service';
+
+@Injectable()
+export class ContainersService {
+  private readonly logger = new Logger(ContainersService.name);
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly docker: DockerService,
+    private readonly gateway: ExecGateway,
+    private readonly crypto: CryptoService,
+  ) {}
+
+  async list(params: { hostId?: string; hostName?: string; q?: string; updateAvailable?: boolean | undefined; isComposeManaged?: boolean | undefined }) {
+    const where: any = {};
+    
+    // 支持按主机ID或主机名过滤
+    if (params.hostId) {
+      where.hostId = params.hostId;
+    } else if (params.hostName) {
+      const host = await this.prisma.host.findFirst({ where: { name: params.hostName } });
+      if (host) {
+        where.hostId = host.id;
+      } else {
+        return { items: [] }; // 找不到主机，返回空结果
+      }
+    }
+    
+    if (typeof params.updateAvailable === 'boolean') where.updateAvailable = params.updateAvailable;
+    if (typeof params.isComposeManaged === 'boolean') where.isComposeManaged = params.isComposeManaged;
+    if (params.q) where.OR = [{ name: { contains: params.q } }, { imageName: { contains: params.q } }];
+    
+    const items = await this.prisma.container.findMany({ where, orderBy: { createdAt: 'desc' }, take: 100 });
+    return { items };
+  }
+
+  async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string): Promise<number> {
+    // 1) docker ps -a --format '{{json .}}'
+    const h = await this.prisma.host.findUnique({ where: { id: host.id } });
+    const decPassword = this.crypto?.decryptString((h as any)?.sshPassword ?? null) ?? undefined;
+    const decKey = this.crypto?.decryptString((h as any)?.sshPrivateKey ?? null) ?? undefined;
+    const decPassphrase = this.crypto?.decryptString((h as any)?.sshPrivateKeyPassphrase ?? null) ?? undefined;
+    const hostCred = { ...host, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase } as any;
+    // 使用最基础的docker ps命令，然后手动解析
+    const { code, stdout, stderr, cmd } = await this.docker.exec(hostCred, ['ps', '-a'], 60);
+    if (code !== 0) {
+      this.logger.warn(`docker ps failed on ${host.address}: ${stderr}`);
+      if (opId) this.gateway.broadcast(opId, 'stderr', `[${host.address}] ${cmd}\n退出码: ${code}\n${stderr}`);
+      return 0;
+    }
+    if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${cmd}\n退出码: ${code}`);
+    const lines = stdout.split('\n').filter(Boolean);
+    const briefList: { id: string; name: string; image: string; state?: string; status?: string; restartCount?: number }[] = [];
+    let upserted = 0;
+    // 跳过标题行，解析标准docker ps输出
+    for (const line of lines.slice(1)) {
+      try {
+        // 使用正则表达式解析固定宽度的docker ps输出
+        // 格式: CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS   PORTS   NAMES
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 7) {
+          const containerId = parts[0];
+          const image = parts[1];
+          const name = parts[parts.length - 1]; // NAMES是最后一列
+          
+          // 提取STATUS列（通常在倒数第二或第三列）
+          let status = '';
+          for (let i = 4; i < parts.length - 1; i++) {
+            if (parts[i].includes('Up') || parts[i].includes('Exited') || parts[i].includes('Created')) {
+              status = parts.slice(i, parts.length - 1).join(' ');
+              break;
+            }
+          }
+          
+          if (containerId && name && containerId !== 'CONTAINER') {
+            briefList.push({ 
+              id: containerId.trim(), 
+              name: name.trim(), 
+              image: image.trim(), 
+              state: status.includes('Up') ? 'running' : 'exited',
+              status: status.trim()
+            });
+          }
+        }
+      } catch (e) {
+        // 如果解析失败，尝试简单的空格分割
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 2 && parts[0] !== 'CONTAINER') {
+          briefList.push({ 
+            id: parts[0].trim(), 
+            name: parts[parts.length - 1].trim(), 
+            image: parts[1] || '', 
+            state: 'unknown',
+            status: ''
+          });
+        }
+      }
+    }
+    // 2) docker inspect 进一步采集详细信息
+    const details = await this.docker.inspectContainers(hostCred, briefList.map(b => b.id));
+    const detailById = new Map<string, any>();
+    // 使用完整ID和短ID都作为键，确保能匹配
+    for (const d of details) {
+      if (d?.Id) {
+        detailById.set(d.Id, d);  // 完整ID
+        detailById.set(d.Id.slice(0, 12), d);  // 短ID
+      }
+    }
+    const seenIds = new Set<string>();
+    for (const b of briefList) {
+      const det = detailById.get(b.id) || {};
+      const config = det.Config || {};
+      const hostConfig = det.HostConfig || {};
+      const networkSettings = det.NetworkSettings || {};
+      const state = det.State || {};
+      const createdAt = det.Created ? new Date(det.Created) : undefined;
+      const startedAt = state.StartedAt ? new Date(state.StartedAt) : undefined;
+      const ports = Object.entries((networkSettings.Ports || {})).map(([k, v]: any) => ({ key: k, bindings: v }));
+      const mounts = Array.isArray(det.Mounts) ? det.Mounts : [];
+      const networks = networkSettings.Networks || {};
+      const labels = config.Labels || {};
+      const imageRef = config.Image || b.image || '';
+      const { imageName, imageTag } = await this.docker.resolveImageNameTag(hostCred, imageRef);
+      const repoDigests = imageRef ? await this.docker.inspectImageRepoDigests(hostCred, imageRef) : [];
+      const fullId: string = det.Id || b.id;
+      const shortId: string = fullId.slice(0, 12);
+      if (fullId) { seenIds.add(fullId); }
+      if (shortId) { seenIds.add(shortId); }
+      if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] 发现容器 ${b.name} (${shortId}) - ${(imageName || '')}:${(imageTag || '')}`);
+
+      // 统一短ID与完整ID，修复历史重复
+      const existing = await this.prisma.container.findFirst({ where: { hostId: host.id, containerId: { in: [fullId, shortId, b.id] } } });
+      const composeWorkingDir = (labels as any)['com.docker.compose.project.working_dir'] || null;
+      const composeProject = (labels as any)['com.docker.compose.project'] || null;
+      const composeService = (labels as any)['com.docker.compose.service'] || null;
+      
+
+      const composeFolderName = (() => {
+        const wd = composeWorkingDir || '';
+        const parts = wd.split(/[/\\]+/).filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : (composeProject || null);
+      })();
+      // 统一以 composeProject 作为分组键，避免 working_dir 差异造成分裂
+      const composeGroupKey = composeProject ? `${host.id}::compose::${composeProject}` : null;
+
+      const commonData = {
+        name: b.name,
+        state: b.state ?? state.Status,
+        status: b.status ?? state.Status,
+        imageName,
+        imageTag,
+        repoDigest: Array.isArray(repoDigests) && repoDigests.length ? String(repoDigests[0]) : null,
+        startedAt: startedAt ?? undefined,
+        ports,
+        mounts,
+        networks,
+        labels,
+        isComposeManaged: Boolean(composeProject && composeService),
+        composeProject,
+        composeService,
+        composeWorkingDir,
+        composeFolderName,
+        composeGroupKey,
+        composeConfigFiles: (labels as any)['com.docker.compose.project.config_files'] ? String((labels as any)['com.docker.compose.project.config_files']).split(',') : null,
+        runCommand: undefined as string | undefined
+      };
+
+      if (existing) {
+        await this.prisma.container.update({ where: { id: existing.id }, data: { containerId: fullId, ...commonData } as any });
+        await this.prisma.container.deleteMany({ where: { hostId: host.id, containerId: { in: [b.id, shortId] }, NOT: { id: existing.id } } });
+      } else {
+        await this.prisma.container.upsert({
+          where: { hostId_containerId: { hostId: host.id, containerId: fullId } },
+          update: commonData as any,
+          create: ({ hostId: host.id, containerId: fullId, ...commonData } as any)
+        });
+      }
+      upserted++;
+    }
+    // 对于 CLI 容器：若在 docker ps -a 中未出现，则标记为 stopped
+    try {
+      const missingCli = await this.prisma.container.findMany({
+        where: { hostId: host.id, isComposeManaged: false, containerId: { notIn: Array.from(seenIds) } },
+        select: { id: true }
+      });
+      if (missingCli.length) {
+        await this.prisma.container.updateMany({
+          where: { id: { in: missingCli.map(m => m.id) } },
+          data: { state: 'stopped', status: 'stopped', startedAt: null as any }
+        });
+      }
+    } catch {}
+    return upserted;
+  }
+
+  async discover(bodyHost?: { id?: string; address?: string; sshUser?: string; port?: number } | { id: 'all' }, opId?: string): Promise<{ upserted: number }> {
+    // 支持：传入完整主机、hostId 或 'all'；若 bodyHost 缺失则视为 all
+    if (bodyHost && (bodyHost as any).address && (bodyHost as any).sshUser && (bodyHost as any).id) {
+      const n = await this.discoverOnHost(bodyHost as any, opId);
+      const r = { upserted: n };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+    const hostId = bodyHost ? ((bodyHost as any).id as string | undefined) : undefined;
+    if (!hostId || hostId === 'all') {
+      const hosts = await this.prisma.host.findMany({ select: { id: true, address: true, sshUser: true, port: true }, take: 1000 });
+      let total = 0;
+      for (const h of hosts) total += await this.discoverOnHost({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined }, opId);
+      // 自动触发一次重复清理（保护性）
+      try { await this.cleanupDuplicates('all', opId); } catch {}
+      const r = { upserted: total };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    } else {
+      const h = await this.prisma.host.findUnique({ where: { id: hostId }, select: { id: true, address: true, sshUser: true, port: true } });
+      if (!h) {
+        const r = { upserted: 0 };
+        if (opId) this.gateway.broadcast(opId, 'end', r);
+        return r;
+      }
+      const n = await this.discoverOnHost({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined }, opId);
+      try { await this.cleanupDuplicates(h.id, opId); } catch {}
+      const r = { upserted: n };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+  }
+
+  async checkUpdates(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string): Promise<{ updated: number }> {
+    const containers = await this.prisma.container.findMany({ where: { hostId: host.id, imageName: { not: null } }, take: 200 });
+    let marked = 0;
+    for (const c of containers) {
+      const imageRef = c.imageTag ? `${c.imageName}:${c.imageTag}` : c.imageName || '';
+      if (!imageRef) continue;
+      if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] docker pull ${imageRef}`);
+      const pullRes = await this.docker.exec(host, ['pull', imageRef], 300);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${pullRes.cmd}\n退出码: ${pullRes.code}`);
+      const digests = await this.docker.inspectImageRepoDigests(host, imageRef);
+      const remote = digests[0] || null;
+      const updateAvailable = !!remote && remote !== c.repoDigest;
+      await this.prisma.container.update({ where: { id: c.id }, data: { remoteDigest: remote, updateAvailable, updateCheckedAt: new Date() } });
+      if (updateAvailable) marked++;
+    }
+    return { updated: marked };
+  }
+
+  async checkUpdatesAny(bodyHost: { id?: string; address?: string; sshUser?: string; port?: number } | { id: 'all' }, opId?: string): Promise<{ updated: number }> {
+    if ((bodyHost as any).address && (bodyHost as any).sshUser && (bodyHost as any).id) {
+      const r = await this.checkUpdates(bodyHost as any, opId);
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+    const hostId = (bodyHost as any).id as string | undefined;
+    if (!hostId || hostId === 'all') {
+      const hosts = await this.prisma.host.findMany({ select: { id: true, address: true, sshUser: true, port: true }, take: 1000 });
+      let total = 0;
+      for (const h of hosts) {
+        const res = await this.checkUpdates({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined }, opId);
+        total += res.updated;
+      }
+      const r = { updated: total };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    } else {
+      const h = await this.prisma.host.findUnique({ where: { id: hostId }, select: { id: true, address: true, sshUser: true, port: true } });
+      if (!h) {
+        const r = { updated: 0 };
+        if (opId) this.gateway.broadcast(opId, 'end', r);
+        return r;
+      }
+      const r = await this.checkUpdates({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined }, opId);
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+  }
+
+  async updateOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, imageRef?: string, opId?: string) {
+    const c = await this.prisma.container.findUnique({ where: { id: containerId } });
+    if (!c) return { ok: false, reason: 'not found' };
+    const ref = imageRef || (c.imageTag ? `${c.imageName}:${c.imageTag}` : c.imageName);
+    if (!ref) return { ok: false, reason: 'no image' };
+
+    // 使用解密后的主机凭据（用于 execShell / docker compose）
+    const hostCred = await this.getHostCredById(c.hostId);
+    if (!hostCred) return { ok: false, reason: 'no host' };
+
+    // 如果该容器由 Compose 管理，则走 Compose 分支，避免 CLI 停/删/重建
+    if (c.isComposeManaged && c.composeWorkingDir && c.composeService) {
+      // 先拉取镜像，再对目标服务 up --no-deps
+      const pullCmd = `cd ${c.composeWorkingDir} && docker compose pull ${c.composeService}`;
+      const pullRes = await this.docker.execShell(hostCred as any, pullCmd, 600);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${pullRes.cmd}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${pullRes.code}`);
+
+      const upCmd = `cd ${c.composeWorkingDir} && docker compose up -d --no-deps ${c.composeService}`;
+      const upRes = await this.docker.execShell(hostCred as any, upCmd, 600);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${upRes.cmd}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${upRes.code}`);
+
+      await this.prisma.container.update({ where: { id: c.id }, data: { updateAvailable: false } });
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
+      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
+      const r = { ok: upRes.code === 0 } as const;
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+
+    // CLI 容器分支（保持现有行为）
+    const pullRes = await this.docker.exec(hostCred as any, ['pull', ref], 300);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${pullRes.cmd}\n退出码: ${pullRes.code}`);
+    const stopRes = await this.docker.exec(hostCred as any, ['stop', c.containerId], 120);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${stopRes.cmd}\n退出码: ${stopRes.code}`);
+    const rmRes = await this.docker.exec(hostCred as any, ['rm', c.containerId], 120);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${rmRes.cmd}\n退出码: ${rmRes.code}`);
+    // NOTE: 真实场景应保存 runCommand 或 compose up；此处简化
+    if (c.runCommand) {
+      const recreateRes = await this.docker.exec(hostCred as any, [c.runCommand], 300);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${recreateRes.cmd}\n退出码: ${recreateRes.code}`);
+    }
+    await this.prisma.container.update({ where: { id: c.id }, data: { updateAvailable: false } });
+    // 仅刷新本容器状态
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
+    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
+    const r = { ok: true };
+    if (opId) this.gateway.broadcast(opId, 'end', r);
+    return r;
+  }
+
+  async restartOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
+    const c = await this.prisma.container.findUnique({ where: { id: containerId } });
+    if (!c) return { ok: false, reason: 'not found' };
+    const host = 'address' in hostOrRef ? hostOrRef as any : await this.prisma.host.findUnique({ where: { id: (hostOrRef as any).id } }) as any;
+    if (!host) return { ok: false, reason: 'no host' };
+    const restartRes = await this.docker.exec(host, ['restart', c.containerId], 120);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${restartRes.cmd}\n退出码: ${restartRes.code}`);
+    // 仅刷新本容器状态
+    if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] 正在刷新容器状态...`);
+    try { await this.refreshStatus(host.id, { containerIds: [c.id] }, opId); } catch {}
+    const r = { ok: true };
+    if (opId) this.gateway.broadcast(opId, 'end', r);
+    return r;
+  }
+
+  private async getHostCredById(hostId: string): Promise<{ id: string; address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string } | null> {
+    const h = await this.prisma.host.findUnique({ where: { id: hostId } });
+    if (!h) return null;
+    const decPassword = this.crypto?.decryptString((h as any)?.sshPassword ?? null) ?? undefined;
+    const decKey = this.crypto?.decryptString((h as any)?.sshPrivateKey ?? null) ?? undefined;
+    const decPassphrase = this.crypto?.decryptString((h as any)?.sshPrivateKeyPassphrase ?? null) ?? undefined;
+    return { id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase };
+  }
+
+  // 仅刷新指定容器（或 compose 项目）状态，避免全量扫描
+  async refreshStatus(hostId: string, options: { containerIds?: string[]; containerNames?: string[]; composeProject?: string }, opId?: string): Promise<{ updated: number; notFound: string[] }> {
+    const hostCred = await this.getHostCredById(hostId);
+    if (!hostCred) return { updated: 0, notFound: [] };
+
+    let targets: { id: string; name: string }[] = [];
+    if (options.composeProject) {
+      // 先用 compose ls 判断项目整体状态
+      try {
+        const ls = await this.docker.composeLs(hostCred);
+        const found = ls.find((x: any) => x?.Name === options.composeProject);
+        if (found && typeof found.Status === 'string') {
+          const statusLower = String(found.Status).toLowerCase();
+          // 如果项目整体状态非 running，则先把该项目下所有 DB 记录标记为 stopped
+          if (!statusLower.includes('running') && !statusLower.includes('up')) {
+            await this.prisma.container.updateMany({ where: { hostId, isComposeManaged: true, composeProject: options.composeProject }, data: { state: 'stopped', status: 'stopped', startedAt: null as any } });
+          }
+        } else {
+          // compose ls 无此项目，视为项目已停止/下线，标记为 stopped
+          await this.prisma.container.updateMany({ where: { hostId, isComposeManaged: true, composeProject: options.composeProject }, data: { state: 'stopped', status: 'stopped', startedAt: null as any } });
+        }
+      } catch {}
+
+      // 优先通过 docker ps 读取该项目现存容器（包含已重建的新ID）
+      const ps = await this.docker.psByComposeProject(hostCred, options.composeProject);
+      for (const j of ps) {
+        const id = j.ID || j.Id || '';
+        const name = j.Names || j.NamesFormatted || j.NamesValue || j.NamesDisplay || j.NamesLabel || j.Names || 'unknown';
+        if (id) targets.push({ id, name });
+      }
+      // 同时补充 DB 已知的容器（可能已停止或被删除）
+      const rows = await this.prisma.container.findMany({ where: { hostId, isComposeManaged: true, composeProject: options.composeProject }, select: { id: true, containerId: true, name: true } });
+      for (const r of rows) targets.push({ id: r.containerId, name: r.name });
+    }
+    if (options.containerIds?.length) {
+      const rows = await this.prisma.container.findMany({ where: { id: { in: options.containerIds } }, select: { id: true, containerId: true, name: true, hostId: true } });
+      targets.push(...rows.filter(r => r.hostId === hostId).map(r => ({ id: r.containerId, name: r.name })));
+    }
+    if (options.containerNames?.length) {
+      const rows = await this.prisma.container.findMany({ where: { hostId, name: { in: options.containerNames } }, select: { id: true, containerId: true, name: true } });
+      targets.push(...rows.map(r => ({ id: r.containerId, name: r.name })));
+    }
+    // 去重
+    const uniqIds = Array.from(new Set(targets.map(t => t.id)));
+    if (!uniqIds.length) return { updated: 0, notFound: [] };
+
+    const details = await this.docker.inspectContainers(hostCred, uniqIds);
+    const byId = new Map<string, any>();
+    const byShortId = new Map<string, any>();
+    const byName = new Map<string, any>();
+    for (const d of details) {
+      if (!d) continue;
+      const id = d.Id as string;
+      const shortId = (id || '').slice(0, 12);
+      const name = typeof d.Name === 'string' ? String(d.Name).replace(/^\//, '') : '';
+      if (id) byId.set(id, d);
+      if (shortId) byShortId.set(shortId, d);
+      if (name) byName.set(name, d);
+    }
+    let updated = 0;
+    const notFound: string[] = [];
+    for (const t of targets) {
+      const det = byId.get(t.id) || byShortId.get(t.id) || byName.get(t.name);
+      if (!det) { notFound.push(t.id); continue; }
+      const state = det.State || {};
+      // 规范化状态：优先用 State.Status；无则根据 Running/Paused/Dead/Epoch 判断
+      let statusStr: string | undefined = state.Status || undefined;
+      if (!statusStr) {
+        const running = Boolean(state.Running);
+        const paused = Boolean(state.Paused);
+        const dead = Boolean(state.Dead);
+        statusStr = running ? 'running' : paused ? 'paused' : dead ? 'dead' : 'stopped';
+      }
+      const startedAt = state.StartedAt ? new Date(state.StartedAt) : null;
+      const restartCount = typeof state.Restarting === 'number' ? state.Restarting : undefined;
+      await this.prisma.container.updateMany({ where: { hostId, OR: [ { containerId: t.id }, { name: t.name } ] }, data: {
+        state: statusStr,
+        status: statusStr,
+        startedAt: startedAt ?? undefined,
+        restartCount: restartCount ?? undefined,
+      }});
+      updated++;
+    }
+    // 未找到的容器视为 stopped（compose down 后短期内无法 inspect）
+    if (notFound.length) {
+      await this.prisma.container.updateMany({
+        where: { hostId, containerId: { in: notFound } },
+        data: { state: 'stopped', status: 'stopped', startedAt: null as any }
+      });
+    }
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 局部刷新完成：更新 ${updated}，未找到并标记为 stopped：${notFound.length}`);
+    return { updated, notFound };
+  }
+
+  // 周期性刷新正在运行中的容器状态，矫正 UI 偶发不一致
+  async refreshRunningStatusAllHosts(): Promise<number> {
+    const running = await this.prisma.container.findMany({ where: { OR: [ { state: { in: ['running', 'restarting', 'starting'] } }, { status: { contains: 'Up' } } ] }, select: { id: true, hostId: true, containerId: true } });
+    const byHost = new Map<string, string[]>();
+    for (const r of running) {
+      const arr = byHost.get(r.hostId) || [];
+      arr.push(r.id);
+      byHost.set(r.hostId, arr);
+    }
+    let total = 0;
+    for (const [hostId, ids] of byHost) {
+      const res = await this.refreshStatus(hostId, { containerIds: ids });
+      total += res.updated;
+    }
+    return total;
+  }
+
+  // 组级 Compose 操作：在 composeWorkingDir 中执行 docker compose *
+  async composeOperate(hostId: string, project: string, workingDir: string, op: 'down'|'pull'|'up'|'restart', opId?: string): Promise<{ ok: boolean; code: number }> {
+    const h = await this.prisma.host.findUnique({ where: { id: hostId } });
+    if (!h) return { ok: false, code: 1 };
+    const cmd = (() => {
+      switch (op) {
+        case 'down': return `cd ${workingDir} && docker compose down`;
+        case 'pull': return `cd ${workingDir} && docker compose pull`;
+        case 'up': return `cd ${workingDir} && docker compose up -d`;
+        case 'restart': return `cd ${workingDir} && docker compose restart`;
+      }
+    })();
+    // 附带解密后的凭据，避免 SSH 255
+    const decPassword = this.crypto?.decryptString((h as any)?.sshPassword ?? null) ?? undefined;
+    const decKey = this.crypto?.decryptString((h as any)?.sshPrivateKey ?? null) ?? undefined;
+    const decPassphrase = this.crypto?.decryptString((h as any)?.sshPrivateKeyPassphrase ?? null) ?? undefined;
+    const res = await this.docker.execShell({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase } as any, cmd, 600);
+    if (opId) {
+      this.gateway.broadcast(opId, 'data', `[${h.address}] ${res.cmd}`);
+      this.gateway.broadcast(opId, 'data', `[${h.address}] 退出码: ${res.code}`);
+      this.gateway.broadcast(opId, 'data', `[${h.address}] 正在刷新 Compose 组状态...`);
+    }
+    try { await this.refreshStatus(h.id, { composeProject: project }, opId); } catch {}
+    const result = { ok: res.code === 0, code: res.code };
+    if (opId) this.gateway.broadcast(opId, 'end', result);
+    return result;
+  }
+
+  async cleanupDuplicates(hostId?: string | 'all', opId?: string): Promise<number> {
+    const hosts = hostId && hostId !== 'all'
+      ? await this.prisma.host.findMany({ where: { id: hostId }, select: { id: true } })
+      : await this.prisma.host.findMany({ select: { id: true } });
+    let removed = 0;
+    for (const h of hosts) {
+      const list = await this.prisma.container.findMany({
+        where: { hostId: h.id },
+        select: { id: true, containerId: true, name: true, createdAt: true, startedAt: true }
+      });
+
+      // 1) 按 containerId 清理：同一 host 下相同 ID 仅保留创建时间最新的一条
+      const byId = new Map<string, { id: string; createdAt: Date }[]>();
+      for (const c of list) {
+        const arr = byId.get(c.containerId) || [];
+        arr.push({ id: c.id, createdAt: c.createdAt });
+        byId.set(c.containerId, arr);
+      }
+      const deleteIds1: string[] = [];
+      for (const [cid, arr] of byId) {
+        if (arr.length <= 1) continue;
+        arr.sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0));
+        const keep = arr[0].id;
+        for (let i = 1; i < arr.length; i++) deleteIds1.push(arr[i].id);
+        if (opId && arr.length > 1) this.gateway.broadcast(opId, 'data', `[${h.id}] 同一ID(${cid}) 保留最新 ${keep}，删除 ${arr.length - 1} 条`);
+      }
+      if (deleteIds1.length) {
+        await this.prisma.container.deleteMany({ where: { id: { in: deleteIds1 } } });
+        removed += deleteIds1.length;
+      }
+
+      // 2) 按名称清理：同一 host 下同名容器仅保留“启动时间/创建时间最新”的一条
+      const remaining = await this.prisma.container.findMany({
+        where: { hostId: h.id },
+        select: { id: true, name: true, createdAt: true, startedAt: true }
+      });
+      const byName = new Map<string, { id: string; createdAt: Date; startedAt: Date | null }[]>();
+      for (const c of remaining) {
+        const arr = byName.get(c.name) || [];
+        arr.push({ id: c.id, createdAt: c.createdAt, startedAt: (c.startedAt as any) || null });
+        byName.set(c.name, arr);
+      }
+      const score = (x: { createdAt: Date; startedAt: Date | null }) => (x.startedAt?.getTime?.() || 0) || (x.createdAt?.getTime?.() || 0);
+      const deleteIds2: string[] = [];
+      for (const [name, arr] of byName) {
+        if (arr.length <= 1) continue;
+        arr.sort((a, b) => score(b) - score(a));
+        const keep = arr[0].id;
+        for (let i = 1; i < arr.length; i++) deleteIds2.push(arr[i].id);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${h.id}] 同名容器(${name}) 保留最新 ${keep}，删除 ${arr.length - 1} 条`);
+      }
+      if (deleteIds2.length) {
+        await this.prisma.container.deleteMany({ where: { id: { in: deleteIds2 } } });
+        removed += deleteIds2.length;
+      }
+    }
+    if (opId) this.gateway.broadcast(opId, 'end', { removed });
+    return removed;
+  }
+
+  async purgeContainers(hostId?: string | 'all', opId?: string): Promise<number> {
+    const where = hostId && hostId !== 'all' ? { hostId } : {};
+    const res = await this.prisma.container.deleteMany({ where } as any);
+    const removed = (res as any)?.count ?? 0;
+    if (opId) this.gateway.broadcast(opId, 'end', { removed });
+    return removed;
+  }
+}
+

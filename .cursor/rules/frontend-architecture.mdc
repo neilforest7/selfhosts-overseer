@@ -1,0 +1,17 @@
+---
+globs: apps/web/**/*.ts,apps/web/**/*.tsx
+description: Next.js App Router、React Query 与 WebSocket 流、页面分区与 shadcn/ui 使用约定
+---
+### 前端（Next.js）架构与约定
+
+- 路由与数据：App Router；数据获取统一使用 React Query；任务回显使用 WebSocket 订阅。
+- UI 与风格：严格遵循 shadcn/ui 与 Tailwind 基线，详见 `.cursor/rules/shadcn-style.mdc`。
+- 页面分区（建议）：
+  - 资产与主机（导入/编辑/连通性）
+  - 执行中心（命令/脚本、实时输出、历史）
+  - 观测（Grafana 嵌入/链接、日志搜索）
+  - 容器（发现、更新、Compose 配置预览）
+  - 网络拓扑（NPM 路由总览与拓扑图）
+  - 设置（并发/超时/计划任务）
+- 组件划分：容器组件（数据/状态）与展示组件（UI）分离；表单与查询参数类型化。
+

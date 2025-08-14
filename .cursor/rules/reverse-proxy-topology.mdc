@@ -1,0 +1,32 @@
+---
+alwaysApply: false
+description: 通过 Nginx Proxy Manager 数据库生成路由仪表与网络拓扑（读取策略、同步频率、数据模型）
+---
+### NPM 拓扑同步与展示
+
+- 发现容器：
+  - 通过 SSH 执行 `docker ps` 搜索镜像 `jc21/nginx-proxy-manager` 或符合命名约定的容器。
+  - 识别数据库类型：
+    - SQLite：默认路径 `/data/database.sqlite`；优先容器内 `sqlite3 -readonly` 导出所需字段。
+    - MySQL/MariaDB：读取容器环境变量决定连接参数；仅执行只读查询。
+
+- 只读采集策略：
+  - SQLite：优先 `sqlite3 -readonly`；如锁冲突，使用 `docker cp` 复制只读快照后在控制平面解析。
+  - 查询表：proxy/http/stream/redirect 主机表、证书表（名称因版本差异可轻微不同，需在实现中容错匹配）。
+
+- 建模与映射：
+  - 路由模型 `ReverseProxyRoute`：domain、type（http/stream/redirect）、forwardHost、forwardPort、enabled、certExpiresAt、rawAdvancedConfig、hostId。
+  - 证书模型 `Certificate`：CN、SANs、issuer、notBefore/notAfter、autoRenew。
+  - 容器映射：通过 `forwardHost` 与 `docker network inspect` 将上游解析到同 VPS 的容器或主机端口。
+
+- 同步频率：
+  - 默认每 10 分钟增量同步；支持手动触发全量同步。频率可在“设置 → 调度与并发”修改。
+
+- 前端展示：
+  - 路由总览表：域名、VPS（NPM 实例）、状态、上游、证书到期、最近变更时间。
+  - 网络拓扑：域名 → NPM（VPS）→ 服务容器/主机端口 的有向图；节点上显示健康/告警热力（来自 VM/Loki）。
+
+- 安全与限制：
+  - 仅只读访问；不写入/修改 NPM 数据库。
+  - 不存储私密凭证；如是 MySQL/MariaDB，仅保存只读连接必要信息（本地加密）。
+
