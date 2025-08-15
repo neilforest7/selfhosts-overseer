@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 
 type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; hasPassword?: boolean; hasPrivateKey?: boolean };
 
@@ -22,6 +22,7 @@ export default function HostsSection() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Host> | null>(null);
+  const [testing, setTesting] = useState<Record<string, boolean>>({});
 
   const hostsQuery = useQuery<{ items: Host[]; nextCursor: string | null }>({
     queryKey: ['hosts', tag, cursor],
@@ -42,7 +43,7 @@ export default function HostsSection() {
       if (!r.ok) throw new Error('创建失败');
       return r.json() as Promise<Host>;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast({ title: '已创建主机' }); setDialogOpen(false); setEditing(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast.success('已创建主机'); setDialogOpen(false); setEditing(null); },
   });
 
   const updateMutation = useMutation({
@@ -51,7 +52,7 @@ export default function HostsSection() {
       if (!r.ok) throw new Error('更新失败');
       return r.json() as Promise<Host>;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast({ title: '已更新主机' }); setDialogOpen(false); setEditing(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast.success('已更新主机'); setDialogOpen(false); setEditing(null); },
   });
 
   const bulkDelete = async () => {
@@ -60,7 +61,7 @@ export default function HostsSection() {
       // eslint-disable-next-line no-await-in-loop
       await fetch(`http://localhost:3001/api/v1/hosts/${id}`, { method: 'DELETE' });
     }
-    toast({ title: `已删除 ${ids.length} 项` });
+    toast.success(`已删除 ${ids.length} 项`);
     setSelected({});
     qc.invalidateQueries({ queryKey: ['hosts'] });
   };
@@ -72,13 +73,20 @@ export default function HostsSection() {
   }, [hostsQuery.data, selected]);
 
   const testConnection = async (id: string) => {
-    const r = await fetch(`http://localhost:3001/api/v1/hosts/${id}/test-connection`, { method: 'POST' });
-    const data = await r.json().catch(()=>({ ok:false }));
-    if (data.ok) {
-      toast({ title: '连通性正常' });
-    } else {
-      const detail = (data.stderr || data.stdout || '').toString().slice(0, 200);
-      toast({ title: '连通性失败', description: detail || '请检查地址/端口/认证方式' });
+    setTesting(prev => ({ ...prev, [id]: true }));
+    try {
+      const r = await fetch(`http://localhost:3001/api/v1/hosts/${id}/test-connection`, { method: 'POST' });
+      const data = await r.json().catch(()=>({ ok:false }));
+      if (data.ok) {
+        toast.success('连通性正常');
+      } else {
+        const detail = (data.stderr || data.stdout || '').toString().slice(0, 200);
+        toast.error(`连通性失败: ${detail || '请检查地址/端口/认证方式'}`);
+      }
+    } catch (error) {
+      toast.error('测试连接时发生错误');
+    } finally {
+      setTesting(prev => ({ ...prev, [id]: false }));
     }
   };
 
@@ -174,7 +182,9 @@ export default function HostsSection() {
                     <span className="inline-flex items-center rounded-md bg-secondary px-2 py-1 text-xs">已存在凭据</span>
                   ) : null}
                   <Button variant="ghost" onClick={()=>{ setEditing(h); setDialogOpen(true); }}>修改凭据</Button>
-                  <Button variant="ghost" onClick={()=>testConnection(h.id)}>测试连接</Button>
+                  <Button variant="ghost" onClick={()=>testConnection(h.id)} disabled={testing[h.id]}>
+                    {testing[h.id] ? '测试中...' : '测试连接'}
+                  </Button>
                   <Button variant="secondary" onClick={() => { setEditing(h); setDialogOpen(true); }}>编辑</Button>
                   <Button variant="destructive" onClick={async ()=>{ await fetch(`http://localhost:3001/api/v1/hosts/${h.id}`, { method: 'DELETE' }); qc.invalidateQueries({ queryKey: ['hosts'] }); }}>删除</Button>
                 </TableCell>

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SshService } from '../ssh/ssh.service';
 import { CryptoService } from '../security/crypto.service';
@@ -21,11 +21,15 @@ export interface HostItem {
 
 @Injectable()
 export class HostsService {
+  private readonly logger = new Logger(HostsService.name);
+  
   constructor(
     private readonly prisma: PrismaService,
     private readonly ssh: SshService,
     private readonly crypto: CryptoService,
-  ) {}
+  ) {
+    this.logger.log('HostsService 初始化完成');
+  }
 
   async list(tag?: string, limit?: number, cursor?: string): Promise<{ items: HostItem[]; nextCursor: string | null }> {
     const take = Math.min(100, Math.max(1, limit || 20));
@@ -55,6 +59,7 @@ export class HostsService {
   }
 
   async add(host: HostItem): Promise<HostItem> {
+    this.logger.log(`创建新主机: ${host.name} (${host.address}:${host.port ?? 22})`);
     // 检查是否已存在相同地址和用户的主机
     const existing = await this.prisma.host.findFirst({
       where: { 
@@ -64,6 +69,7 @@ export class HostsService {
       }
     });
     if (existing) {
+      this.logger.warn(`主机创建失败: ${host.address} 已存在`);
       throw new Error(`主机 ${host.address} (用户: ${host.sshUser}, 端口: ${host.port ?? 22}) 已存在`);
     }
 
@@ -81,6 +87,7 @@ export class HostsService {
         sshPrivateKeyPassphrase: this.crypto.encryptString((host as any).sshPrivateKeyPassphrase ?? null)
       }
     });
+    this.logger.log(`✅ 主机创建成功: ${created.name} (ID: ${created.id})`);
     return {
       id: created.id,
       name: created.name,
@@ -135,6 +142,8 @@ export class HostsService {
   async testConnection(id: string): Promise<{ ok: boolean; code: number; stdout?: string; stderr?: string }> {
     const h = await this.prisma.host.findUnique({ where: { id } });
     if (!h) return { ok: false, code: 1 };
+    
+    this.logger.log(`测试主机连接: ${h.name} (${h.address}:${h.port ?? 22})`);
     const usePassword = (h as any).sshAuthMethod === 'password';
     const useKey = (h as any).sshAuthMethod === 'privateKey';
     const decPassword = this.crypto.decryptString((h as any).sshPassword ?? null) ?? undefined;
@@ -152,6 +161,13 @@ export class HostsService {
       privateKey: useKey ? decKey : undefined,
       privateKeyPassphrase: useKey ? decPassphrase : undefined,
     });
+    
+    if (res.code === 0) {
+      this.logger.log(`✅ 主机连接测试成功: ${h.name}`);
+    } else {
+      this.logger.warn(`❌ 主机连接测试失败: ${h.name} (退出码: ${res.code})`);
+    }
+    
     return { ok: res.code === 0, code: res.code, stdout: res.stdout, stderr: res.stderr };
   }
 }
