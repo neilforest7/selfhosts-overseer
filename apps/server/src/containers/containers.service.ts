@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DockerService } from './docker.service';
 import { ExecGateway } from '../realtime/exec.gateway';
 import { CryptoService } from '../security/crypto.service';
+import { LogsService } from '../logs/logs.service';
 
 @Injectable()
 export class ContainersService {
@@ -12,6 +13,7 @@ export class ContainersService {
     private readonly docker: DockerService,
     private readonly gateway: ExecGateway,
     private readonly crypto: CryptoService,
+    private readonly logs: LogsService,
   ) {}
 
   async list(params: { hostId?: string; hostName?: string; q?: string; updateAvailable?: boolean | undefined; isComposeManaged?: boolean | undefined }) {
@@ -38,6 +40,13 @@ export class ContainersService {
   }
 
   async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string): Promise<number> {
+    await this.logs.addLog('info', `开始发现主机 ${host.address} 上的容器`, 'container', { 
+      source: 'containers', 
+      hostId: host.id, 
+      hostLabel: `${host.address}`,
+      metadata: { operation: 'discover' }
+    });
+    
     // 1) docker ps -a --format '{{json .}}'
     const h = await this.prisma.host.findUnique({ where: { id: host.id } });
     const decPassword = this.crypto?.decryptString((h as any)?.sshPassword ?? null) ?? undefined;
@@ -46,11 +55,31 @@ export class ContainersService {
     const hostCred = { ...host, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase } as any;
     // 使用最基础的docker ps命令，然后手动解析
     const { code, stdout, stderr, cmd } = await this.docker.exec(hostCred, ['ps', '-a'], 60);
+    await this.logs.addLog('info', `[${host.address}] ${cmd}`, 'container', { 
+      source: 'containers', 
+      hostId: host.id, 
+      hostLabel: host.address,
+      metadata: { command: cmd, operation: 'docker_ps' }
+    });
+    
     if (code !== 0) {
       this.logger.warn(`docker ps failed on ${host.address}: ${stderr}`);
+      await this.logs.addLog('error', `[${host.address}] 退出码: ${code} - ${stderr}`, 'container', { 
+        source: 'containers', 
+        hostId: host.id, 
+        hostLabel: host.address,
+        metadata: { command: cmd, exitCode: code, stderr, operation: 'docker_ps' }
+      });
       if (opId) this.gateway.broadcast(opId, 'stderr', `[${host.address}] ${cmd}\n退出码: ${code}\n${stderr}`);
       return 0;
     }
+    
+    await this.logs.addLog('info', `[${host.address}] 退出码: ${code}`, 'container', { 
+      source: 'containers', 
+      hostId: host.id, 
+      hostLabel: host.address,
+      metadata: { command: cmd, exitCode: code, operation: 'docker_ps' }
+    });
     if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${cmd}\n退出码: ${code}`);
     const lines = stdout.split('\n').filter(Boolean);
     const briefList: { id: string; name: string; image: string; state?: string; status?: string; restartCount?: number }[] = [];
@@ -280,6 +309,8 @@ export class ContainersService {
   async updateOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, imageRef?: string, opId?: string) {
     const c = await this.prisma.container.findUnique({ where: { id: containerId } });
     if (!c) return { ok: false, reason: 'not found' };
+    
+    this.logs.addLog('info', `更新容器: ${c.name} (${c.containerId.slice(0, 12)}) -> ${imageRef || c.imageName}`, 'containers');
     const ref = imageRef || (c.imageTag ? `${c.imageName}:${c.imageTag}` : c.imageName);
     if (!ref) return { ok: false, reason: 'no image' };
 
@@ -332,9 +363,13 @@ export class ContainersService {
   async restartOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
     const c = await this.prisma.container.findUnique({ where: { id: containerId } });
     if (!c) return { ok: false, reason: 'not found' };
+    
+    this.logs.addLog('info', `重启容器: ${c.name} (${c.containerId.slice(0, 12)})`, 'containers');
     const host = 'address' in hostOrRef ? hostOrRef as any : await this.prisma.host.findUnique({ where: { id: (hostOrRef as any).id } }) as any;
     if (!host) return { ok: false, reason: 'no host' };
     const restartRes = await this.docker.exec(host, ['restart', c.containerId], 120);
+    this.logs.addLog('info', `[${host.address}] ${restartRes.cmd}`, 'containers');
+    this.logs.addLog('info', `[${host.address}] 退出码: ${restartRes.code}`, 'containers');
     if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${restartRes.cmd}\n退出码: ${restartRes.code}`);
     // 仅刷新本容器状态
     if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] 正在刷新容器状态...`);
@@ -347,15 +382,24 @@ export class ContainersService {
   async startOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
     const c = await this.prisma.container.findUnique({ where: { id: containerId } });
     if (!c) return { ok: false, reason: 'not found' };
+    
+    await this.logs.addLog('info', `启动容器: ${c.name} (${c.containerId.slice(0, 12)})`, 'container', { 
+      source: 'containers',
+      hostId: c.hostId,
+      metadata: { containerId: c.containerId, containerName: c.name, operation: 'start' }
+    });
     const hostCred = await this.getHostCredById(c.hostId);
     if (!hostCred) return { ok: false, reason: 'no host' };
 
     if (c.isComposeManaged && c.composeWorkingDir && c.composeService) {
       const cmd = `cd ${c.composeWorkingDir} && docker compose start ${c.composeService}`;
       const res = await this.docker.execShell(hostCred as any, cmd, 300);
+      this.logs.addLog('info', `[${hostCred.address}] ${res.cmd}`, 'containers');
+      this.logs.addLog('info', `[${hostCred.address}] 退出码: ${res.code}`, 'containers');
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}`);
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${res.code}`);
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
+      this.logs.addLog('info', `[${hostCred.address}] 正在刷新 Compose 组状态...`, 'containers');
       try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
       const r = { ok: res.code === 0 } as const;
       if (opId) this.gateway.broadcast(opId, 'end', r);
@@ -363,8 +407,11 @@ export class ContainersService {
     }
 
     const res = await this.docker.exec(hostCred as any, ['start', c.containerId], 120);
+    this.logs.addLog('info', `[${hostCred.address}] ${res.cmd}`, 'containers');
+    this.logs.addLog('info', `[${hostCred.address}] 退出码: ${res.code}`, 'containers');
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}\n退出码: ${res.code}`);
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
+    this.logs.addLog('info', `[${hostCred.address}] 正在刷新容器状态...`, 'containers');
     try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
     const r = { ok: res.code === 0 } as const;
     if (opId) this.gateway.broadcast(opId, 'end', r);
@@ -374,15 +421,20 @@ export class ContainersService {
   async stopOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
     const c = await this.prisma.container.findUnique({ where: { id: containerId } });
     if (!c) return { ok: false, reason: 'not found' };
+    
+    this.logs.addLog('info', `停止容器: ${c.name} (${c.containerId.slice(0, 12)})`, 'containers');
     const hostCred = await this.getHostCredById(c.hostId);
     if (!hostCred) return { ok: false, reason: 'no host' };
 
     if (c.isComposeManaged && c.composeWorkingDir && c.composeService) {
       const cmd = `cd ${c.composeWorkingDir} && docker compose stop ${c.composeService}`;
       const res = await this.docker.execShell(hostCred as any, cmd, 300);
+      this.logs.addLog('info', `[${hostCred.address}] ${res.cmd}`, 'containers');
+      this.logs.addLog('info', `[${hostCred.address}] 退出码: ${res.code}`, 'containers');
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}`);
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${res.code}`);
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
+      this.logs.addLog('info', `[${hostCred.address}] 正在刷新 Compose 组状态...`, 'containers');
       try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
       const r = { ok: res.code === 0 } as const;
       if (opId) this.gateway.broadcast(opId, 'end', r);
@@ -390,8 +442,11 @@ export class ContainersService {
     }
 
     const res = await this.docker.exec(hostCred as any, ['stop', c.containerId], 120);
+    this.logs.addLog('info', `[${hostCred.address}] ${res.cmd}`, 'containers');
+    this.logs.addLog('info', `[${hostCred.address}] 退出码: ${res.code}`, 'containers');
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}\n退出码: ${res.code}`);
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
+    this.logs.addLog('info', `[${hostCred.address}] 正在刷新容器状态...`, 'containers');
     try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
     const r = { ok: res.code === 0 } as const;
     if (opId) this.gateway.broadcast(opId, 'end', r);
@@ -522,6 +577,12 @@ export class ContainersService {
   async composeOperate(hostId: string, project: string, workingDir: string, op: 'down'|'pull'|'up'|'restart'|'start'|'stop', opId?: string): Promise<{ ok: boolean; code: number }> {
     const h = await this.prisma.host.findUnique({ where: { id: hostId } });
     if (!h) return { ok: false, code: 1 };
+    
+    await this.logs.addLog('info', `Compose 操作: ${op} (项目: ${project})`, 'container', { 
+      source: 'containers',
+      hostId: hostId,
+      metadata: { operation: `compose_${op}`, project, workingDir }
+    });
     const cmd = (() => {
       switch (op) {
         case 'down': return `cd ${workingDir} && docker compose down`;
@@ -537,12 +598,38 @@ export class ContainersService {
     const decKey = this.crypto?.decryptString((h as any)?.sshPrivateKey ?? null) ?? undefined;
     const decPassphrase = this.crypto?.decryptString((h as any)?.sshPrivateKeyPassphrase ?? null) ?? undefined;
     const res = await this.docker.execShell({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase } as any, cmd, 600);
+    await this.logs.addLog('info', `[${h.address}] ${res.cmd}`, 'container', { 
+      source: 'containers',
+      hostId: h.id,
+      hostLabel: h.address,
+      metadata: { operation: `compose_${op}`, project, command: res.cmd }
+    });
+    await this.logs.addLog('info', `[${h.address}] 退出码: ${res.code}`, 'container', { 
+      source: 'containers',
+      hostId: h.id,
+      hostLabel: h.address,
+      metadata: { operation: `compose_${op}`, project, exitCode: res.code }
+    });
     if (opId) {
       this.gateway.broadcast(opId, 'data', `[${h.address}] ${res.cmd}`);
       this.gateway.broadcast(opId, 'data', `[${h.address}] 退出码: ${res.code}`);
       this.gateway.broadcast(opId, 'data', `[${h.address}] 正在刷新 Compose 组状态...`);
     }
-    try { await this.refreshStatus(h.id, { composeProject: project }, opId); } catch {}
+    await this.logs.addLog('info', `[${h.address}] 正在刷新 Compose 组状态...`, 'container', { 
+      source: 'containers',
+      hostId: h.id,
+      hostLabel: h.address,
+      metadata: { operation: `compose_${op}`, project }
+    });
+    try { 
+      const refreshResult = await this.refreshStatus(h.id, { composeProject: project }, opId);
+      await this.logs.addLog('info', `[${h.address}] 局部刷新完成：更新 ${refreshResult?.updated || 0}，未找到并标记为 stopped：${refreshResult?.notFound?.length || 0}`, 'container', { 
+        source: 'containers',
+        hostId: h.id,
+        hostLabel: h.address,
+        metadata: { operation: `compose_${op}`, project, refreshResult }
+      });
+    } catch {}
     const result = { ok: res.code === 0, code: res.code };
     if (opId) this.gateway.broadcast(opId, 'end', result);
     return result;

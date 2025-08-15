@@ -6,9 +6,9 @@ export class LogsController {
   constructor(private readonly logsService: LogsService) {}
 
   @Get('application')
-  async getApplicationLogs(@Query('limit') limit?: string): Promise<{ logs: LogEntry[] }> {
+  async getApplicationLogs(@Query('limit') limit?: string): Promise<{ logs: string[] }> {
     const limitNum = limit ? parseInt(limit, 10) : 100;
-    const logs = this.logsService.getRecentLogs(limitNum);
+    const logs = await this.logsService.getApplicationLogs(limitNum);
     return { logs };
   }
 

@@ -58,6 +58,25 @@ model TaskLog {
   @@index([taskId, ts])
 }
 
+// 统一的系统日志表（用于替代内存缓冲区）
+model SystemLog {
+  id        String   @id @default(cuid())
+  ts        DateTime @default(now())
+  category  String   // 'container' | 'application' | 'system' | 'security'
+  level     String   // 'info' | 'warn' | 'error' | 'debug'
+  stream    String   // 'stdout' | 'stderr' | 'system'
+  source    String?  // 'server' | 'containers' | 'console' | hostId
+  hostId    String?  // 关联主机（可选）
+  hostLabel String?  // 主机显示名（可选）
+  content   String   // 日志内容
+  metadata  Json?    // 扩展字段 {containerId, operation, exitCode, etc}
+  
+  @@index([category, ts])
+  @@index([hostId, ts])
+  @@index([source, ts])
+  @@index([ts]) // 全局时间索引
+}
+
 // Containers and related
 model Container {
   id              String   @id @default(cuid())

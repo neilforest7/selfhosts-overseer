@@ -37,6 +37,8 @@ export class TasksService {
     // 使用前端提供的opId或生成新的ID
     const taskId = req.opId || `task_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     
+    console.log(`🎯 创建新任务: ${req.command} (目标: ${req.targets.length} 台, ID: ${taskId})`);
+    
     const created = await this.prisma.taskRun.create({
       data: {
         id: taskId,
