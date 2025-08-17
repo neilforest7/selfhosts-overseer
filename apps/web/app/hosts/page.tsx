@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 
 type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[] };
 
@@ -40,7 +40,7 @@ export default function HostsPage() {
       if (!r.ok) throw new Error('创建失败');
       return r.json() as Promise<Host>;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast({ title: '已创建主机' }); setDialogOpen(false); setEditing(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast.success('已创建主机'); setDialogOpen(false); setEditing(null); },
   });
 
   const updateMutation = useMutation({
@@ -49,7 +49,7 @@ export default function HostsPage() {
       if (!r.ok) throw new Error('更新失败');
       return r.json() as Promise<Host>;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast({ title: '已更新主机' }); setDialogOpen(false); setEditing(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast.success('已更新主机'); setDialogOpen(false); setEditing(null); },
   });
 
   const deleteOne = useMutation({
@@ -67,7 +67,7 @@ export default function HostsPage() {
       // eslint-disable-next-line no-await-in-loop
       await fetch(`http://localhost:3001/api/v1/hosts/${id}`, { method: 'DELETE' });
     }
-    toast({ title: `已删除 ${ids.length} 项` });
+    toast.success(`已删除 ${ids.length} 项`);
     setSelected({});
     qc.invalidateQueries({ queryKey: ['hosts'] });
   };

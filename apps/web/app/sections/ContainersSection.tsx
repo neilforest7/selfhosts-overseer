@@ -135,20 +135,23 @@ export default function ContainersSection() {
       return r.json();
     },
     onMutate: (hostTarget) => {
-      toast.info(hostTarget === 'all' ? '开始容器发现：全部主机' : `开始容器发现：${hostTarget}`);
+      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
+      toast.info(`开始容器发现：${hostName}`);
     },
     onSuccess: async (data: any, variables) => {
+      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
       if (typeof data?.upserted === 'number') {
-        toast.success((variables === 'all' ? '发现完成（全部）：' : '发现完成：') + `新增/更新 ${data.upserted}`);
+        toast.success(`发现完成（${hostName}）：新增/更新 ${data.upserted} 个`);
       } else {
-        toast.success('发现完成');
+        toast.success(`发现完成（${hostName}）`);
       }
       await qc.invalidateQueries({ queryKey: ['containers'] });
       // 额外延迟一次刷新，确保后端 discover 完成
       setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 800);
     },
     onError: (err: any, variables) => {
-      toast.error((variables === 'all' ? '发现失败（全部）：' : '发现失败：') + (err?.message || '未知错误'));
+      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
+      toast.error(`发现失败（${hostName}）：${err?.message || '未知错误'}`);
     }
   });
 
@@ -165,19 +168,22 @@ export default function ContainersSection() {
       return r.json();
     },
     onMutate: (hostTarget) => {
-      toast.info(hostTarget === 'all' ? '开始检查镜像更新：全部主机' : `开始检查镜像更新：${hostTarget}`);
+      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
+      toast.info(`开始检查镜像更新：${hostName}`);
     },
     onSuccess: async (data: any, variables) => {
+      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
       if (typeof data?.updated === 'number') {
-        toast.success((variables === 'all' ? '检查完成（全部）：' : '检查完成：') + `可更新 ${data.updated}`);
+        toast.success(`检查完成（${hostName}）：可更新 ${data.updated} 个`);
       } else {
-        toast.success('检查完成');
+        toast.success(`检查完成（${hostName}）`);
       }
       await qc.invalidateQueries({ queryKey: ['containers'] });
       setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 800);
     },
     onError: (err: any, variables) => {
-      toast.error((variables === 'all' ? '检查失败（全部）：' : '检查失败：') + (err?.message || '未知错误'));
+      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
+      toast.error(`检查失败（${hostName}）：${err?.message || '未知错误'}`);
     }
   });
 
@@ -406,6 +412,13 @@ export default function ContainersSection() {
                             ) : (
                               <span className="ml-2"><Badge variant="secondary">cli</Badge></span>
                             )}
+                            {(() => {
+                              // 检查组或容器是否有更新可用
+                              const hasUpdate = items.some(item => item.updateAvailable);
+                              return hasUpdate ? (
+                                <Badge className="bg-amber-500 text-black hover:bg-amber-500 ml-2">可更新</Badge>
+                              ) : null;
+                            })()}
                             <span className="ml-2 text-xs text-muted-foreground">{isCompose ? `${items.length} 个服务` : ''}</span>
                           </div>
                         </div>
@@ -566,9 +579,46 @@ export default function ContainersSection() {
                         )}
                         <DropdownMenuItem onClick={async ()=>{
                           const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                          setOpId(id); setOpOpen(true); setOpTitle(`检查更新（组）`); setLogs([]);
-                          await fetch('http://localhost:3001/api/v1/containers/check-updates', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
-                          qc.invalidateQueries({ queryKey: ['containers'] });
+                          const containerName = isCompose ? `${title} 组` : first.name;
+                          setOpId(id); setOpOpen(true); setOpTitle(`检查更新: ${containerName}`); setLogs([]);
+                          
+                          if (isCompose) {
+                            // Compose 组：检查该组所有容器
+                            toast.info(`检查 ${title} 组的更新...`);
+                            try {
+                              const r = await fetch('http://localhost:3001/api/v1/containers/check-updates', { 
+                                method: 'POST', 
+                                headers: {'Content-Type': 'application/json'}, 
+                                body: JSON.stringify({ host: { id: first.hostId }, opId: id }) 
+                              });
+                              if (!r.ok) throw new Error('检查失败');
+                              qc.invalidateQueries({ queryKey: ['containers'] });
+                            } catch (e: any) {
+                              toast.error(`检查 ${title} 组更新失败: ${e?.message || '未知错误'}`);
+                            }
+                          } else {
+                            // CLI 容器：只检查这一个容器
+                            toast.info(`检查 ${first.name} 的更新...`);
+                            try {
+                              const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/check-update`, { 
+                                method: 'POST', 
+                                headers: {'Content-Type': 'application/json'}, 
+                                body: JSON.stringify({ opId: id }) 
+                              });
+                              if (!r.ok) throw new Error('检查失败');
+                              const result = await r.json();
+                              if (result.updated > 0) {
+                                toast.success(`${first.name} 有更新可用`);
+                              } else if (result.error) {
+                                toast.warning(`${first.name} 检查失败: ${result.error}`);
+                              } else {
+                                toast.success(`${first.name} 已是最新版本`);
+                              }
+                              qc.invalidateQueries({ queryKey: ['containers'] });
+                            } catch (e: any) {
+                              toast.error(`检查 ${first.name} 更新失败: ${e?.message || '未知错误'}`);
+                            }
+                          }
                         }}>检查更新</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -576,7 +626,7 @@ export default function ContainersSection() {
                   </TableRow>
                   {expandedGroup === key && (
                     <TableRow>
-                      <TableCell colSpan={isCompose ? 4 : 5}>
+                      <TableCell colSpan={4}>
                         <div className="rounded border p-4">
                           <div className="mb-3 font-medium">
                             容器详情 - {isCompose ? (first.composeFolderName || first.composeProject) : first.name}
@@ -588,7 +638,6 @@ export default function ContainersSection() {
                                 <TableHead>名称</TableHead>
                                 <TableHead>镜像</TableHead>
                                 <TableHead>版本</TableHead>
-                                {!isCompose && <TableHead className="text-right">操作</TableHead>}
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -603,100 +652,14 @@ export default function ContainersSection() {
                                     </TableCell>
                                     <TableCell>
                                       <div className="font-medium">{i.name}</div>
-                                      {i.updateAvailable ? (
-                                        <div className="mt-1 flex flex-wrap gap-1 text-xs">
-                                          <Badge className="bg-amber-500 text-black hover:bg-amber-500">可更新</Badge>
-                                        </div>
-                                      ) : null}
                                     </TableCell>
                                     <TableCell className="text-muted-foreground">{i.imageName}</TableCell>
                                     <TableCell>
                                       <Badge variant="secondary">{i.imageTag || 'latest'}</Badge>
+                                      {i.updateAvailable ? (
+                                        <Badge className="bg-amber-500 text-black hover:bg-amber-500 mx-2">可更新</Badge>
+                                      ) : null}
                                     </TableCell>
-                                    {!isCompose && (
-                                      <TableCell className="text-right">
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <Button variant="ghost" size="sm">操作</Button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={async ()=>{
-                                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                              setOpId(id); setOpOpen(true); setOpTitle(`更新 ${i.name}`); setLogs([]);
-                                              toast.info(`已触发更新：${i.name}`);
-                                              try {
-                                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
-                                                if (!r.ok) throw new Error(await r.text());
-                                                toast.success(`更新请求已受理：${i.name}`);
-                                                qc.invalidateQueries({ queryKey: ['containers'] });
-                                              } catch (e: any) {
-                                                toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
-                                              }
-                                            }}>更新</DropdownMenuItem>
-                                            {(() => {
-                                              const s = (groupStatus.state || '').toLowerCase();
-                                              const ss = (groupStatus.status || '').toLowerCase();
-                                              const running = s.includes('running') || ss.includes('up');
-                                              return (
-                                                <>
-                                                  {!running && (
-                                                    <DropdownMenuItem onClick={async ()=>{
-                                                      const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                                      setOpId(id); setOpOpen(true); setOpTitle(`启动 ${i.name}`); setLogs([]);
-                                                      toast.info(`已触发启动：${i.name}`);
-                                                      try {
-                                                        const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
-                                                        if (!r.ok) throw new Error(await r.text());
-                                                        toast.success(`启动请求已受理：${i.name}`);
-                                                        qc.invalidateQueries({ queryKey: ['containers'] });
-                                                      } catch (e: any) {
-                                                        toast.error(`启动触发失败：${i.name} - ${e?.message || '未知错误'}`);
-                                                      }
-                                                    }}>启动</DropdownMenuItem>
-                                                  )}
-                                                </>
-                                              );
-                                            })()}
-                                            <DropdownMenuItem onClick={async ()=>{
-                                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                              setOpId(id); setOpOpen(true); setOpTitle(`重启 ${i.name}`); setLogs([]);
-                                              toast.info(`已触发重启：${i.name}`);
-                                              try {
-                                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
-                                                if (!r.ok) throw new Error(await r.text());
-                                                toast.success(`重启请求已受理：${i.name}`);
-                                              } catch (e: any) {
-                                                toast.error(`重启触发失败：${i.name} - ${e?.message || '未知错误'}`);
-                                              }
-                                            }}>重启</DropdownMenuItem>
-                                            {(() => {
-                                              const s = (groupStatus.state || '').toLowerCase();
-                                              const ss = (groupStatus.status || '').toLowerCase();
-                                              const running = s.includes('running') || ss.includes('up');
-                                              return (
-                                                <>
-                                                  {running && (
-                                                    <DropdownMenuItem onClick={async ()=>{
-                                                      const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                                      setOpId(id); setOpOpen(true); setOpTitle(`停止 ${i.name}`); setLogs([]);
-                                                      toast.info(`已触发停止：${i.name}`);
-                                                      try {
-                                                        const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
-                                                        if (!r.ok) throw new Error(await r.text());
-                                                        toast.success(`停止请求已受理：${i.name}`);
-                                                        qc.invalidateQueries({ queryKey: ['containers'] });
-                                                      } catch (e: any) {
-                                                        toast.error(`停止触发失败：${i.name} - ${e?.message || '未知错误'}`);
-                                                      }
-                                                    }}>停止</DropdownMenuItem>
-                                                  )}
-                                                </>
-                                              );
-                                            })()}
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-                                      </TableCell>
-                                    )}
                                   </TableRow>
                                 );
                               })}

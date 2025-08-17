@@ -1,9 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ContainersService } from './containers.service';
+import { DockerService } from './docker.service';
 
 @Controller('/api/v1/containers')
 export class ContainersController {
-  constructor(private readonly containers: ContainersService) {}
+  constructor(
+    private readonly containers: ContainersService,
+    private readonly docker: DockerService
+  ) {}
 
   @Get()
   async list(
@@ -31,6 +35,11 @@ export class ContainersController {
   @Post('check-updates')
   async checkUpdates(@Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
     return this.containers.checkUpdatesAny(body.host as any, body.opId);
+  }
+
+  @Post(':id/check-update')
+  async checkSingleContainerUpdate(@Param('id') id: string, @Body() body: { opId?: string }) {
+    return this.containers.checkSingleContainerUpdate(id, body.opId);
   }
 
   @Post(':id/update')
@@ -73,6 +82,33 @@ export class ContainersController {
   async purge(@Body() body: { hostId?: string | 'all'; opId?: string }) {
     const removed = await this.containers.purgeContainers(body.hostId, body.opId);
     return { removed };
+  }
+
+  @Post('test-credentials')
+  async testCredentials(@Body() body: { username: string; personalAccessToken: string }) {
+    try {
+      // 使用本地 Docker 测试凭证
+      const testHost = {
+        address: '127.0.0.1',
+        sshUser: 'root',
+        port: 22
+      };
+      
+      // 尝试登录 Docker Hub
+      const loginCmd = `echo "${body.personalAccessToken}" | docker login --username "${body.username}" --password-stdin`;
+      const { code, stderr } = await this.docker.execShell(testHost, loginCmd, 60);
+      
+      if (code === 0) {
+        return { success: true, message: 'Docker Hub 登录成功' };
+      } else {
+        throw new BadRequestException(`登录失败: ${stderr}`);
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`测试失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }
 

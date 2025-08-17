@@ -5,7 +5,18 @@ import { z } from 'zod';
 const SettingsSchema = z.object({
   sshConcurrency: z.number().int().min(10).max(100).default(30),
   commandTimeoutSeconds: z.number().int().min(10).max(900).default(100),
-  containerUpdateCheckCron: z.string().default('45 0 * * *')
+  containerUpdateCheckCron: z.string().default('45 0 * * *'),
+  // Docker 代理配置
+  dockerProxyEnabled: z.boolean().default(false),
+  dockerProxyHost: z.string().optional().default(''),
+  dockerProxyPort: z.number().int().min(1).max(65535).default(8080),
+  dockerProxyUsername: z.string().optional().default(''),
+  dockerProxyPassword: z.string().optional().default(''),
+  dockerProxyLocalOnly: z.boolean().default(true),
+  // Docker 凭证配置
+  dockerCredentialsEnabled: z.boolean().default(false),
+  dockerCredentialsUsername: z.string().optional().default(''),
+  dockerCredentialsPersonalAccessToken: z.string().optional().default('')
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
