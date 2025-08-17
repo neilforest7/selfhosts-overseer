@@ -586,12 +586,24 @@ export default function ContainersSection() {
                             // Compose 组：检查该组所有容器
                             toast.info(`检查 ${title} 组的更新...`);
                             try {
-                              const r = await fetch('http://localhost:3001/api/v1/containers/check-updates', { 
+                              const r = await fetch('http://localhost:3001/api/v1/containers/check-compose-updates', { 
                                 method: 'POST', 
                                 headers: {'Content-Type': 'application/json'}, 
-                                body: JSON.stringify({ host: { id: first.hostId }, opId: id }) 
+                                body: JSON.stringify({ 
+                                  hostId: first.hostId, 
+                                  composeProject: first.composeProject || '', 
+                                  opId: id 
+                                }) 
                               });
                               if (!r.ok) throw new Error('检查失败');
+                              const result = await r.json();
+                              if (result.updated > 0) {
+                                toast.success(`${title} 组有 ${result.updated} 个容器可更新`);
+                              } else if (result.error) {
+                                toast.warning(`${title} 组检查失败: ${result.error}`);
+                              } else {
+                                toast.success(`${title} 组所有容器已是最新版本`);
+                              }
                               qc.invalidateQueries({ queryKey: ['containers'] });
                             } catch (e: any) {
                               toast.error(`检查 ${title} 组更新失败: ${e?.message || '未知错误'}`);
