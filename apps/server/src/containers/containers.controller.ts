@@ -37,6 +37,11 @@ export class ContainersController {
     return this.containers.checkUpdatesAny(body.host as any, body.opId);
   }
 
+  @Post('check-compose-updates')
+  async checkComposeUpdates(@Body() body: { hostId: string; composeProject: string; opId?: string }) {
+    return this.containers.checkComposeProjectUpdates(body.hostId, body.composeProject, body.opId);
+  }
+
   @Post(':id/check-update')
   async checkSingleContainerUpdate(@Param('id') id: string, @Body() body: { opId?: string }) {
     return this.containers.checkSingleContainerUpdate(id, body.opId);

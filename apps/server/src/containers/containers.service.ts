@@ -382,13 +382,76 @@ export class ContainersService {
         return { updated: 0, error: '无法获取主机凭据' };
       }
 
+      if (opId) {
+        this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 开始检查容器 ${container.name} 的更新...`);
+      }
+
+      // 第一件事：inspect 现有容器，更新数据库中的信息
+      if (opId) {
+        this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在获取容器 ${container.name} 的最新状态...`);
+      }
+
+      try {
+        // 获取容器的最新状态信息
+        const containerDetails = await this.docker.inspectContainers(hostCred, [container.containerId]);
+        if (containerDetails && containerDetails.length > 0) {
+          const containerInfo = containerDetails[0];
+          
+          // 提取容器信息
+          const state = containerInfo.State?.Status || container.state;
+          const status = containerInfo.State?.Status || container.status;
+          const restartCount = containerInfo.RestartCount || container.restartCount;
+          const startedAt = containerInfo.State?.StartedAt ? new Date(containerInfo.State.StartedAt) : container.startedAt;
+          
+          // 提取端口信息
+          const ports = containerInfo.NetworkSettings?.Ports || container.ports;
+          
+          // 提取挂载信息
+          const mounts = containerInfo.Mounts || container.mounts;
+          
+          // 提取网络信息
+          const networks = containerInfo.NetworkSettings?.Networks || container.networks;
+          
+          // 提取标签信息
+          const labels = containerInfo.Config?.Labels || container.labels;
+          
+          // 提取镜像 digest
+          const repoDigest = containerInfo.Image || container.repoDigest;
+          
+          // 更新数据库中的容器信息
+          await this.prisma.container.update({
+            where: { id: container.id },
+            data: {
+              state,
+              status,
+              restartCount,
+              startedAt,
+              ports,
+              mounts,
+              networks,
+              labels,
+              repoDigest,
+            }
+          });
+
+          if (opId) {
+            this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ✓ 容器状态已更新`);
+          }
+        }
+      } catch (inspectError) {
+        this.logger.warn(`获取容器 ${container.name} 状态信息失败: ${inspectError instanceof Error ? inspectError.message : String(inspectError)}`);
+        if (opId) {
+          this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ⚠️ 获取容器状态失败，继续检查更新...`);
+        }
+      }
+
       const imageRef = container.imageTag ? `${container.imageName}:${container.imageTag}` : container.imageName || '';
       if (!imageRef) {
         return { updated: 0, error: '容器缺少镜像信息' };
       }
 
       if (opId) {
-        this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 检查单个容器 ${container.name} 的镜像更新...`);
+        this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 检查镜像 ${imageRef} 的远程版本...`);
       }
 
       try {
@@ -449,10 +512,9 @@ export class ContainersService {
         if (opId) this.gateway.broadcast(opId, 'end', result);
         
         return result;
-
       } catch (error) {
         this.logger.error(`检查容器 ${container.name} (${imageRef}) 更新时发生错误: ${error instanceof Error ? error.message : String(error)}`);
-        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ❌ ${container.name} 检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ❌ ${imageRef} 检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
         
         // 即使失败也更新检查时间
         try {
@@ -461,18 +523,12 @@ export class ContainersService {
             data: { updateCheckedAt: new Date() } 
           });
         } catch {}
-
-        const result = { updated: 0, containerName: container.name, error: error instanceof Error ? error.message : '未知错误' };
-        if (opId) this.gateway.broadcast(opId, 'end', result);
         
-        return result;
+        return { updated: 0, containerName: container.name, error: error instanceof Error ? error.message : String(error) };
       }
-
     } catch (error) {
-      this.logger.error(`检查单个容器更新时发生系统错误: ${error instanceof Error ? error.message : String(error)}`);
-      const result = { updated: 0, error: `系统错误: ${error instanceof Error ? error.message : '未知错误'}` };
-      if (opId) this.gateway.broadcast(opId, 'end', result);
-      return result;
+      this.logger.error(`检查单个容器更新失败: ${error instanceof Error ? error.message : String(error)}`);
+      return { updated: 0, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -1048,7 +1104,7 @@ export class ContainersService {
         removed += deleteIds1.length;
       }
 
-      // 2) 按名称清理：同一 host 下同名容器仅保留“启动时间/创建时间最新”的一条
+      // 2) 按名称清理：同一 host 下同名容器仅保留"启动时间/创建时间最新"的一条
       const remaining = await this.prisma.container.findMany({
         where: { hostId: h.id },
         select: { id: true, name: true, createdAt: true, startedAt: true }
@@ -1083,6 +1139,181 @@ export class ContainersService {
     const removed = (res as any)?.count ?? 0;
     if (opId) this.gateway.broadcast(opId, 'end', { removed });
     return removed;
+  }
+
+  async checkComposeProjectUpdates(hostId: string, composeProject: string, opId?: string): Promise<{ updated: number; projectName: string; error?: string }> {
+    try {
+      // 获取主机凭据
+      const hostCred = await this.getHostCredById(hostId);
+      if (!hostCred) {
+        return { updated: 0, projectName: composeProject, error: '无法获取主机凭据' };
+      }
+
+      // 获取该 Compose 项目的所有容器
+      const containers = await this.prisma.container.findMany({ 
+        where: { 
+          hostId, 
+          composeProject,
+          imageName: { not: null } 
+        } 
+      });
+
+      if (containers.length === 0) {
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] Compose 项目 ${composeProject} 中没有找到容器`);
+        return { updated: 0, projectName: composeProject };
+      }
+
+      if (opId) {
+        this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 开始检查 Compose 项目 ${composeProject} 的 ${containers.length} 个容器更新...`);
+      }
+
+      let marked = 0;
+      let failed = 0;
+
+      for (const c of containers) {
+        const imageRef = c.imageTag ? `${c.imageName}:${c.imageTag}` : c.imageName || '';
+        if (!imageRef) continue;
+
+        try {
+          // 第一件事：inspect 现有容器，更新数据库中的信息
+          if (opId) {
+            this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在获取容器 ${c.name} 的最新状态...`);
+          }
+
+          try {
+            // 获取容器的最新状态信息
+            const containerDetails = await this.docker.inspectContainers(hostCred, [c.containerId]);
+            if (containerDetails && containerDetails.length > 0) {
+              const containerInfo = containerDetails[0];
+              
+              // 提取容器信息
+              const state = containerInfo.State?.Status || c.state;
+              const status = containerInfo.State?.Status || c.status;
+              const restartCount = containerInfo.RestartCount || c.restartCount;
+              const startedAt = containerInfo.State?.StartedAt ? new Date(containerInfo.State.StartedAt) : c.startedAt;
+              
+              // 提取端口信息
+              const ports = containerInfo.NetworkSettings?.Ports || c.ports;
+              
+              // 提取挂载信息
+              const mounts = containerInfo.Mounts || c.mounts;
+              
+              // 提取网络信息
+              const networks = containerInfo.NetworkSettings?.Networks || c.networks;
+              
+              // 提取标签信息
+              const labels = containerInfo.Config?.Labels || c.labels;
+              
+              // 提取镜像 digest
+              const repoDigest = containerInfo.Image || c.repoDigest;
+              
+              // 更新数据库中的容器信息
+              await this.prisma.container.update({
+                where: { id: c.id },
+                data: {
+                  state,
+                  status,
+                  restartCount,
+                  startedAt,
+                  ports,
+                  mounts,
+                  networks,
+                  labels,
+                  repoDigest,
+                }
+              });
+
+              if (opId) {
+                this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ✓ 容器 ${c.name} 状态已更新`);
+              }
+            }
+          } catch (inspectError) {
+            this.logger.warn(`获取容器 ${c.name} 状态信息失败: ${inspectError instanceof Error ? inspectError.message : String(inspectError)}`);
+            if (opId) {
+              this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ⚠️ 获取容器 ${c.name} 状态失败，继续检查更新...`);
+            }
+          }
+
+          // 从容器的labels中提取平台信息
+          const labels = (c.labels as any) || {};
+          const platform = {
+            architecture: labels['__platform_arch'] || 'amd64',
+            os: labels['__platform_os'] || 'linux'
+          };
+
+          // 使用新的方法检查镜像更新，不会实际拉取镜像，并考虑平台匹配
+          if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 检查镜像 ${imageRef} 的远程版本 (${platform.architecture}/${platform.os})...`);
+          
+          const updateResult = await this.docker.checkImageUpdate(hostCred, imageRef, c.repoDigest, platform);
+          
+          if (updateResult.error) {
+            // 如果无法获取远程信息，记录警告但继续处理其他容器
+            this.logger.warn(`检查镜像 ${imageRef} 更新失败: ${updateResult.error}`);
+            
+            // 检查是否是速率限制错误
+            if ((updateResult as any).rateLimited) {
+              if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ⚠️ ${imageRef}: Docker Hub 速率限制，已尝试镜像加速器但仍失败`);
+              this.logger.warn(`镜像 ${imageRef} 遇到 Docker Hub 速率限制`);
+            } else {
+              if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ❌ 跳过 ${imageRef}: ${updateResult.error}`);
+            }
+            
+            failed++;
+            
+            // 更新检查时间，但不更新 updateAvailable 状态
+            await this.prisma.container.update({ 
+              where: { id: c.id }, 
+              data: { updateCheckedAt: new Date() } 
+            });
+            continue;
+          }
+
+          const { updateAvailable, remoteDigest } = updateResult;
+          
+          if (opId) {
+            if (updateAvailable) {
+              this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ✓ ${c.name} (${imageRef}) 有更新可用 (${platform.architecture}/${platform.os})`);
+            } else {
+              this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ✓ ${c.name} (${imageRef}) 已是最新版本 (${platform.architecture}/${platform.os})`);
+            }
+          }
+
+          // 更新数据库中的状态
+          await this.prisma.container.update({ 
+            where: { id: c.id }, 
+            data: { 
+              remoteDigest: remoteDigest || null, 
+              updateAvailable, 
+              updateCheckedAt: new Date() 
+            } 
+          });
+
+          if (updateAvailable) marked++;
+
+        } catch (error) {
+          this.logger.error(`检查容器 ${c.name} (${imageRef}) 更新时发生错误: ${error instanceof Error ? error.message : String(error)}`);
+          if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ❌ ${imageRef} 检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
+          failed++;
+          
+          // 即使失败也更新检查时间
+          try {
+            await this.prisma.container.update({ 
+              where: { id: c.id }, 
+              data: { updateCheckedAt: new Date() } 
+            });
+          } catch {}
+        }
+      }
+
+      const summary = `Compose 项目 ${composeProject} 检查完成: ${marked} 个可更新, ${failed} 个失败, ${containers.length - marked - failed} 个最新`;
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${summary}`);
+      this.logger.log(`[${hostCred.address}] ${summary}`);
+
+      return { updated: marked, projectName: composeProject };
+    } catch (error) {
+      this.logger.error(`检查 Compose 项目 ${composeProject} 更新失败: ${error instanceof Error ? error.message : String(error)}`);
+      return { updated: 0, projectName: composeProject, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 }
 
