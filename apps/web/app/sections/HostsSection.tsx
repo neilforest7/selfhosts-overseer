@@ -176,16 +176,18 @@ export default function HostsSection() {
                 <TableCell>{h.name}</TableCell>
                 <TableCell className="text-muted-foreground">{h.address}</TableCell>
                 <TableCell className="text-muted-foreground">{h.sshUser}</TableCell>
-                <TableCell className="space-x-1">{(h.tags || []).map((t) => (<Badge key={t}>{t}</Badge>))}</TableCell>
-                <TableCell className="text-right space-x-2">
+                <TableCell className="space-x-1">
+                  {(h.tags || []).map((t) => (<Badge key={t}>{t}</Badge>))}
                   {(h.hasPrivateKey || h.hasPassword) ? (
-                    <span className="inline-flex items-center rounded-md bg-secondary px-2 py-1 text-xs">已存在凭据</span>
+                    <Badge variant="secondary" className="inline-flex items-center text-xs">已存在凭据</Badge>
                   ) : null}
-                  <Button variant="ghost" onClick={()=>{ setEditing(h); setDialogOpen(true); }}>修改凭据</Button>
-                  <Button variant="ghost" onClick={()=>testConnection(h.id)} disabled={testing[h.id]}>
+                </TableCell>
+                <TableCell className="text-right space-x-2">
+                  {/* <Button variant="ghost" onClick={()=>{ setEditing(h); setDialogOpen(true); }}>修改凭据</Button> */}
+                  <Button variant="secondary" onClick={()=>testConnection(h.id)} disabled={testing[h.id]}>
                     {testing[h.id] ? '测试中...' : '测试连接'}
                   </Button>
-                  <Button variant="secondary" onClick={() => { setEditing(h); setDialogOpen(true); }}>编辑</Button>
+                  <Button onClick={() => { setEditing(h); setDialogOpen(true); }}>编辑</Button>
                   <Button variant="destructive" onClick={async ()=>{ await fetch(`http://localhost:3001/api/v1/hosts/${h.id}`, { method: 'DELETE' }); qc.invalidateQueries({ queryKey: ['hosts'] }); }}>删除</Button>
                 </TableCell>
               </TableRow>

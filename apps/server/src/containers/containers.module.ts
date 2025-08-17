@@ -8,9 +8,10 @@ import { ExecGateway } from '../realtime/exec.gateway';
 import { CryptoService } from '../security/crypto.service';
 import { SshModule } from '../ssh/ssh.module';
 import { LogsModule } from '../logs/logs.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), SshModule, LogsModule],
+  imports: [ScheduleModule.forRoot(), SshModule, LogsModule, SettingsModule],
   controllers: [ContainersController],
   providers: [ContainersService, ContainerCheckerProcessor, DockerService, ExecGateway, CryptoService]
 })

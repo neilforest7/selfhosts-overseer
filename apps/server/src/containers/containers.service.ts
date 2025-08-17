@@ -153,7 +153,16 @@ export class ContainersService {
       const labels = config.Labels || {};
       const imageRef = config.Image || b.image || '';
       const { imageName, imageTag } = await this.docker.resolveImageNameTag(hostCred, imageRef);
+      
+      // 获取容器实际运行的镜像 digest（从 docker inspect 的 Image 字段）
+      const actualImageDigest = await this.docker.getContainerImageDigest(hostCred, det.Id || b.id);
+      
+      // 获取容器的平台信息
+      const platformInfo = await this.docker.getContainerPlatform(hostCred, det.Id || b.id);
+      
+      // 保留原有的 repoDigests 作为备用
       const repoDigests = imageRef ? await this.docker.inspectImageRepoDigests(hostCred, imageRef) : [];
+      
       const fullId: string = det.Id || b.id;
       const shortId: string = fullId.slice(0, 12);
       if (fullId) { seenIds.add(fullId); }
@@ -181,12 +190,18 @@ export class ContainersService {
         status: b.status ?? state.Status,
         imageName,
         imageTag,
-        repoDigest: Array.isArray(repoDigests) && repoDigests.length ? String(repoDigests[0]) : null,
+        // 优先使用实际镜像digest，fallback到repoDigest
+        repoDigest: actualImageDigest || (Array.isArray(repoDigests) && repoDigests.length ? String(repoDigests[0]) : null),
         startedAt: startedAt ?? undefined,
         ports,
         mounts,
         networks,
-        labels,
+        labels: {
+          ...labels,
+          // 添加平台信息到labels中，以便后续使用
+          ...(platformInfo.architecture && !platformInfo.error ? { '__platform_arch': platformInfo.architecture } : {}),
+          ...(platformInfo.os && !platformInfo.error ? { '__platform_os': platformInfo.os } : {})
+        },
         isComposeManaged: Boolean(composeProject && composeService),
         composeProject,
         composeService,
@@ -194,7 +209,7 @@ export class ContainersService {
         composeFolderName,
         composeGroupKey,
         composeConfigFiles: (labels as any)['com.docker.compose.project.config_files'] ? String((labels as any)['com.docker.compose.project.config_files']).split(',') : null,
-        runCommand: undefined as string | undefined
+        runCommand: !composeProject ? await this.generateRunCommand(det, b.name) : undefined
       };
 
       if (existing) {
@@ -259,21 +274,206 @@ export class ContainersService {
   }
 
   async checkUpdates(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string): Promise<{ updated: number }> {
+    // 获取主机凭据以进行远程检查
+    const hostCred = await this.getHostCredById(host.id);
+    if (!hostCred) {
+      this.logger.error(`无法获取主机凭据: ${host.id}`);
+      return { updated: 0 };
+    }
+
     const containers = await this.prisma.container.findMany({ where: { hostId: host.id, imageName: { not: null } }, take: 200 });
     let marked = 0;
+    let failed = 0;
+
     for (const c of containers) {
       const imageRef = c.imageTag ? `${c.imageName}:${c.imageTag}` : c.imageName || '';
       if (!imageRef) continue;
-      if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] docker pull ${imageRef}`);
-      const pullRes = await this.docker.exec(host, ['pull', imageRef], 300);
-      if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${pullRes.cmd}\n退出码: ${pullRes.code}`);
-      const digests = await this.docker.inspectImageRepoDigests(host, imageRef);
-      const remote = digests[0] || null;
-      const updateAvailable = !!remote && remote !== c.repoDigest;
-      await this.prisma.container.update({ where: { id: c.id }, data: { remoteDigest: remote, updateAvailable, updateCheckedAt: new Date() } });
-      if (updateAvailable) marked++;
+
+      try {
+        // 从容器的labels中提取平台信息
+        const labels = (c.labels as any) || {};
+        const platform = {
+          architecture: labels['__platform_arch'] || 'amd64',
+          os: labels['__platform_os'] || 'linux'
+        };
+
+        // 使用新的方法检查镜像更新，不会实际拉取镜像，并考虑平台匹配
+        if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] 检查镜像 ${imageRef} 的远程版本 (${platform.architecture}/${platform.os})...`);
+        
+        const updateResult = await this.docker.checkImageUpdate(hostCred, imageRef, c.repoDigest, platform);
+        
+        if (updateResult.error) {
+          // 如果无法获取远程信息，记录警告但继续处理其他容器
+          this.logger.warn(`检查镜像 ${imageRef} 更新失败: ${updateResult.error}`);
+          
+          // 检查是否是速率限制错误
+          if ((updateResult as any).rateLimited) {
+            if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ⚠️ ${imageRef}: Docker Hub 速率限制，已尝试镜像加速器但仍失败`);
+            this.logger.warn(`镜像 ${imageRef} 遇到 Docker Hub 速率限制`);
+          } else {
+            if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ❌ 跳过 ${imageRef}: ${updateResult.error}`);
+          }
+          
+          failed++;
+          
+          // 更新检查时间，但不更新 updateAvailable 状态
+          await this.prisma.container.update({ 
+            where: { id: c.id }, 
+            data: { updateCheckedAt: new Date() } 
+          });
+          continue;
+        }
+
+        const { updateAvailable, remoteDigest } = updateResult;
+        
+        if (opId) {
+          if (updateAvailable) {
+            this.gateway.broadcast(opId, 'data', `[${host.address}] ✓ ${imageRef} 有更新可用 (${platform.architecture}/${platform.os})`);
+          } else {
+            this.gateway.broadcast(opId, 'data', `[${host.address}] ✓ ${imageRef} 已是最新版本 (${platform.architecture}/${platform.os})`);
+          }
+        }
+
+        // 更新数据库中的状态
+        await this.prisma.container.update({ 
+          where: { id: c.id }, 
+          data: { 
+            remoteDigest: remoteDigest || null, 
+            updateAvailable, 
+            updateCheckedAt: new Date() 
+          } 
+        });
+
+        if (updateAvailable) marked++;
+
+      } catch (error) {
+        this.logger.error(`检查容器 ${c.name} (${imageRef}) 更新时发生错误: ${error instanceof Error ? error.message : String(error)}`);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ❌ ${imageRef} 检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
+        failed++;
+        
+        // 即使失败也更新检查时间
+        try {
+          await this.prisma.container.update({ 
+            where: { id: c.id }, 
+            data: { updateCheckedAt: new Date() } 
+          });
+        } catch {}
+      }
     }
+
+    const summary = `检查完成: ${marked} 个可更新, ${failed} 个失败, ${containers.length - marked - failed} 个最新`;
+    if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${summary}`);
+    this.logger.log(`[${host.address}] ${summary}`);
+
     return { updated: marked };
+  }
+
+  async checkSingleContainerUpdate(containerId: string, opId?: string): Promise<{ updated: number; containerName?: string; error?: string }> {
+    try {
+      // 获取容器信息
+      const container = await this.prisma.container.findUnique({ where: { id: containerId } });
+      if (!container) {
+        return { updated: 0, error: '容器不存在' };
+      }
+
+      // 获取主机凭据
+      const hostCred = await this.getHostCredById(container.hostId);
+      if (!hostCred) {
+        return { updated: 0, error: '无法获取主机凭据' };
+      }
+
+      const imageRef = container.imageTag ? `${container.imageName}:${container.imageTag}` : container.imageName || '';
+      if (!imageRef) {
+        return { updated: 0, error: '容器缺少镜像信息' };
+      }
+
+      if (opId) {
+        this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 检查单个容器 ${container.name} 的镜像更新...`);
+      }
+
+      try {
+        // 从容器的labels中提取平台信息
+        const labels = (container.labels as any) || {};
+        const platform = {
+          architecture: labels['__platform_arch'] || 'amd64',
+          os: labels['__platform_os'] || 'linux'
+        };
+
+        // 检查镜像更新
+        if (opId) {
+          this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 检查镜像 ${imageRef} 的远程版本 (${platform.architecture}/${platform.os})...`);
+        }
+        
+        const updateResult = await this.docker.checkImageUpdate(hostCred, imageRef, container.repoDigest, platform);
+        
+        if (updateResult.error) {
+          this.logger.warn(`检查容器 ${container.name} 镜像 ${imageRef} 更新失败: ${updateResult.error}`);
+          
+          // 检查是否是速率限制错误
+          if ((updateResult as any).rateLimited) {
+            if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ⚠️ ${imageRef}: Docker Hub 速率限制，已尝试镜像加速器但仍失败`);
+          } else {
+            if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ❌ ${container.name}: ${updateResult.error}`);
+          }
+          
+          // 更新检查时间，但不更新 updateAvailable 状态
+          await this.prisma.container.update({ 
+            where: { id: container.id }, 
+            data: { updateCheckedAt: new Date() } 
+          });
+          
+          return { updated: 0, containerName: container.name, error: updateResult.error };
+        }
+
+        const { updateAvailable, remoteDigest } = updateResult;
+        
+        if (opId) {
+          if (updateAvailable) {
+            this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ✓ ${container.name} (${imageRef}) 有更新可用 (${platform.architecture}/${platform.os})`);
+          } else {
+            this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ✓ ${container.name} (${imageRef}) 已是最新版本 (${platform.architecture}/${platform.os})`);
+          }
+        }
+
+        // 更新数据库中的状态
+        await this.prisma.container.update({ 
+          where: { id: container.id }, 
+          data: { 
+            remoteDigest: remoteDigest || null, 
+            updateAvailable, 
+            updateCheckedAt: new Date() 
+          } 
+        });
+
+        const result = { updated: updateAvailable ? 1 : 0, containerName: container.name };
+        if (opId) this.gateway.broadcast(opId, 'end', result);
+        
+        return result;
+
+      } catch (error) {
+        this.logger.error(`检查容器 ${container.name} (${imageRef}) 更新时发生错误: ${error instanceof Error ? error.message : String(error)}`);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ❌ ${container.name} 检查失败: ${error instanceof Error ? error.message : '未知错误'}`);
+        
+        // 即使失败也更新检查时间
+        try {
+          await this.prisma.container.update({ 
+            where: { id: container.id }, 
+            data: { updateCheckedAt: new Date() } 
+          });
+        } catch {}
+
+        const result = { updated: 0, containerName: container.name, error: error instanceof Error ? error.message : '未知错误' };
+        if (opId) this.gateway.broadcast(opId, 'end', result);
+        
+        return result;
+      }
+
+    } catch (error) {
+      this.logger.error(`检查单个容器更新时发生系统错误: ${error instanceof Error ? error.message : String(error)}`);
+      const result = { updated: 0, error: `系统错误: ${error instanceof Error ? error.message : '未知错误'}` };
+      if (opId) this.gateway.broadcast(opId, 'end', result);
+      return result;
+    }
   }
 
   async checkUpdatesAny(bodyHost: { id?: string; address?: string; sshUser?: string; port?: number } | { id: 'all' }, opId?: string): Promise<{ updated: number }> {
@@ -339,25 +539,103 @@ export class ContainersService {
       return r;
     }
 
-    // CLI 容器分支（保持现有行为）
+    // CLI 容器分支：先备份，后更新，失败时回滚
+    if (!c.runCommand) {
+      const error = 'CLI容器缺少runCommand，无法更新。请重新发现容器以生成启动命令。';
+      this.logger.error(error);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 错误: ${error}`);
+      const r = { ok: false, reason: 'missing runCommand' };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+
+    // 1. 拉取新镜像
     const pullRes = await this.docker.exec(hostCred as any, ['pull', ref], 300);
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${pullRes.cmd}\n退出码: ${pullRes.code}`);
-    const stopRes = await this.docker.exec(hostCred as any, ['stop', c.containerId], 120);
-    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${stopRes.cmd}\n退出码: ${stopRes.code}`);
-    const rmRes = await this.docker.exec(hostCred as any, ['rm', c.containerId], 120);
-    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${rmRes.cmd}\n退出码: ${rmRes.code}`);
-    // NOTE: 真实场景应保存 runCommand 或 compose up；此处简化
-    if (c.runCommand) {
-      const recreateRes = await this.docker.exec(hostCred as any, [c.runCommand], 300);
-      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${recreateRes.cmd}\n退出码: ${recreateRes.code}`);
+    if (pullRes.code !== 0) {
+      const error = '拉取新镜像失败';
+      this.logger.error(`${error}: ${pullRes.stderr}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 错误: ${error}`);
+      const r = { ok: false, reason: 'pull failed' };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
     }
-    await this.prisma.container.update({ where: { id: c.id }, data: { updateAvailable: false } });
-    // 仅刷新本容器状态
-    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
-    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
-    const r = { ok: true };
-    if (opId) this.gateway.broadcast(opId, 'end', r);
-    return r;
+
+    // 2. 备份旧容器（重命名）
+    const backupName = `${c.name}_backup_${Date.now()}`;
+    const renameRes = await this.docker.exec(hostCred as any, ['rename', c.containerId, backupName], 60);
+    if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${renameRes.cmd}\n退出码: ${renameRes.code}`);
+    if (renameRes.code !== 0) {
+      const error = '备份旧容器失败';
+      this.logger.error(`${error}: ${renameRes.stderr}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 错误: ${error}`);
+      const r = { ok: false, reason: 'backup failed' };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
+
+    // 3. 使用保存的runCommand重新创建容器
+    try {
+      const recreateRes = await this.docker.execShell(hostCred as any, c.runCommand, 300);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${recreateRes.cmd}\n退出码: ${recreateRes.code}`);
+      
+      if (recreateRes.code !== 0) {
+        // 重新创建失败，回滚：删除失败的容器（如果存在），恢复备份
+        this.logger.error(`重新创建容器失败，开始回滚: ${recreateRes.stderr}`);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 重新创建失败，开始回滚...`);
+        
+        // 尝试删除可能创建失败的容器
+        try {
+          await this.docker.exec(hostCred as any, ['rm', '-f', c.name], 60);
+        } catch {}
+        
+        // 恢复备份容器
+        const restoreRes = await this.docker.exec(hostCred as any, ['rename', backupName, c.name], 60);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 回滚: ${restoreRes.cmd}\n退出码: ${restoreRes.code}`);
+        
+        const error = '重新创建容器失败，已回滚到原始状态';
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${error}`);
+        const r = { ok: false, reason: 'recreate failed, rolled back' };
+        if (opId) this.gateway.broadcast(opId, 'end', r);
+        return r;
+      }
+
+      // 4. 重新创建成功，删除备份容器
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 容器重新创建成功，清理备份...`);
+      const cleanupRes = await this.docker.exec(hostCred as any, ['rm', '-f', backupName], 60);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${cleanupRes.cmd}\n退出码: ${cleanupRes.code}`);
+
+      // 5. 更新数据库状态
+      await this.prisma.container.update({ where: { id: c.id }, data: { updateAvailable: false } });
+
+      // 6. 刷新容器状态
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
+      try { await this.refreshStatus(hostCred.id, { containerNames: [c.name] }, opId); } catch {}
+      
+      const r = { ok: true };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+
+    } catch (error) {
+      // 发生异常，尝试回滚
+      this.logger.error(`CLI容器更新过程中发生异常，开始回滚: ${error instanceof Error ? error.message : String(error)}`);
+      if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 异常，开始回滚: ${error instanceof Error ? error.message : String(error)}`);
+      
+      try {
+        // 尝试删除可能创建失败的容器
+        await this.docker.exec(hostCred as any, ['rm', '-f', c.name], 60);
+        // 恢复备份容器
+        const restoreRes = await this.docker.exec(hostCred as any, ['rename', backupName, c.name], 60);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 回滚: ${restoreRes.cmd}\n退出码: ${restoreRes.code}`);
+      } catch (rollbackError) {
+        this.logger.error(`回滚失败: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
+        if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 回滚失败: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
+      }
+
+      const r = { ok: false, reason: 'exception occurred, rolled back' };
+      if (opId) this.gateway.broadcast(opId, 'end', r);
+      return r;
+    }
   }
 
   async restartOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
@@ -460,6 +738,110 @@ export class ContainersService {
     const decKey = this.crypto?.decryptString((h as any)?.sshPrivateKey ?? null) ?? undefined;
     const decPassphrase = this.crypto?.decryptString((h as any)?.sshPrivateKeyPassphrase ?? null) ?? undefined;
     return { id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase };
+  }
+
+  // 生成 CLI 容器的 docker run 命令（基于 docker inspect 信息重建）
+  private async generateRunCommand(inspectData: any, containerName: string): Promise<string | undefined> {
+    try {
+      if (!inspectData || !inspectData.Config) return undefined;
+      
+      const config = inspectData.Config || {};
+      const hostConfig = inspectData.HostConfig || {};
+      const networkSettings = inspectData.NetworkSettings || {};
+      
+      const parts: string[] = ['docker', 'run', '-d'];
+      
+      // 容器名称
+      if (containerName) {
+        parts.push('--name', containerName);
+      }
+      
+      // 重启策略
+      if (hostConfig.RestartPolicy?.Name) {
+        const restartPolicy = hostConfig.RestartPolicy.Name;
+        if (restartPolicy === 'on-failure' && hostConfig.RestartPolicy.MaximumRetryCount) {
+          parts.push('--restart', `${restartPolicy}:${hostConfig.RestartPolicy.MaximumRetryCount}`);
+        } else if (restartPolicy !== 'no') {
+          parts.push('--restart', restartPolicy);
+        }
+      }
+      
+      // 端口映射
+      if (hostConfig.PortBindings) {
+        for (const [containerPort, bindings] of Object.entries(hostConfig.PortBindings)) {
+          if (Array.isArray(bindings) && bindings.length > 0) {
+            const binding = bindings[0] as any;
+            const hostPort = binding.HostPort;
+            const hostIp = binding.HostIp;
+            if (hostPort) {
+              const portMap = hostIp && hostIp !== '0.0.0.0' ? `${hostIp}:${hostPort}:${containerPort}` : `${hostPort}:${containerPort}`;
+              parts.push('-p', portMap);
+            }
+          }
+        }
+      }
+      
+      // 卷挂载
+      if (inspectData.Mounts && Array.isArray(inspectData.Mounts)) {
+        for (const mount of inspectData.Mounts) {
+          if (mount.Type === 'bind') {
+            parts.push('-v', `${mount.Source}:${mount.Destination}${mount.RW === false ? ':ro' : ''}`);
+          } else if (mount.Type === 'volume') {
+            parts.push('-v', `${mount.Name}:${mount.Destination}${mount.RW === false ? ':ro' : ''}`);
+          }
+        }
+      }
+      
+      // 环境变量
+      if (config.Env && Array.isArray(config.Env)) {
+        for (const env of config.Env) {
+          // 跳过系统默认的环境变量
+          if (!env.startsWith('PATH=') && !env.startsWith('HOSTNAME=')) {
+            parts.push('-e', env);
+          }
+        }
+      }
+      
+      // 网络模式
+      if (hostConfig.NetworkMode && hostConfig.NetworkMode !== 'default' && hostConfig.NetworkMode !== 'bridge') {
+        parts.push('--network', hostConfig.NetworkMode);
+      }
+      
+      // 工作目录
+      if (config.WorkingDir) {
+        parts.push('-w', config.WorkingDir);
+      }
+      
+      // 用户
+      if (config.User) {
+        parts.push('-u', config.User);
+      }
+      
+      // 标签
+      if (config.Labels) {
+        for (const [key, value] of Object.entries(config.Labels)) {
+          if (typeof value === 'string' && !key.startsWith('com.docker.compose.')) {
+            parts.push('--label', `${key}=${value}`);
+          }
+        }
+      }
+      
+      // 镜像
+      const image = config.Image || '';
+      if (image) {
+        parts.push(image);
+      }
+      
+      // 启动命令和参数
+      if (config.Cmd && Array.isArray(config.Cmd) && config.Cmd.length > 0) {
+        parts.push(...config.Cmd);
+      }
+      
+      return parts.join(' ');
+    } catch (error) {
+      this.logger.warn(`生成 runCommand 失败: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
   }
 
   // 仅刷新指定容器（或 compose 项目）状态，避免全量扫描
