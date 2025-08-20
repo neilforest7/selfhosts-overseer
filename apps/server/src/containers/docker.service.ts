@@ -741,37 +741,5 @@ export class DockerService {
       return null;
     }
   }
-
-  // 检查是否需要更新，通过比较本地和远程 digest，考虑平台匹配
-  async checkImageUpdate(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, imageRef: string, currentDigest?: string | null, platform?: { architecture?: string; os?: string }): Promise<{ updateAvailable: boolean; remoteDigest?: string; error?: string }> {
-    // 获取远程 manifest，考虑平台信息
-    const manifestResult = await this.inspectRemoteManifest(host, imageRef, platform);
-    
-    if (manifestResult.error) {
-      return { updateAvailable: false, error: manifestResult.error };
-    }
-
-    const remoteDigest = manifestResult.digest;
-    if (!remoteDigest) {
-      return { updateAvailable: false, error: '无法获取远程镜像 digest' };
-    }
-
-    // 使用提供的当前 digest
-    let localDigest = currentDigest;
-    if (!localDigest) {
-      // 如果没有提供当前 digest，尝试获取本地镜像的 digest
-      const localDigests = await this.inspectImageRepoDigests(host, imageRef);
-      localDigest = localDigests[0] || null;
-    }
-
-    // 比较 digest
-    const updateAvailable = Boolean(localDigest && remoteDigest && localDigest !== remoteDigest);
-    
-    return {
-      updateAvailable,
-      remoteDigest,
-      error: undefined
-    };
-  }
 }
 

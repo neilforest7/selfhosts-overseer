@@ -1,0 +1,26 @@
+
+> selfhost-serv-agent@0.1.0 dev
+> concurrently -k -n web,server -c green,blue "npm --workspace apps/web run dev" "npm --workspace apps/server run start:dev"
+
+[server] 
+[server] > @selfhost-serv-agent/server@0.1.0 start:dev
+[server] > ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts
+[server] 
+[web] 
+[web] > @selfhost-serv-agent/web@0.1.0 dev
+[web] > next dev -p 3012
+[web] 
+[server] [INFO] 18:51:47 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.2)
+[web]  ⨯ Failed to start server
+[web] Error: listen EADDRINUSE: address already in use :::3012
+[web]     at <unknown> (Error: listen EADDRINUSE: address already in use :::3012)
+[web]     at new Promise (<anonymous>) {
+[web]   code: 'EADDRINUSE',
+[web]   errno: -98,
+[web]   syscall: 'listen',
+[web]   address: '::',
+[web]   port: 3012
+[web] }
+[web] [?25h
+[web] npm --workspace apps/web run dev exited with code 0
+--> Sending SIGTERM to other processes..

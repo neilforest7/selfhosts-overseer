@@ -88,7 +88,7 @@ export class LogsService {
         setImmediate(() => {
           // 这里不能直接访问 this，需要通过全局实例
           if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('info', fullMessage, 'application', { source: 'nestjs', context }).catch(() => {});
+            global.logsServiceInstance.addLog('info', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
@@ -104,7 +104,7 @@ export class LogsService {
       if (context !== 'LogsService') {
         setImmediate(() => {
           if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('error', errorMessage, 'application', { source: 'nestjs', context, trace }).catch(() => {});
+            global.logsServiceInstance.addLog('error', errorMessage, 'application', { source: 'nestjs', metadata: { context, trace } }).catch(() => {});
           }
         });
       }
@@ -119,7 +119,7 @@ export class LogsService {
       if (context !== 'LogsService') {
         setImmediate(() => {
           if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('warn', fullMessage, 'application', { source: 'nestjs', context }).catch(() => {});
+            global.logsServiceInstance.addLog('warn', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
@@ -134,7 +134,7 @@ export class LogsService {
       if (context !== 'LogsService') {
         setImmediate(() => {
           if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('debug', fullMessage, 'application', { source: 'nestjs', context }).catch(() => {});
+            global.logsServiceInstance.addLog('debug', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
@@ -149,7 +149,7 @@ export class LogsService {
       if (context !== 'LogsService') {
         setImmediate(() => {
           if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('debug', fullMessage, 'application', { source: 'nestjs', context }).catch(() => {});
+            global.logsServiceInstance.addLog('debug', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
@@ -310,7 +310,7 @@ export class LogsService {
         await this.addLog('info', `运行进程数: ${processes.trim()} 个进程`, 'system', { source: 'processes' });
       } catch {}
 
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn('生成系统状态日志时出错:', error);
     }
   }
@@ -338,7 +338,7 @@ export class LogsService {
           await this.addLog('info', `从 ${source} 收集了 ${logLines.length} 条日志`, 'system', { source: 'collector' });
           break; // 成功收集一个源后就停止
         }
-      } catch (error) {
+      } catch (error: any) {
         this.logger.debug(`无法从 ${source} 收集日志:`, error.message);
       }
     }
@@ -364,7 +364,7 @@ export class LogsService {
             `${log.ts.toISOString()} [${log.level.toUpperCase()}] ${log.source || 'system'} ${log.content}`
           ).reverse(); // 时间正序
         }
-      } catch (error) {
+      } catch (error: any) {
         this.logger.warn('Failed to query system logs from database:', error);
       }
 
@@ -394,7 +394,7 @@ export class LogsService {
             `${log.ts.toISOString()} [${log.level.toUpperCase()}] ${log.source || 'system'} ${log.content}`
           ).reverse();
         }
-      } catch (error) {
+      } catch (error: any) {
         this.logger.warn('Failed to query system logs after collection:', error);
       }
       
@@ -410,7 +410,7 @@ export class LogsService {
     try {
       // 本地 Docker 信息
       try {
-        const { stdout: dockerPs } = await execAsync('docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Image}}" | head -10');
+        const { stdout: dockerPs } = await execAsync('docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" | head -10');
         const lines = dockerPs.split('\n').filter(l => l.trim() && !l.includes('NAMES'));
         
         await this.addLog('info', `本地运行容器数量: ${lines.length} 个`, 'container', { source: 'docker' });
@@ -418,7 +418,7 @@ export class LogsService {
         for (const line of lines.slice(0, 5)) { // 只显示前5个
           await this.addLog('info', `容器状态: ${line.trim()}`, 'container', { source: 'docker' });
         }
-      } catch (error) {
+      } catch (error: any) {
         await this.addLog('warn', `无法获取本地 Docker 信息: ${error.message}`, 'container', { source: 'docker' });
       }
 
@@ -427,13 +427,13 @@ export class LogsService {
         // 模拟获取分布式容器统计（实际应该从容器服务获取）
         await this.addLog('info', '容器管理模块运行正常', 'container', { source: 'containers' });
         await this.addLog('info', '定时检查器已启动', 'container', { source: 'containers' });
-      } catch (error) {
+      } catch (error: any) {
         await this.addLog('error', `容器管理模块异常: ${error.message}`, 'container', { source: 'containers' });
       }
 
       // Docker 网络信息
       try {
-        const { stdout: networks } = await execAsync('docker network ls --format "{{.Name}}\\t{{.Driver}}" | wc -l');
+        const { stdout: networks } = await execAsync('docker network ls --format "{{.Name}}\t{{.Driver}}" | wc -l');
         await this.addLog('info', `Docker 网络数量: ${networks.trim()} 个`, 'container', { source: 'docker' });
       } catch {}
 
@@ -443,7 +443,7 @@ export class LogsService {
         await this.addLog('info', `本地镜像数量: ${images.trim()} 个`, 'container', { source: 'docker' });
       } catch {}
 
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn('生成容器状态日志时出错:', error);
     }
   }
@@ -467,7 +467,7 @@ export class LogsService {
           `${log.ts.toISOString()} [${log.level.toUpperCase()}] ${log.source || 'containers'} ${log.content}`
         ).reverse(); // 反转为时间正序
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to query container logs from database:', error);
     }
 
@@ -540,7 +540,7 @@ export class LogsService {
       // 3. 临时保留内存缓冲区（向后兼容）
       this.addToBuffer(level, message, options.source);
 
-    } catch (error) {
+    } catch (error: any) {
       // 如果数据库写入失败，至少保留到内存
       console.error('Failed to write to SystemLog:', error);
       this.addToBuffer(level, message, options.source);
