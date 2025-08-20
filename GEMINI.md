@@ -34,6 +34,8 @@ npm run dev
 ```
 
 This will start both the frontend and backend applications in watch mode.
+Usually the frontend and backend applications are already running in background.
+Use context7 MCP server any time you need documentation for external services.
 
 **Building:**
 

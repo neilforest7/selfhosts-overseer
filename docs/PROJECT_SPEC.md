@@ -112,6 +112,8 @@
 - `ReverseProxyRoute`：id、hostId、provider('npm')、type('http'|'stream'|'redirect')、vpsName?、domain、forwardHost?、forwardPort?、enabled、certificateId?、certExpiresAt?、rawAdvancedConfig?、lastSyncedAt?
 - `Certificate`：id、provider、cn、sans[]、issuer?、notBefore?、notAfter?、autoRenew、lastSyncedAt?、createdAt
 - `HostNpmConfig`：hostId(id)、enabled、dbType('sqlite'|'mysql')、connectionMode('container-local')、containerName?、sqlitePath（默认 `/data/database.sqlite`）、mysqlUseContainerEnv（从容器 `DB_MYSQL_*` 读取）、updatedAt
+- `FrpsConfig`：id、hostId、containerId、bindPort?、vhostHttpPort?、vhostHttpsPort?、subdomainHost?、rawConfig(Json?)、lastSyncedAt?
+- `FrpcProxy`：id、hostId、containerId、frpsConfigId、name、type('tcp'|'udp'|'http'|'https'|'stcp'|'xtcp')、localIp、localPort、remotePort、subdomain?、customDomains[]、rawConfig(Json?)、lastSyncedAt?
 
 ### 七、API 概览（对前端、n8n、AI Agent）
 - Hosts：GET/POST/PATCH/DELETE `/api/v1/hosts`；POST `/api/v1/hosts/:id/test-connection`
@@ -120,6 +122,7 @@
 - 日志：GET `/api/v1/logs/application|system|docker`
 - 容器：GET `/api/v1/containers`（支持 hostId/hostName/q/updateAvailable/composeManaged）；POST `discover|check-updates|:id/update|:id/restart|compose/operate|refresh-status|cleanup-duplicates|purge`
 - 反向代理：GET `/api/v1/reverse-proxy/routes?hostId=`；证书：GET `/api/v1/certificates`
+- FRP：GET `/api/v1/frp/configs`；POST `/api/v1/frp/sync/:hostId`
 - 设置：GET/PUT `/api/v1/settings`；健康：GET `/api/v1/health`
 
 ### 八、部署与运行
@@ -176,7 +179,105 @@
 - cAdvisor：默认关闭，可“一键启用”
   注：以上均可在 Web 前端“设置 → 调度与并发”中修改并持久化。
 
-### 十三、非功能与未来规划
+### 十三、网络拓扑图自动生成（规划）
+
+#### 1. 目标
+自动生成一个可视化的网络拓扑图，清晰展示所有受管主机、容器、对外域名以及它们之间的连接关系，特别是 `frp` 穿透和 `Nginx Proxy Manager` (NPM) 的反向代理流量。
+
+#### 2. 实现计划
+
+##### 阶段一：后端 - 数据采集与整合 API
+
+1.  **创建新的 API 端点**:
+    -   创建一个只读的 API 端点，例如 `GET /api/v1/topology/graph-data`。
+    -   此端点将负责从数据库中查询所有相关信息，并将其处理成前端 `React Flow` 库所需的格式（节点 `nodes` 和边 `edges`）。
+
+2.  **数据源**:
+    -   **主机 (Hosts)**: 从 `Host` 表获取，作为图中的一级节点（物理或虚拟服务器）。
+    -   **容器 (Containers)**: 从 `Container` 表获取，作为二级节点，嵌套在对应的主机节点内。容器的 `ports` 字段至关重要，用于展示端口映射。
+    -   **反向代理路由 (Reverse Proxy Routes)**: 从 `ReverseProxyRoute` 表获取，这是连接公网域名和内部服务的关键。
+    -   **FRP 配置**: 从新增的 `FrpsConfig` 和 `FrpcProxy` 表获取。
+
+3.  **数据处理逻辑**:
+    -   **节点 (Nodes) 生成**:
+        -   为每个 `Host` 创建一个“主机”类型的父节点。
+        -   为每个 `Container` 创建一个“容器”类型的子节点，并关联到其 `hostId` 对应的主机节点。
+        -   为每个唯一的 `domain` (来自 `ReverseProxyRoute`) 创建一个“域名”类型的入口节点。
+        -   为 `Nginx Proxy Manager` 和 `frp` 服务（`frps` / `frpc`）创建特定的“服务”类型节点。
+    -   **边 (Edges) 生成（连接关系）**:
+        -   **公网访问**: 创建从“域名”节点到 `NPM` 节点的边。
+        -   **直接反代**: 如果 `ReverseProxyRoute` 的 `forwardHost` 指向的容器与 `NPM` 在同一个主机上，则创建从 `NPM` 到目标容器的直接连线。
+        -   **FRP 穿透**:
+            -   **识别**: 当 `ReverseProxyRoute` 的 `forwardHost` 指向一个 `frps` 实例的 `vhost_http_port` 或 `vhost_https_port` 时，判定为 FRP 流量。
+            -   **流向**:
+                1.  创建从 `NPM` 节点到公网 VPS 上的 `frps` 服务节点的边。
+                2.  根据 `FrpcProxy` 和 `FrpsConfig` 的匹配关系，创建一条虚线或特殊样式的边，从 `frps` (公网) 到内部主机上的 `frpc` 服务节点，代表 FRP 隧道。
+                3.  创建从 `frpc` 节点到内部网络上目标容器的边（基于 `local_ip` 和 `local_port`）。
+
+##### 阶段二：数据模型增强
+
+1.  **增强 `Host` 模型**:
+    -   在 `prisma/schema.prisma` 的 `Host` 模型中，增加一个 `role` 字段，例如：
+        ```prisma
+        model Host {
+          // ... existing fields
+          role String? // e.g., 'public-vps', 'internal-node'
+        }
+        ```
+    -   **目的**: 明确标识公网 VPS 和内部节点，使 FRP 隧道的识别更准确。
+2.  **新增 `frp` 相关模型**:
+    -   见上文“数据模型”部分新增的 `FrpsConfig` 和 `FrpcProxy` 模型。
+
+##### 阶段三：前端 - 可视化呈现
+
+1.  **创建拓扑页面**:
+    -   利用 `apps/web/app/topology/page.tsx` 页面。
+    -   使用 `React Query` 从 `/api/v1/topology/graph-data` 端点异步获取图数据。
+
+2.  **渲染拓扑图**:
+    -   使用 `React Flow` 库来渲染节点和边。
+    -   **节点样式**: 为不同类型的节点（主机, 容器, 域名, NPM, frps, frpc）定义不同的样式、颜色或图标。
+    -   **布局**: 使用布局算法插件（如 Dagre）自动排列节点。
+    -   **交互性**: 点击节点可显示详细信息。
+
+#### 3. 最终效果
+用户将看到一个自动生成的全局网络架构图，清晰展示：
+-   公网域名如何通过 NPM 代理。
+-   流量是直接流向公网 VPS 上的容器，还是通过 FRP 隧道穿透到内部网络。
+-   每个主机上运行了哪些容器及其端口暴露情况。
+
+### 十四、FRP 配置发现与同步（规划）
+
+#### 1. 目标
+自动发现并解析所有主机上的 `frps` 和 `frpc` 容器的配置文件，提取其监听端口和代理规则，并将这些关系存储到数据库中，为网络拓扑图提供数据支持。
+
+#### 2. 实现步骤
+
+1.  **发现 frp 容器**:
+    -   在 `ContainersService` 的 `discoverOnHost` 流程中，增加一个步骤来识别 `frps` 和 `frpc` 容器。
+    -   **识别方法**: 通过容器镜像名称（如 `snowdreamtech/frps`, `snowdreamtech/frpc`）或容器名称中包含 `frps` / `frpc` 来识别。
+
+2.  **定位并读取配置文件**:
+    -   对于已识别的 `frp` 容器，执行 `docker inspect`。
+    -   从 `Mounts` 部分解析出配置文件的挂载路径，找到它在主机上的绝对路径（例如，`/etc/frp/frps.ini` -> `/var/lib/docker/volumes/frp_data/_data/frps.ini`）。
+    -   使用 SSH `cat` 命令读取主机上的配置文件内容。
+
+3.  **解析配置文件**:
+    -   在后端创建一个新的服务（例如 `FrpService`）来处理 `frp` 的逻辑。
+    -   实现一个 `.ini` 或 `.toml` 格式的解析器（可以使用现有的 npm 库，如 `ini`）。
+    -   **解析 `frps.ini`**: 提取 `[common]` 部分的 `bind_port`, `vhost_http_port`, `vhost_https_port`, `subdomain_host` 等关键信息。
+    -   **解析 `frpc.ini`**: 提取 `[common]` 部分的 `server_addr`, `server_port`，并遍历所有代理规则（如 `[web]`, `[ssh]`），提取 `type`, `local_ip`, `local_port`, `remote_port`, `subdomain`, `custom_domains` 等。
+
+4.  **存储与关联**:
+    -   将解析出的 `frps` 配置存入 `FrpsConfig` 表。
+    -   将 `frpc` 的代理规则存入 `FrpcProxy` 表。
+    -   通过 `frpc` 的 `server_addr` 和 `server_port`，将其与对应的 `FrpsConfig` 记录关联起来（设置 `frpsConfigId`）。
+
+5.  **触发机制**:
+    -   此同步过程应在每次容器发现 (`discoverOnHost`) 成功后自动触发。
+    -   同时，创建一个新的 API 端点 `POST /api/v1/frp/sync/:hostId`，允许用户手动触发对单个主机的 `frp` 配置同步。
+
+### 十五、非功能与未来规划
 - 未来可选：
   - 危险命令防护开关（黑白名单/提示）
   - 私有镜像仓库凭证（GHCR/Harbor）
