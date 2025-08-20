@@ -1,63 +1,48 @@
-- name: prom/node-exporter:latest
+- name: ghcr.io/dgtlmoon/changedetection.io:latest
   labels:
-    diun.provider: cmegazq4x002hyyni9ehb5ona
-- name: prom/blackbox-exporter:latest
+    diun.provider: cmejule06002d23rifj8w7liq
+- name: dgtlmoon/sockpuppetbrowser:latest
   labels:
-    diun.provider: cmegazoli002gyyni7c6j1oxj
-- name: neilforest/cloudflare-hosts-updater:latest
+    diun.provider: cmejulice002e23ri5hlt1nor
+- name: freshrss/freshrss:latest
   labels:
-    diun.provider: cmegb014y002oyyni3510ep5r
-- name: jxxghp/moviepilot-v2:latest
+    diun.provider: cmejumh1w002j23rid7xgb1r4
+- name: danielszabo99/microbin:latest
   labels:
-    diun.provider: cmegazeob002ayynig9mmb4ch
-- name: jesec/flood:master
+    diun.provider: cmejukaty002623ribagbt5qd
+- name: ghcr.io/nezhahq/nezha:latest
   labels:
-    diun.provider: cmegaztb9002jyynixx1u6gll
-- name: lscr.io/linuxserver/qbittorrent:latest
+    diun.provider: cmejumlw0002k23ric3a6unex
+- name: jc21/nginx-proxy-manager:latest
   labels:
-    diun.provider: cmegazxy4002myynim32pkzuv
-- name: metacubex/mihomo:Alpha
+    diun.provider: cmejulanb002c23ricyqm83kq
+- name: xream/sub-store:latest
   labels:
-    diun.provider: cmegb0982002xyyniwh2u0fbc
-- name: ghcr.io/gethomepage/homepage:latest
-  labels:
-    diun.provider: cmegazjfa002dyynipashtzs6
+    diun.provider: cmejul25k002a23riykdmvqao
 - name: victoriametrics/vmagent:latest
   labels:
-    diun.provider: cmegazn0y002fyynims0uywv4
-- name: ghcr.io/metatube-community/metatube-server:latest
+    diun.provider: cmejukxll002923ri3lnmb14p
+- name: prom/blackbox-exporter:latest
   labels:
-    diun.provider: cmegazhuo002cyynifdmedvy7
-- name: louislam/uptime-kuma:latest
+    diun.provider: cmejul5wz002b23ris6dldcx3
+- name: prom/node-exporter:latest
   labels:
-    diun.provider: cmegb02rp002tyynivo0v0xtv
-- name: ghcr.io/metacubex/metacubexd:latest
+    diun.provider: cmejumqcg002l23ri8wcjf1jr
+- name: bellamy/wallos:latest
   labels:
-    diun.provider: cmegb07mm002wyyni7s1wd9r7
-- name: easychen/cookiecloud:latest
+    diun.provider: cmejukf2x002723ri414hl54a
+- name: snowdreamtech/frps:latest
   labels:
-    diun.provider: cmegazd3d0029yyni45g1r6io
-- name: ghcr.io/gotson/komga:latest
+    diun.provider: cmejukit7002823rimsbqi0xp
+- name: ddsderek/wxchat:latest
   labels:
-    diun.provider: cmegazweb002lyyni49f2byfw
-- name: ghcr.io/home-assistant/home-assistant:stable
+    diun.provider: cmejum100002f23riz3e7v1k7
+- name: neilforest/subconverter-frontend:latest
   labels:
-    diun.provider: cmegazro8002iyyni5gh4oimz
-- name: badapple9/speedtest-x:latest
+    diun.provider: cmejum5qy002g23ri662ww08k
+- name: tindy2013/subconverter:latest
   labels:
-    diun.provider: cmegazlgh002eyynia1rzyox2
-- name: lscr.io/linuxserver/code-server:latest
+    diun.provider: cmejum977002h23ri6vz3ucnm
+- name: corentinth/it-tools:latest
   labels:
-    diun.provider: cmegb04c9002uyynipp4kk9n4
-- name: vaultwarden/server:latest
-  labels:
-    diun.provider: cmegazg9p002byynioaedwxbz
-- name: liwei2633/gopeed:latest
-  labels:
-    diun.provider: cmegazuuz002kyyni8ejmsvi1
-- name: iyuucn/iyuuplus-dev:latest
-  labels:
-    diun.provider: cmegazzhk002nyynix7azoocp
-- name: snowdreamtech/frpc:latest
-  labels:
-    diun.provider: cmegb05wu002vyyni8lzpr1ui
+    diun.provider: cmejumdbx002i23ri489suvz9

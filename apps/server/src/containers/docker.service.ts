@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { spawn } from 'node:child_process';
-import { SshService } from '../ssh/ssh.service';
+import { SshService, SshExecOptions } from '../ssh/ssh.service';
 import { SettingsService } from '../settings/settings.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -59,7 +59,7 @@ export class DockerService {
 
       // 尝试登录 Docker Hub
       const loginCmd = `echo "${appSettings.dockerCredentialsPersonalAccessToken}" | docker login --username "${appSettings.dockerCredentialsUsername}" --password-stdin`;
-      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, 60);
+      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, { timeoutSec: 60 });
       
       if (loginCode === 0) {
         console.log(`[Docker凭证] 登录成功: ${host.address}`);
@@ -104,7 +104,7 @@ export class DockerService {
           });
           
           // 如果找不到主机信息或主机标签不包含 "local"，则不应用代理
-          if (!host || !host.tags || !host.tags.some(tag => tag.toLowerCase().includes('local'))) {
+          if (!host || !host.tags || !host.tags.some((tag: string) => tag.toLowerCase().includes('local'))) {
             return '';
           }
         } catch (dbError) {
@@ -142,37 +142,49 @@ export class DockerService {
     }
   }
 
-  async execShell(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, shellCommand: string, timeoutSec = 60): Promise<{ code: number; stdout: string; stderr: string; cmd: string }> {
+  async execShell(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, shellCommand: string, options: SshExecOptions = {}): Promise<{ code: number; stdout: string | Buffer; stderr: string | Buffer; cmd: string }> {
     const isLocal = host.address === '127.0.0.1' || host.address === 'localhost';
-    const escaped = shellCommand.replace(/'/g, "'\"'\"'");
-    const wrapped = `sh -lc '${escaped}'`;
+    const timeoutSec = options.timeoutSec || 60;
+    const encoding = options.encoding || 'utf8';
+
     if (isLocal) {
       return new Promise((resolve) => {
-        const p = spawn('sh', ['-lc', shellCommand]);
-        let stdout = '';
-        let stderr = '';
+        const p = spawn('sh', ['-c', shellCommand]);
+        const stdoutChunks: Buffer[] = [];
+        const stderrChunks: Buffer[] = [];
         const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} }, timeoutSec * 1000);
-        p.stdout.setEncoding('utf8');
-        p.stderr.setEncoding('utf8');
-        p.stdout.on('data', (d) => (stdout += d));
-        p.stderr.on('data', (d) => (stderr += d));
-        p.on('exit', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr, cmd: `sh -lc '${escaped}'` }); });
-        p.on('error', () => { clearTimeout(timer); resolve({ code: 1, stdout, stderr, cmd: `sh -lc '${escaped}'` }); });
+        
+        p.stdout.on('data', (d) => stdoutChunks.push(d));
+        p.stderr.on('data', (d) => stderrChunks.push(d));
+
+        p.on('exit', (code) => { 
+          clearTimeout(timer);
+          const stdout = encoding === 'utf8' ? Buffer.concat(stdoutChunks).toString('utf8') : Buffer.concat(stdoutChunks);
+          const stderr = encoding === 'utf8' ? Buffer.concat(stderrChunks).toString('utf8') : Buffer.concat(stderrChunks);
+          resolve({ code: code ?? 1, stdout, stderr, cmd: shellCommand }); 
+        });
+        p.on('error', (err) => { 
+          clearTimeout(timer);
+          const stderr = Buffer.from(err.message);
+          resolve({ code: 1, stdout: Buffer.alloc(0), stderr: encoding === 'utf8' ? stderr.toString('utf8') : stderr, cmd: shellCommand }); 
+        });
       });
     }
+
     const res = await this.ssh.executeCapture({
       host: host.address,
       user: host.sshUser,
       port: host.port,
-      command: wrapped,
+      command: shellCommand,
       connectTimeoutSeconds: Math.min(30, Math.max(5, Math.floor(timeoutSec / 2))),
       killAfterSeconds: timeoutSec,
       hostKeyCheckingMode: 'yes',
       password: host.password,
       privateKey: host.privateKey,
-      privateKeyPassphrase: host.privateKeyPassphrase
+      privateKeyPassphrase: host.privateKeyPassphrase,
+      encoding,
     });
-    const cmd = `ssh -o StrictHostKeyChecking=yes ${host.sshUser}@${host.address} -- ${wrapped}`;
+    const cmd = `ssh ${host.sshUser}@${host.address} -- ${shellCommand}`;
     return { code: res.code, stdout: res.stdout, stderr: res.stderr, cmd };
   }
 
@@ -219,7 +231,7 @@ export class DockerService {
       privateKeyPassphrase: host.privateKeyPassphrase
     });
     const cmd = `ssh -o StrictHostKeyChecking=yes ${host.sshUser}@${host.address} -- ${wrapped}`;
-    return { code: res.code, stdout: res.stdout, stderr: res.stderr, cmd };
+    return { code: res.code, stdout: res.stdout.toString(), stderr: res.stderr.toString(), cmd };
   }
 
   // 带重试机制的执行方法，用于处理网络连接错误
@@ -410,7 +422,7 @@ export class DockerService {
             });
             
             if (matchedManifest) {
-              return { 
+    return {
                 digest: matchedManifest.digest,
                 manifestDigest: matchedManifest.digest 
               };

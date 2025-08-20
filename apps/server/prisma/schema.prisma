@@ -113,19 +113,26 @@ model Container {
 }
 
 model ReverseProxyRoute {
-  id             String   @id @default(cuid())
-  hostId         String
-  provider       String   // "npm"
-  type           String   // http/stream/redirect
-  vpsName        String?
-  domain         String
-  forwardHost    String?
-  forwardPort    Int?
-  enabled        Boolean  @default(true)
-  certificateId  String?
-  certExpiresAt  DateTime?
-  rawAdvancedConfig String?
-  lastSyncedAt   DateTime?
+  id                  String    @id @default(cuid())
+  hostId              String
+  provider            String // "npm"
+  type                String // http/stream/redirect
+  domain              String
+  forwardHost         String?
+  forwardPort         Int?
+  enabled             Boolean   @default(true)
+  certificateId       String?
+  certExpiresAt       DateTime?
+  sslForced           Boolean   @default(false)
+  hstsEnabled         Boolean   @default(false)
+  hstsSubdomains      Boolean   @default(false)
+  http2Support        Boolean   @default(false)
+  allowWebsocketUpgrade Boolean @default(false)
+  blockExploits       Boolean   @default(false)
+  cachingEnabled      Boolean   @default(false)
+  lastSyncedAt        DateTime?
+
+  @@unique([hostId, domain])
 }
 
 model Certificate {
@@ -160,5 +167,35 @@ model ComposeProject {
   configFiles        String[]
   effectiveConfigHash String?
   lastSyncedAt       DateTime?
+}
+
+model FrpsConfig {
+  id             String      @id @default(cuid())
+  hostId         String
+  containerId    String
+  bindPort       Int?
+  vhostHttpPort  Int?
+  vhostHttpsPort Int?
+  subdomainHost  String?
+  rawConfig      Json?
+  lastSyncedAt   DateTime?
+  proxies        FrpcProxy[]
+}
+
+model FrpcProxy {
+  id             String     @id @default(cuid())
+  hostId         String
+  containerId    String
+  frpsConfigId   String
+  name           String
+  type           String
+  localIp        String
+  localPort      Int
+  remotePort     Int
+  subdomain      String?
+  customDomains  String[]
+  rawConfig      Json?
+  lastSyncedAt   DateTime?
+  frps           FrpsConfig @relation(fields: [frpsConfigId], references: [id], onDelete: Cascade)
 }
 

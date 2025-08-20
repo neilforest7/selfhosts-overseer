@@ -217,6 +217,51 @@ export default function ContainersSection() {
     }
   });
 
+  const analyzeNpm = useMutation({
+    mutationFn: async (hostId: string) => {
+      const r = await fetch(`http://localhost:3001/api/v1/reverse-proxy/sync/${hostId}`, {
+        method: 'POST',
+      });
+      if (!r.ok) throw new Error('分析请求失败');
+      return r.json();
+    },
+    onMutate: (hostId) => {
+      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
+      toast.info(`开始分析 ${hostName} 上的 NPM...`);
+    },
+    onSuccess: (data, hostId) => {
+      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
+      toast.success(`NPM 分析完成：${hostName}`);
+      qc.invalidateQueries({ queryKey: ['reverse-proxy-routes'] }); // Assuming this is the query key for routes
+    },
+    onError: (err: any, hostId) => {
+      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
+      toast.error(`NPM 分析失败：${hostName} - ${err?.message || '未知错误'}`);
+    }
+  });
+
+  const analyzeFrp = useMutation({
+    mutationFn: async (hostId: string) => {
+      const r = await fetch(`http://localhost:3001/api/v1/frp/sync/${hostId}`, {
+        method: 'POST',
+      });
+      if (!r.ok) throw new Error('分析请求失败');
+      return r.json();
+    },
+    onMutate: (hostId) => {
+      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
+      toast.info(`开始分析 ${hostName} 上的 FRP...`);
+    },
+    onSuccess: (data, hostId) => {
+      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
+      toast.success(`FRP 分析完成：${hostName}`);
+    },
+    onError: (err: any, hostId) => {
+      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
+      toast.error(`FRP 分析失败：${hostName} - ${err?.message || '未知错误'}`);
+    }
+  });
+
   useEffect(() => {
     if (!opOpen || !opId) return;
     const s = io('http://localhost:3001', { transports: ['websocket'] });
@@ -632,6 +677,12 @@ export default function ContainersSection() {
                             }
                           }
                         }}>检查更新</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => analyzeNpm.mutate(first.hostId)}>
+                          分析npm
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => analyzeFrp.mutate(first.hostId)}>
+                          分析frp
+                        </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

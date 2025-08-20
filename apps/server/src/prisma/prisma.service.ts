@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
+  [x: string]: any;
   constructor() {
     const url =
       process.env.DATABASE_URL ||

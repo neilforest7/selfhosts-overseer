@@ -5,6 +5,7 @@ import { ExecGateway } from '../realtime/exec.gateway';
 import { CryptoService } from '../security/crypto.service';
 import { DiunService } from '../diun/diun.service';
 import { LogsService } from '../logs/logs.service';
+import { FrpService } from '../frp/frp.service';
 
 @Injectable()
 export class ContainersService {
@@ -16,6 +17,7 @@ export class ContainersService {
     private readonly crypto: CryptoService,
     private readonly logs: LogsService,
     private readonly diun: DiunService,
+    private readonly frpService: FrpService,
   ) {}
 
   async list(params: { hostId?: string; hostName?: string; q?: string; updateAvailable?: boolean | undefined; isComposeManaged?: boolean | undefined }) {
@@ -239,6 +241,12 @@ export class ContainersService {
         });
       }
     } catch {} // Ignore errors during cleanup
+
+    // Trigger FRP sync after discovery
+    this.frpService.syncFrpFromHost(host.id).catch(err => {
+      this.logger.error(`Error triggering FRP sync for host ${host.id}`, err);
+    });
+
     return upserted;
   }
 
