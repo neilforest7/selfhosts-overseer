@@ -12,8 +12,13 @@ export class ContainerCheckerProcessor {
   // 占位：每日 00:45 检查更新（后续可切到 BullMQ）
   @Cron('45 0 * * *')
   async checkUpdatesDaily(): Promise<void> {
-    this.logger.log('Running daily container update check');
-    // 这里预留：扫描 DB 中容器，并标记 updateAvailable（与远程 digest 对比）
+    this.logger.log('Running daily container update check for all hosts.');
+    try {
+      await this.containers.checkUpdatesAny({ id: 'all' });
+      this.logger.log('Daily container update check finished.');
+    } catch (e) {
+      this.logger.error(`Daily container update check failed: ${String(e)}`);
+    }
   }
 
   // 每 10 分钟清理重复容器记录（同 hostId + containerId）

@@ -9,9 +9,10 @@ import { CryptoService } from '../security/crypto.service';
 import { SshModule } from '../ssh/ssh.module';
 import { LogsModule } from '../logs/logs.module';
 import { SettingsModule } from '../settings/settings.module';
+import { DiunModule } from '../diun/diun.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), SshModule, LogsModule, SettingsModule],
+  imports: [ScheduleModule.forRoot(), SshModule, LogsModule, SettingsModule, DiunModule],
   controllers: [ContainersController],
   providers: [ContainersService, ContainerCheckerProcessor, DockerService, ExecGateway, CryptoService]
 })

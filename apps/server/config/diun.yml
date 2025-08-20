@@ -1,0 +1,14 @@
+watch:
+  workers: 10
+  schedule: 0 * * * *
+  runOnStartup: false
+notif:
+  webhook:
+    endpoint: http://127.0.0.1:3000/api/diun/notify
+    method: POST
+    headers:
+      Content-Type: application/json
+    timeout: 10s
+providers:
+  file:
+    filename: /opt/selfhost-serv-agent/apps/server/config/diun-images.yml

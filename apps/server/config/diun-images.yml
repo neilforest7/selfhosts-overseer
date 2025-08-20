@@ -1,0 +1,63 @@
+- name: prom/node-exporter:latest
+  labels:
+    diun.provider: cmegazq4x002hyyni9ehb5ona
+- name: prom/blackbox-exporter:latest
+  labels:
+    diun.provider: cmegazoli002gyyni7c6j1oxj
+- name: neilforest/cloudflare-hosts-updater:latest
+  labels:
+    diun.provider: cmegb014y002oyyni3510ep5r
+- name: jxxghp/moviepilot-v2:latest
+  labels:
+    diun.provider: cmegazeob002ayynig9mmb4ch
+- name: jesec/flood:master
+  labels:
+    diun.provider: cmegaztb9002jyynixx1u6gll
+- name: lscr.io/linuxserver/qbittorrent:latest
+  labels:
+    diun.provider: cmegazxy4002myynim32pkzuv
+- name: metacubex/mihomo:Alpha
+  labels:
+    diun.provider: cmegb0982002xyyniwh2u0fbc
+- name: ghcr.io/gethomepage/homepage:latest
+  labels:
+    diun.provider: cmegazjfa002dyynipashtzs6
+- name: victoriametrics/vmagent:latest
+  labels:
+    diun.provider: cmegazn0y002fyynims0uywv4
+- name: ghcr.io/metatube-community/metatube-server:latest
+  labels:
+    diun.provider: cmegazhuo002cyynifdmedvy7
+- name: louislam/uptime-kuma:latest
+  labels:
+    diun.provider: cmegb02rp002tyynivo0v0xtv
+- name: ghcr.io/metacubex/metacubexd:latest
+  labels:
+    diun.provider: cmegb07mm002wyyni7s1wd9r7
+- name: easychen/cookiecloud:latest
+  labels:
+    diun.provider: cmegazd3d0029yyni45g1r6io
+- name: ghcr.io/gotson/komga:latest
+  labels:
+    diun.provider: cmegazweb002lyyni49f2byfw
+- name: ghcr.io/home-assistant/home-assistant:stable
+  labels:
+    diun.provider: cmegazro8002iyyni5gh4oimz
+- name: badapple9/speedtest-x:latest
+  labels:
+    diun.provider: cmegazlgh002eyynia1rzyox2
+- name: lscr.io/linuxserver/code-server:latest
+  labels:
+    diun.provider: cmegb04c9002uyynipp4kk9n4
+- name: vaultwarden/server:latest
+  labels:
+    diun.provider: cmegazg9p002byynioaedwxbz
+- name: liwei2633/gopeed:latest
+  labels:
+    diun.provider: cmegazuuz002kyyni8ejmsvi1
+- name: iyuucn/iyuuplus-dev:latest
+  labels:
+    diun.provider: cmegazzhk002nyynix7azoocp
+- name: snowdreamtech/frpc:latest
+  labels:
+    diun.provider: cmegb05wu002vyyni8lzpr1ui
