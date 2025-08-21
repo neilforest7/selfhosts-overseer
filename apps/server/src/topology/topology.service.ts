@@ -199,7 +199,7 @@ export class TopologyService {
         const remotePortNodeId = `port-${frpcProxy.remotePort}-on-${frpsContainer.id}`;
         addEdge({
           group: 'edges',
-          data: { id: `edge-domain-${route.domain}-to-port-${remotePortNodeId}`, source: `domain-${route.domain}`, target: remotePortNodeId, label: `proxy to:${frpcProxy.remotePort}` },
+          data: { id: `edge-domain-${route.domain}-to-port-${remotePortNodeId}`, source: `domain-${route.domain}`, target: remotePortNodeId, label: `proxy` },
         });
 
         const frpcContainer = containers.find(c => c.containerId === frpcProxy.containerId);
@@ -210,7 +210,7 @@ export class TopologyService {
               id: `edge-frps-${frpsContainer.id}-to-frpc-${frpcContainer.id}-${frpcProxy.name}`,
               source: `container-${frpsContainer.id}`,
               target: `container-${frpcContainer.id}`,
-              label: `tunnel-${frpcProxy.name}`,
+              label: `${frpcProxy.name}`,
               type: 'tunnel-edge',
             },
           });
@@ -224,7 +224,7 @@ export class TopologyService {
                 id: `edge-frpc-${frpcContainer.id}-to-target-${finalTarget.id}`, 
                 source: `container-${frpcContainer.id}`, 
                 target: `container-${finalTarget.id}`, 
-                label: `local:${frpcProxy.localPort}`, 
+                label: `proxy to ${frpcProxy.localPort}`, 
                 type: 'frpc-edge' 
               },
             });
@@ -246,7 +246,7 @@ export class TopologyService {
                     id: `edge-frpc-${frpcContainer.id}-to-logical-${logicalNodeId}`,
                     source: `container-${frpcContainer.id}`,
                     target: logicalNodeId,
-                    label: `local:${frpcProxy.localPort}`,
+                    label: `proxy to ${frpcProxy.localPort}`,
                     type: 'frpc-edge'
                 },
             });
@@ -264,7 +264,7 @@ export class TopologyService {
         if (targetContainer.id !== npmContainer.id) {
           addEdge({
             group: 'edges',
-            data: { id: `edge-domain-${route.domain}-to-target-${targetContainer.id}`, source: `domain-${route.domain}`, target: `container-${targetContainer.id}`, label: `proxy to:${route.forwardPort}` },
+            data: { id: `edge-domain-${route.domain}-to-target-${targetContainer.id}`, source: `domain-${route.domain}`, target: `container-${targetContainer.id}`, label: `proxy to ${route.forwardPort}` },
           });
         }
       }
@@ -289,7 +289,11 @@ export class TopologyService {
     route: ReverseProxyRoute,
     containers: Container[],
   ): Container | undefined {
-    return containers.find((c) => c.imageName?.includes('nginx-proxy-manager'));
+    return containers.find(
+      (c) =>
+        c.hostId === route.hostId &&
+        c.imageName?.includes('nginx-proxy-manager'),
+    );
   }
 
   private findContainerByIpAndPort(
