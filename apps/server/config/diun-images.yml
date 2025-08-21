@@ -1,48 +1,30 @@
-- name: ghcr.io/dgtlmoon/changedetection.io:latest
+- name: mcp/puppeteer:latest
   labels:
-    diun.provider: cmejule06002d23rifj8w7liq
-- name: dgtlmoon/sockpuppetbrowser:latest
+    diun.provider: cmelev8pp004rthn676o4qmaw
+- name: mcp/puppeteer:latest
   labels:
-    diun.provider: cmejulice002e23ri5hlt1nor
-- name: freshrss/freshrss:latest
+    diun.provider: cmelev9zl004tthn6zi5c7lih
+- name: sosedoff/pgweb:0.16.1
   labels:
-    diun.provider: cmejumh1w002j23rid7xgb1r4
-- name: danielszabo99/microbin:latest
+    diun.provider: cmelevb8g004vthn656zmhhdi
+- name: postgres:16-alpine
   labels:
-    diun.provider: cmejukaty002623ribagbt5qd
-- name: ghcr.io/nezhahq/nezha:latest
+    diun.provider: cmelevckj004xthn6jdr25yw1
+- name: redis:7-alpine
   labels:
-    diun.provider: cmejumlw0002k23ric3a6unex
-- name: jc21/nginx-proxy-manager:latest
+    diun.provider: cmelevdub004zthn6h23zbrap
+- name: ghcr.io/snowdreamtech/frpc:latest
   labels:
-    diun.provider: cmejulanb002c23ricyqm83kq
-- name: xream/sub-store:latest
+    diun.provider: cmelevf500051thn6xe6o48am
+- name: ghcr.io/dingyufei615/ai-goofish:latest
   labels:
-    diun.provider: cmejul25k002a23riykdmvqao
+    diun.provider: cmelevghh0053thn6i3ii6nvh
 - name: victoriametrics/vmagent:latest
   labels:
-    diun.provider: cmejukxll002923ri3lnmb14p
-- name: prom/blackbox-exporter:latest
-  labels:
-    diun.provider: cmejul5wz002b23ris6dldcx3
+    diun.provider: cmelevhqn0055thn6zdtn1jze
 - name: prom/node-exporter:latest
   labels:
-    diun.provider: cmejumqcg002l23ri8wcjf1jr
-- name: bellamy/wallos:latest
+    diun.provider: cmeleviz30057thn6u3yagtwx
+- name: prom/blackbox-exporter:latest
   labels:
-    diun.provider: cmejukf2x002723ri414hl54a
-- name: snowdreamtech/frps:latest
-  labels:
-    diun.provider: cmejukit7002823rimsbqi0xp
-- name: ddsderek/wxchat:latest
-  labels:
-    diun.provider: cmejum100002f23riz3e7v1k7
-- name: neilforest/subconverter-frontend:latest
-  labels:
-    diun.provider: cmejum5qy002g23ri662ww08k
-- name: tindy2013/subconverter:latest
-  labels:
-    diun.provider: cmejum977002h23ri6vz3ucnm
-- name: corentinth/it-tools:latest
-  labels:
-    diun.provider: cmejumdbx002i23ri489suvz9
+    diun.provider: cmelevkag0059thn6g141l6lt

@@ -100,6 +100,7 @@ export class FrpService {
       },
     });
     this.logger.log(`[FRP Sync] Upserted frps config with id: ${result.id}`);
+    await this.updateContainerWithWebServerPort(containerDbId, config);
   }
 
   private async syncFrpcConfig(host: HostWithCreds, containerDbId: string) {
@@ -189,6 +190,7 @@ export class FrpService {
       });
       this.logger.log(`[FRP Sync] Upserted frpc proxy ${name} with id: ${result.id}`);
     }
+    await this.updateContainerWithWebServerPort(containerDbId, config);
   }
 
   async getFrpConfigs() {
@@ -198,6 +200,47 @@ export class FrpService {
       frps: frpsConfigs,
       frpc: frpcProxies,
     };
+  }
+
+  private async updateContainerWithWebServerPort(containerDbId: string, config: any) {
+    const webServerConfig = config.webServer || config.web_server;
+    const webPort = webServerConfig?.port ? parseInt(webServerConfig.port) : undefined;
+
+    if (!webPort) {
+      return;
+    }
+
+    const container = await this.prisma.container.findUnique({
+      where: { id: containerDbId },
+      select: { ports: true },
+    });
+
+    if (!container) {
+      return;
+    }
+
+    const existingPorts = (container.ports as any[]) || [];
+
+    // Check if a binding for this webPort already exists to avoid duplicates
+    const alreadyExists = existingPorts.some(p =>
+      p.bindings && Array.isArray(p.bindings) &&
+      p.bindings.some(b => b.HostPort === String(webPort))
+    );
+
+    if (!alreadyExists) {
+      // Create a new port entry that is compatible with the topology service's lookup logic.
+      // We assume the internal port is the same as the web/host port.
+      const newPortEntry = {
+        key: `${webPort}/tcp`,
+        bindings: [{ HostIp: '0.0.0.0', HostPort: String(webPort) }]
+      };
+      const updatedPorts = [...existingPorts, newPortEntry];
+      await this.prisma.container.update({
+        where: { id: containerDbId },
+        data: { ports: updatedPorts },
+      });
+      this.logger.log(`[FRP Sync] Added web server port ${webPort} to container ${containerDbId}`);
+    }
   }
 
   private parseConfig(content: string, filePath: string): any {
