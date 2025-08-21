@@ -276,30 +276,30 @@ export class ReverseProxyService {
     });
   }
 
-  private async queryRoutesFromMysqlDb(config: mysql.ConnectionOptions): Promise<any[] | null> {
-    let connection: mysql.Connection | null = null;
-    try {
-      connection = await mysql.createConnection(config);
-      this.logger.log('[NPM Sync] Successfully connected to MySQL/MariaDB database.');
-      const query = `
-        SELECT 
-          ph.*,
-          c.expires_on
-        FROM proxy_host ph
-        LEFT JOIN certificate c ON ph.certificate_id = c.id
-      `;
-      const [rows] = await connection.execute(query);
-      return rows as any[];
-    } catch (e: any) {
-      this.logger.error(`[NPM Sync] Failed to query routes from MySQL/MariaDB: ${e.message}`);
-      return null;
-    } finally {
-      if (connection) {
-        await connection.end();
-        this.logger.log('[NPM Sync] MySQL/MariaDB connection closed.');
-      }
-    }
-  }
+  // private async queryRoutesFromMysqlDb(config: mysql.ConnectionOptions): Promise<any[] | null> {
+  //   let connection: mysql.Connection | null = null;
+  //   try {
+  //     connection = await mysql.createConnection(config);
+  //     this.logger.log('[NPM Sync] Successfully connected to MySQL/MariaDB database.');
+  //     const query = `
+  //       SELECT 
+  //         ph.*,
+  //         c.expires_on
+  //       FROM proxy_host ph
+  //       LEFT JOIN certificate c ON ph.certificate_id = c.id
+  //     `;
+  //     const [rows] = await connection.execute(query);
+  //     return rows as any[];
+  //   } catch (e: any) {
+  //     this.logger.error(`[NPM Sync] Failed to query routes from MySQL/MariaDB: ${e.message}`);
+  //     return null;
+  //   } finally {
+  //     if (connection) {
+  //       await connection.end();
+  //       this.logger.log('[NPM Sync] MySQL/MariaDB connection closed.');
+  //     }
+  //   }
+  // }
 
   private async getHostWithCreds(hostId: string): Promise<HostWithCreds | null> {
     const host = await this.prisma.host.findUnique({ where: { id: hostId } });

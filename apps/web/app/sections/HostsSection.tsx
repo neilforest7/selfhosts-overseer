@@ -199,13 +199,13 @@ export default function HostsSection() {
                 </TableCell>
                 <TableCell className="text-muted-foreground">{h.sshUser}</TableCell>
                 <TableCell className="space-x-1">
-                  {(h.tags || []).map((t) => (<Badge variant="ghost" key={t}>{t}</Badge>))}
+                  {(h.tags || []).map((t) => (<Badge variant="secondary" key={t}>{t}</Badge>))}
                   {(h.hasPrivateKey || h.hasPassword) ? (
-                    <Badge variant="ghost" className="inline-flex items-center text-xs">已存在凭据</Badge>
+                    <Badge variant="secondary" className="inline-flex items-center text-xs">已存在凭据</Badge>
                   ) : null}
                 </TableCell>
                 <TableCell className="text-right space-x-2">
-                  {/* <Button variant="ghost" onClick={()=>{ setEditing(h); setDialogOpen(true); }}>修改凭据</Button> */}
+                  {/* <Button variant="secondary" onClick={()=>{ setEditing(h); setDialogOpen(true); }}>修改凭据</Button> */}
                   <Button variant="secondary" onClick={()=>testConnection(h.id)} disabled={testing[h.id]}>
                     {testing[h.id] ? '测试中...' : '测试连接'}
                   </Button>
