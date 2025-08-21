@@ -36,7 +36,7 @@ export default function AppShell() {
   };
 
   return (
-    <div className="grid grid-cols-12 gap-6">
+    <div className="grid grid-cols-12 gap-6 h-full">
       <aside className="col-span-12 md:col-span-2">
         <div className="rounded-lg border p-2 space-y-1">
           {([

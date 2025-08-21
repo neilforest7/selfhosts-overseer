@@ -15,9 +15,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN" suppressHydrationWarning>
       <body suppressHydrationWarning className="min-h-screen bg-background text-foreground">
         <Providers>
-        <main className="container py-6 space-y-8">
+        <main className="h-screen flex flex-col p-6 space-y-8">
           <AddToHomeScreen />
-          <div className="rounded-lg border p-4">
+          <div className="rounded-lg border p-4 flex-grow">
             {/* 单页应用主体 */}
             {/* 侧边栏 + 内容 */}
             {/* 渲染 AppShell，其中包含侧边切换与各区块 */}

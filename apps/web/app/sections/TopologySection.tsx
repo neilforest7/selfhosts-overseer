@@ -96,23 +96,47 @@ const stylesheet = [
       'border-width': 2,
       'border-style': 'dashed',
       label: 'data(label)',
-      'font-size': '10px',
+      'font-size': '16px',
       'text-wrap': 'wrap',
       'text-max-width': 80,
       'text-valign': 'center',
-      color: '#555',
+      'text-outline-color': '#2980b9',
+      'text-outline-width': 2,
+      'text-outline-opacity': 1,
+      color: '#fff',
       width: 80,
       height: 80,
     },
   },
   // Node styles
   {
-    selector: 'node[type!="group"][type!="host"][type!="compose-group"][type!="remote-port"][type!="logical-container"]',
+    selector: 'node[type="domain"]',
+    style: {
+      shape: 'round-rectangle',
+      label: 'data(label)',
+      'font-size': '18px',
+      'text-wrap': 'wrap',
+      'text-max-width': 80,
+      'text-valign': 'center',
+      'text-margin-y': 0,
+      'width': 190,
+      'height': 40,
+      'background-color': '#9b59b6',
+      'border-color': '#8e44ad',
+      color: '#fff', 
+      'text-outline-color': '#8e44ad',
+      'text-outline-width': 3,
+      'text-outline-opacity': 1,
+      'border-width': 2,
+    },
+  },
+  {
+    selector: 'node[type!="group"][type!="host"][type!="compose-group"][type!="remote-port"][type!="logical-container"][type!="domain"]',
     style: {
       width: 80,
       height: 80,
       label: 'data(label)',
-      'font-size': '12px',
+      'font-size': '18px',
       'text-wrap': 'wrap',
       'text-max-width': 80,
       'text-valign': 'center',
@@ -120,32 +144,41 @@ const stylesheet = [
       color: '#fff',
       'background-color': '#3498db',
       'border-color': '#2980b9',
+      'text-outline-color': '#2980b9',
+      'text-outline-width': 3,
+      'text-outline-opacity': 1,
       'border-width': 2,
     },
   },
   {
-    selector: 'node[type="domain"]',
-    style: {
-      shape: 'round-rectangle',
-      'font-size': '12px',
-      'text-wrap': 'wrap',
-      'width': 140,
-      'height': 40,
-      'background-color': '#9b59b6',
-      'border-color': '#8e44ad' 
+    selector: 'node[type="npm"]',
+    style: { 
+      'background-color': '#2ecc71', 
+      'border-color': '#27ae60',
+      'text-outline-color': '#27ae60',
+      'font-size': '24px',
+      // 'text-outline-width': 3,
+      // 'text-outline-opacity': 1,
+      // 'border-width': 2,
     },
   },
   {
-    selector: 'node[type="npm"]',
-    style: { 'background-color': '#2ecc71', 'border-color': '#27ae60' },
-  },
-  {
     selector: 'node[type="frps"]',
-    style: { 'background-color': '#e67e22', 'border-color': '#d35400' },
+    style: { 
+      'background-color': '#e67e22',
+      'border-color': '#d35400', 
+      'text-outline-color': '#d35400',
+      'font-size': '24px',
+    },
   },
   {
     selector: 'node[type="frpc"]',
-    style: { 'background-color': '#f1c40f', 'border-color': '#f39c12' },
+    style: { 
+      'background-color': '#f1c40f', 
+      'border-color': '#f39c12', 
+      'text-outline-color': '#f39c12',
+      'font-size': '24px',
+    },
   },
   // Edge styles
   {
@@ -245,28 +278,30 @@ export default function TopologySection() {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>网络拓扑</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div style={{ height: '70vh', width: '100%', border: '1px solid #eee' }}>
-          {isLoading && <div>Loading topology...</div>}
-          {error && <div>Error fetching topology data.</div>}
-          {data && (
-            <CytoscapeComponent
-              elements={data || []}
-              stylesheet={stylesheet}
-              layout={layout}
-              style={{ width: '100%', height: '100%' }}
-              cy={(cy) => {
-                cy.maxZoom(2);
-                cy.minZoom(0.2);
-              }}
-            />
-          )}
-        </div>
-      </CardContent>
-    </Card>
+    <div style={{ marginTop: '-32px' }}>
+      <Card>
+        <CardHeader>
+          <CardTitle>网络拓扑</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div style={{ height: 'calc(100vh - 150px)', width: '100%', border: '1px solid #eee' }}>
+            {isLoading && <div>Loading topology...</div>}
+            {error && <div>Error fetching topology data.</div>}
+            {data && (
+              <CytoscapeComponent
+                elements={data || []}
+                stylesheet={stylesheet}
+                layout={layout}
+                style={{ width: '100%', height: '100%' }}
+                cy={(cy) => {
+                  cy.maxZoom(2);
+                  cy.minZoom(0.2);
+                }}
+              />
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
