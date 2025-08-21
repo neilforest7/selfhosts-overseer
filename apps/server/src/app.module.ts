@@ -9,9 +9,10 @@ import { ReverseProxyModule } from './reverse-proxy/reverse-proxy.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { LogsModule } from './logs/logs.module';
 import { FrpModule } from './frp/frp.module';
+import { TopologyModule } from './topology/topology.module';
 
 @Module({
-  imports: [PrismaModule, SettingsModule, HostsModule, TasksModule, ContainersModule, ReverseProxyModule, CertificatesModule, LogsModule, FrpModule],
+  imports: [PrismaModule, SettingsModule, HostsModule, TasksModule, ContainersModule, ReverseProxyModule, CertificatesModule, LogsModule, FrpModule, TopologyModule],
   controllers: [AppController],
   providers: []
 })
