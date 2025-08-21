@@ -45,7 +45,6 @@ export class TopologyService {
     const elements: CyElement[] = [];
     const createdNodeIds = new Set<string>();
     const hostsMap = new Map(hosts.map((h) => [h.id, h]));
-    const tunnelConnections = new Map<string, { source: string; target: string; count: number }>();
 
     // Helper to add a node and track its ID
     const addNode = (node: CyElement) => {
@@ -69,7 +68,7 @@ export class TopologyService {
       }
     };
 
-    // Step 1: Create Group, Domain, and Host nodes
+    // Step 1: Create top-level groups and physical hosts first
     const groups = [...new Set(hosts.map((h) => h.role))];
     groups.forEach((group) => {
       addNode({
@@ -79,14 +78,6 @@ export class TopologyService {
           label: group === 'local' ? 'Local Network' : 'Public Cloud',
           type: 'group',
         },
-      });
-    });
-
-    const domains = [...new Set(routes.map((r) => r.domain))];
-    domains.forEach((domain) => {
-      addNode({
-        group: 'nodes',
-        data: { id: `domain-${domain}`, label: domain, type: 'domain' },
       });
     });
 
@@ -103,7 +94,7 @@ export class TopologyService {
       });
     });
 
-    // Step 2: Create Compose Group nodes
+    // Step 2: Create Compose Group nodes inside hosts
     const composeGroups = new Map<string, string>(); // composeGroupKey -> composeProjectName
     containers.forEach(c => {
       if (c.composeGroupKey && !composeGroups.has(c.composeGroupKey)) {
@@ -126,26 +117,18 @@ export class TopologyService {
       }
     });
 
-    // Step 3: Create Container nodes, ensuring their parent host exists
+    // Step 3: Create Container nodes, ensuring their parent (host or compose group) exists
     containers.forEach((container) => {
       const parentId = container.composeGroupKey
         ? `compose-${container.composeGroupKey}`
         : `host-${container.hostId}`;
       
       const hasParent = createdNodeIds.has(parentId);
-      this.logger.debug(
-        `Checking container '${container.name}': hostId='${container.hostId}', parentId='${parentId}', hasParent=${hasParent}`,
-      );
-
       if (container.hostId && hasParent) {
         let type = 'container';
-        if (container.imageName?.includes('nginx-proxy-manager')) {
-          type = 'npm';
-        } else if (container.imageName?.includes('frps')) {
-          type = 'frps';
-        } else if (container.imageName?.includes('frpc')) {
-          type = 'frpc';
-        }
+        if (container.imageName?.includes('nginx-proxy-manager')) type = 'npm';
+        else if (container.imageName?.includes('frps')) type = 'frps';
+        else if (container.imageName?.includes('frpc')) type = 'frpc';
 
         addNode({
           group: 'nodes',
@@ -158,13 +141,22 @@ export class TopologyService {
           },
         });
       } else {
-        this.logger.warn(
-          `Skipping container ${container.id} (${container.name}) due to missing or invalid hostId: ${container.hostId}`,
-        );
+        this.logger.warn(`Skipping container ${container.id} (${container.name}) due to missing parent: ${parentId}`);
       }
     });
+    
+    // Step 4: Create Domain and logical Port nodes now that all containers exist
+    const domains = [...new Set(routes.map((r) => r.domain))];
+    domains.forEach((domain) => {
+      const route = routes.find(r => r.domain === domain);
+      const npmContainer = route ? this.findNpmContainer(route, containers) : undefined;
+      const parentHostId = npmContainer ? `host-${npmContainer.hostId}` : undefined;
+      addNode({
+        group: 'nodes',
+        data: { id: `domain-${domain}`, label: domain, type: 'domain', parent: parentHostId },
+      });
+    });
 
-    // Step 3.5: Create remote port nodes for FRPS based on FRPC configurations
     const frpsConfigIdToContainer = new Map(
       frpsConfigs.map(fc => {
         const container = containers.find(c => c.containerId === fc.containerId);
@@ -178,103 +170,65 @@ export class TopologyService {
         const portNodeId = `port-${proxy.remotePort}-on-${frpsContainer.id}`;
         addNode({
           group: 'nodes',
-          data: {
-            id: portNodeId,
-            label: `Port ${proxy.remotePort}`,
-            parent: `host-${frpsContainer.hostId}`,
-            type: 'remote-port',
-          },
+          data: { id: portNodeId, label: `Port ${proxy.remotePort}`, parent: `host-${frpsContainer.hostId}`, type: 'remote-port' },
         });
         addEdge({
           group: 'edges',
-          data: {
-            id: `edge-frps-${frpsContainer.id}-opens-${portNodeId}`,
-            target: `container-${frpsContainer.id}`,
-            source: portNodeId,
-            label: 'opens',
-          },
+          data: { id: `edge-frps-${frpsContainer.id}-opens-${portNodeId}`, target: `container-${frpsContainer.id}`, source: portNodeId, label: 'opens' },
         });
       }
     });
 
-    // Step 4: Create Edges with validation
+    // Step 5: Create Edges with final, definitive logic
     for (const route of routes) {
       const npmContainer = this.findNpmContainer(route, containers);
-      if (!npmContainer) {
-        this.logger.warn(`No NPM container found for route ${route.domain}, skipping edge creation.`);
-        continue;
-      }
+      if (!npmContainer) continue;
 
-      // Edge from Domain to NPM
       addEdge({
         group: 'edges',
-        data: {
-          id: `edge-domain-${route.domain}-to-npm-${npmContainer.id}`,
-          source: `domain-${route.domain}`,
-          target: `container-${npmContainer.id}`,
-          label: 'routes to',
-        },
+        data: { id: `edge-npm-${npmContainer.id}-exposes-${route.domain}`, source: `container-${npmContainer.id}`, target: `domain-${route.domain}`, label: 'exposes' },
       });
 
-      // Final Strategy: Determine route type by checking if forwardPort matches a frpc remotePort
       const frpcProxy = frpcProxies.find(p => p.remotePort === route.forwardPort);
-
       if (frpcProxy) {
         // Handle FRP Route
         const frpsConfig = frpsConfigs.find(fc => fc.id === frpcProxy.frpsConfigId);
         const frpsContainer = frpsConfig ? containers.find(c => c.containerId === frpsConfig.containerId) : undefined;
-
-        if (!frpsContainer) {
-          this.logger.warn(`FRPS container for frpc proxy ${frpcProxy.name} not found.`);
-          continue;
-        }
-        this.logger.debug(`Route ${route.domain} is definitively an FRP route via proxy ${frpcProxy.name}`);
+        if (!frpsContainer) continue;
 
         const remotePortNodeId = `port-${frpcProxy.remotePort}-on-${frpsContainer.id}`;
         addEdge({
           group: 'edges',
-          data: {
-            id: `edge-npm-${npmContainer.id}-to-port-${remotePortNodeId}`,
-            source: `container-${npmContainer.id}`,
-            target: remotePortNodeId,
-            label: `proxy to:${frpcProxy.remotePort}`,
-          },
+          data: { id: `edge-domain-${route.domain}-to-port-${remotePortNodeId}`, source: `domain-${route.domain}`, target: remotePortNodeId, label: `proxy to:${frpcProxy.remotePort}` },
         });
 
         const frpcContainer = containers.find(c => c.containerId === frpcProxy.containerId);
         if (frpcContainer) {
-          // Aggregate tunnel connections
-          const tunnelKey = `tunnel-${frpsContainer.id}-to-${frpcContainer.id}`;
-          if (tunnelConnections.has(tunnelKey)) {
-            tunnelConnections.get(tunnelKey)!.count++;
-          } else {
-            tunnelConnections.set(tunnelKey, {
+          addEdge({
+            group: 'edges',
+            data: {
+              id: `edge-frps-${frpsContainer.id}-to-frpc-${frpcContainer.id}-${frpcProxy.name}`,
               source: `container-${frpsContainer.id}`,
               target: `container-${frpcContainer.id}`,
-              count: 1,
-            });
-          }
+              label: 'tunnel',
+            },
+          });
 
           const containersOnFrpcHost = containers.filter(c => c.hostId === frpcContainer.hostId);
           const finalTarget = this.findContainerByIpAndPort(frpcProxy.localIp, frpcProxy.localPort, containersOnFrpcHost);
           if (finalTarget) {
             addEdge({
               group: 'edges',
-              data: {
-                id: `edge-frpc-${frpcContainer.id}-to-target-${finalTarget.id}`,
-                source: `container-${frpcContainer.id}`,
-                target: `container-${finalTarget.id}`,
-                label: `local:${frpcProxy.localPort}`,
-              },
+              data: { id: `edge-frpc-${frpcContainer.id}-to-target-${finalTarget.id}`, source: `container-${frpcContainer.id}`, target: `container-${finalTarget.id}`, label: `local:${frpcProxy.localPort}` },
             });
           } else {
             this.logger.warn(`Final target container for FRPC proxy ${frpcProxy.name} not found on the same host. Creating a logical node.`);
-            const logicalNodeId = `logical-${frpcProxy.name}-on-${frpcContainer.hostId}`;
+            const logicalNodeId = `logical-${frpcProxy.localIp}-${frpcProxy.localPort}-on-${frpcContainer.hostId}`;
             addNode({
                 group: 'nodes',
                 data: {
                     id: logicalNodeId,
-                    label: frpcProxy.name,
+                    label: `${frpcProxy.name}`,
                     parent: `host-${frpcContainer.hostId}`,
                     type: 'logical-container',
                 },
@@ -289,62 +243,24 @@ export class TopologyService {
                 },
             });
           }
-        } else { this.logger.warn(`FRPC container for proxy ${frpcProxy.name} not found.`); }
+        }
       } else {
         // Handle Direct Proxy Route
-        this.logger.debug(`Route ${route.domain} is a direct proxy route.`);
         const searchScope = containers.filter(c => c.hostId === npmContainer.hostId);
-        const targetContainer = this.findContainerByIpAndPort(
-          route.forwardHost,
-          route.forwardPort,
-          searchScope,
-        );
-
-        if (!targetContainer) {
-          this.logger.warn(`Target container for direct proxy ${route.domain} (${route.forwardHost}:${route.forwardPort}) not found on NPM host.`);
-          continue;
-        }
+        const targetContainer = this.findContainerByIpAndPort(route.forwardHost, route.forwardPort, searchScope);
+        if (!targetContainer) continue;
         
         const targetHost = hostsMap.get(targetContainer.hostId);
-        if (targetHost?.role === 'local') {
-          this.logger.debug(`Skipping direct proxy for ${route.domain} because target host '${targetHost.name}' has role 'local'.`);
-          continue;
-        }
+        if (targetHost?.role === 'local') continue;
 
-        if (targetContainer.id === npmContainer.id) {
-          this.logger.debug(`Skipping self-referencing NPM edge for route ${route.domain}`);
-        } else {
+        if (targetContainer.id !== npmContainer.id) {
           addEdge({
             group: 'edges',
-            data: {
-              id: `edge-npm-${npmContainer.id}-to-target-${targetContainer.id}`,
-              source: `container-${npmContainer.id}`,
-              target: `container-${targetContainer.id}`,
-              label: `proxy to:${route.forwardPort}`,
-            },
+            data: { id: `edge-domain-${route.domain}-to-target-${targetContainer.id}`, source: `domain-${route.domain}`, target: `container-${targetContainer.id}`, label: `proxy to:${route.forwardPort}` },
           });
         }
       }
     }
-
-    // Add aggregated tunnel edges with dynamic width
-    tunnelConnections.forEach((conn, key) => {
-      addEdge({
-        group: 'edges',
-        data: {
-          id: key,
-          source: conn.source,
-          target: conn.target,
-          label: `tunnel (${conn.count})`,
-        },
-        style: {
-          width: Math.min(2 + conn.count * 1.5, 10), // Base width 2, increment by 1.5, max 10
-          'line-color': '#e74c3c',
-          'target-arrow-color': '#e74c3c',
-          'line-style': 'dashed',
-        },
-      });
-    });
 
     this.logger.log(`Generated ${elements.length} valid elements for Cytoscape.`);
     return elements;
@@ -365,10 +281,7 @@ export class TopologyService {
     route: ReverseProxyRoute,
     containers: Container[],
   ): Container | undefined {
-    // An NPM container can manage routes for other hosts, so we search globally.
-    return containers.find((c) =>
-      c.imageName?.includes('nginx-proxy-manager'),
-    );
+    return containers.find((c) => c.imageName?.includes('nginx-proxy-manager'));
   }
 
   private findContainerByIpAndPort(
@@ -376,18 +289,13 @@ export class TopologyService {
     port: number,
     containers: Container[],
   ): Container | undefined {
-    // Final fallback: check manual port mappings
     const foundByManualPort = containers.find(c => {
       if (!c.manualPortMapping || typeof c.manualPortMapping !== 'object') return false;
       const mapping = c.manualPortMapping as any;
       return mapping.exposedPort === String(port);
     });
+    if (foundByManualPort) return foundByManualPort;
 
-    if (foundByManualPort) {
-      this.logger.debug(`Found container ${foundByManualPort.name} by manual port mapping for port ${port}`);
-      return foundByManualPort;
-    }
-    // First, try to find by network IP and port
     const foundByNet = containers.find((c) => {
       if (!c.networks || typeof c.networks !== 'object') return false;
       const networks = c.networks as any;
@@ -395,30 +303,22 @@ export class TopologyService {
         if (networks[netName]?.IPAddress === ip) {
           if (!c.ports || typeof c.ports !== 'object') return false;
           const ports = c.ports as any[];
-          return ports.some(
-            (p) => p.PrivatePort === port || p.PublicPort === port,
-          );
+          return ports.some(p => p.PrivatePort === port || p.PublicPort === port);
         }
       }
       return false;
     });
+    if (foundByNet) return foundByNet;
 
-    if (foundByNet) {
-      return foundByNet;
-    }
-
-    // Fallback: if IP matches a container name or ID, assume it's a direct link
     const foundByName = containers.find((c) => c.name === ip || c.containerId === ip);
     if (foundByName) {
-      // Check if the port matches
       if (!foundByName.ports || typeof foundByName.ports !== 'object') return false;
       const ports = foundByName.ports as any[];
-      if (ports.some((p) => p.PrivatePort === port || p.PublicPort === port)) {
+      if (ports.some(p => p.PrivatePort === port || p.PublicPort === port)) {
         return foundByName;
       }
     }
 
-    // Fallback for host-gateway IPs: find container by exposed host port binding
     const foundByHostPort = containers.find(c => {
       if (!c.ports || !Array.isArray(c.ports)) return false;
       try {
@@ -432,11 +332,7 @@ export class TopologyService {
         return false;
       }
     });
-
-    if (foundByHostPort) {
-      this.logger.debug(`Found container ${foundByHostPort.name} by fallback to host port ${port}`);
-      return foundByHostPort;
-    }
+    if (foundByHostPort) return foundByHostPort;
 
     return undefined;
   }

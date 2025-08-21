@@ -148,6 +148,12 @@ export class FrpService {
     const proxies = Array.isArray(config.proxies) ? config.proxies : Object.entries(config).filter(([key]) => key !== 'common').map(([name, value]) => ({ name, ...value as object }));
 
     for (const proxyConfig of proxies) {
+      // Skip xtcp and other types that don't have a remote_port
+      if (!proxyConfig.remote_port && !proxyConfig.remotePort) {
+        this.logger.log(`[FRP Sync] Skipping proxy ${proxyConfig.name} of type ${proxyConfig.type} as it has no remote port.`);
+        continue;
+      }
+
       const name = proxyConfig.name;
       const result = await this.prisma.frpcProxy.upsert({
         where: { id: `${inspectData.Id}-${name}` },
@@ -155,7 +161,6 @@ export class FrpService {
           id: `${inspectData.Id}-${name}`,
           hostId: host.id,
           containerId: inspectData.Id,
-          frpsConfigId: frpsConfig.id,
           name: name,
           type: proxyConfig.type,
           localIp: proxyConfig.local_ip || proxyConfig.localIP,
@@ -165,6 +170,11 @@ export class FrpService {
           customDomains: proxyConfig.custom_domains?.split(',') || proxyConfig.customDomains || [],
           rawConfig: proxyConfig,
           lastSyncedAt: new Date(),
+          frps: {
+            connect: {
+              id: frpsConfig.id,
+            },
+          },
         },
         update: {
           type: proxyConfig.type,
