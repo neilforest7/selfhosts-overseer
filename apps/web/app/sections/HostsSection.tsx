@@ -120,8 +120,8 @@ export default function HostsSection() {
                       <SelectValue placeholder="选择主机角色" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="local">本地网络 (Local Network)</SelectItem>
-                      <SelectItem value="remote">公网云服务器 (Public Cloud)</SelectItem>
+                      <SelectItem value="local">本地主机 (Local Network)</SelectItem>
+                      <SelectItem value="remote">公网主机 (Public Cloud)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -193,15 +193,15 @@ export default function HostsSection() {
                 <TableCell>{h.name}</TableCell>
                 <TableCell className="text-muted-foreground">{h.address}</TableCell>
                 <TableCell>
-                  <Badge variant={h.role === 'remote' ? 'default' : 'secondary'}>
-                    {h.role === 'remote' ? '公网' : '本地'}
+                  <Badge variant={h.role === 'remote' ? 'secondary' : 'secondary'}>
+                    {h.role === 'remote' ? '公网' : '内网'}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{h.sshUser}</TableCell>
                 <TableCell className="space-x-1">
-                  {(h.tags || []).map((t) => (<Badge key={t}>{t}</Badge>))}
+                  {(h.tags || []).map((t) => (<Badge variant="ghost" key={t}>{t}</Badge>))}
                   {(h.hasPrivateKey || h.hasPassword) ? (
-                    <Badge variant="secondary" className="inline-flex items-center text-xs">已存在凭据</Badge>
+                    <Badge variant="ghost" className="inline-flex items-center text-xs">已存在凭据</Badge>
                   ) : null}
                 </TableCell>
                 <TableCell className="text-right space-x-2">
