@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum HostRole {
+  local
+  remote
+}
+
 enum SshAuthMethod {
   password
   privateKey
@@ -29,8 +34,11 @@ model Host {
   sshPassword   String?
   sshPrivateKey String?
   sshPrivateKeyPassphrase String?
+  role     HostRole @default(local)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  containers Container[]
 }
 
 model TaskRun {
@@ -107,6 +115,8 @@ model Container {
   mounts          Json?
   networks        Json?
   labels          Json?
+
+  host            Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
 
   @@unique([hostId, containerId])
   @@index([hostId, composeGroupKey])

@@ -79,82 +79,89 @@ export class LogsService {
     const originalLoggerDebug = Logger.prototype.debug;
     const originalLoggerVerbose = Logger.prototype.verbose;
 
-    Logger.prototype.log = function(message: any, context?: string) {
-      const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
-      const fullMessage = context ? `[${context}] ${logMessage}` : logMessage;
+    const getInstance = () => global.logsServiceInstance;
+
+    Logger.prototype.log = function(message: any, ...optionalParams: any[]) {
+      const context = optionalParams[optionalParams.length - 1] as string;
       
       // 避免循环日志（跳过 LogsService 自身的日志）
       if (context !== 'LogsService') {
         setImmediate(() => {
-          // 这里不能直接访问 this，需要通过全局实例
-          if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('info', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
+          const instance = getInstance();
+          if (instance) {
+            const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
+            instance.addLog('info', logMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
       
-      return originalLoggerLog.call(this, message, context);
+      return originalLoggerLog.call(this, message, ...optionalParams);
     };
 
-    Logger.prototype.error = function(message: any, trace?: string, context?: string) {
-      const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
-      const fullMessage = context ? `[${context}] ${logMessage}` : logMessage;
-      const errorMessage = trace ? `${fullMessage}\n${trace}` : fullMessage;
+    Logger.prototype.error = function(message: any, ...optionalParams: any[]) {
+      const context = optionalParams[optionalParams.length - 1] as string;
       
       if (context !== 'LogsService') {
         setImmediate(() => {
-          if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('error', errorMessage, 'application', { source: 'nestjs', metadata: { context, trace } }).catch(() => {});
+          const instance = getInstance();
+          if (instance) {
+            const trace = optionalParams.length > 1 ? optionalParams[0] : undefined;
+            const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
+            const errorMessage = trace ? `${logMessage}\n${trace}` : logMessage;
+            instance.addLog('error', errorMessage, 'application', { source: 'nestjs', metadata: { context, trace } }).catch(() => {});
           }
         });
       }
       
-      return originalLoggerError.call(this, message, trace, context);
+      return originalLoggerError.call(this, message, ...optionalParams);
     };
 
-    Logger.prototype.warn = function(message: any, context?: string) {
-      const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
-      const fullMessage = context ? `[${context}] ${logMessage}` : logMessage;
+    Logger.prototype.warn = function(message: any, ...optionalParams: any[]) {
+      const context = optionalParams[optionalParams.length - 1] as string;
       
       if (context !== 'LogsService') {
         setImmediate(() => {
-          if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('warn', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
+          const instance = getInstance();
+          if (instance) {
+            const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
+            instance.addLog('warn', logMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
       
-      return originalLoggerWarn.call(this, message, context);
+      return originalLoggerWarn.call(this, message, ...optionalParams);
     };
 
-    Logger.prototype.debug = function(message: any, context?: string) {
-      const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
-      const fullMessage = context ? `[${context}] ${logMessage}` : logMessage;
+    Logger.prototype.debug = function(message: any, ...optionalParams: any[]) {
+      const context = optionalParams[optionalParams.length - 1] as string;
       
       if (context !== 'LogsService') {
         setImmediate(() => {
-          if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('debug', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
+          const instance = getInstance();
+          if (instance) {
+            const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
+            instance.addLog('debug', logMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
       
-      return originalLoggerDebug.call(this, message, context);
+      return originalLoggerDebug.call(this, message, ...optionalParams);
     };
 
-    Logger.prototype.verbose = function(message: any, context?: string) {
-      const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
-      const fullMessage = context ? `[${context}] ${logMessage}` : logMessage;
+    Logger.prototype.verbose = function(message: any, ...optionalParams: any[]) {
+      const context = optionalParams[optionalParams.length - 1] as string;
       
       if (context !== 'LogsService') {
         setImmediate(() => {
-          if (global.logsServiceInstance) {
-            global.logsServiceInstance.addLog('debug', fullMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
+          const instance = getInstance();
+          if (instance) {
+            const logMessage = typeof message === 'string' ? message : JSON.stringify(message);
+            instance.addLog('verbose', logMessage, 'application', { source: 'nestjs', metadata: { context } }).catch(() => {});
           }
         });
       }
       
-      return originalLoggerVerbose.call(this, message, context);
+      return originalLoggerVerbose.call(this, message, ...optionalParams);
     };
 
     // 设置全局实例引用
