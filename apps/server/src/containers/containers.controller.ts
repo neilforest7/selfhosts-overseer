@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Patch, NotFoundException, Delete, HttpCode } from '@nestjs/common';
 import { ContainersService } from './containers.service';
 import { DockerService } from './docker.service';
+import { UpdateManualPortDto } from './dto/manual-port.dto';
 
 @Controller('/api/v1/containers')
 export class ContainersController {
@@ -24,6 +25,27 @@ export class ContainersController {
       updateAvailable: updateAvailable === 'true' ? true : updateAvailable === 'false' ? false : undefined,
       isComposeManaged: composeManaged === 'true' ? true : composeManaged === 'false' ? false : undefined,
     });
+  }
+
+  @Patch(':id/manual-port')
+  async updateManualPortMapping(
+    @Param('id') id: string,
+    @Body() updateManualPortDto: UpdateManualPortDto,
+  ) {
+    const container = await this.containers.updateManualPortMapping(
+      id,
+      updateManualPortDto,
+    );
+    if (!container) {
+      throw new NotFoundException(`Container with ID ${id} not found`);
+    }
+    return container;
+  }
+
+  @Delete(':id/manual-port')
+  @HttpCode(204)
+  async deleteManualPortMapping(@Param('id') id: string) {
+    await this.containers.deleteManualPortMapping(id);
   }
 
   @Post('discover')
@@ -116,4 +138,3 @@ export class ContainersController {
     }
   }
 }
-

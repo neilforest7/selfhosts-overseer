@@ -179,84 +179,43 @@
 - cAdvisor：默认关闭，可“一键启用”
   注：以上均可在 Web 前端“设置 → 调度与并发”中修改并持久化。
 
-### 十三、网络拓扑图自动生成（规划）
-
+### 十三、网络拓扑图
 #### 1. 目标
 自动生成一个可视化的网络拓扑图，清晰展示所有受管主机、容器、对外域名以及它们之间的连接关系，特别是 `frp` 穿透和 `Nginx Proxy Manager` (NPM) 的反向代理流量。
 
-#### 2. 实现计划
+#### 2. 技术栈与数据流
+- **后端**: `TopologyService` 在 NestJS 框架内运行，使用 Prisma 从 PostgreSQL 数据库获取数据。
+- **前端**: 视图由 Next.js 和 React 构建。数据获取采用 `@tanstack/react-query`。
+- **可视化**: 核心渲染由 `Cytoscape.js` (通过 `react-cytoscapejs` 封装) 完成，并使用 `cytoscape-dagre` 插件进行自动布局。
+- **数据流**: 前端 `TopologySection` 组件调用 `GET /api/v1/topology/graph-data` API。后端 `TopologyService` 从数据库查询 `Host`, `Container`, `ReverseProxyRoute`, `FrpsConfig`, `FrpcProxy` 五个模型，经过复杂的业务逻辑处理后，生成 Cytoscape.js 所需的节点和边数据，并返回给前端进行渲染。
 
-##### 阶段一：后端 - 数据采集与整合 API
+#### 3. 图的构成与核心逻辑
+拓扑图由多种类型的**节点 (Nodes)** 和 **边 (Edges)** 构成，以展示物理和逻辑关系。
 
-1.  **创建新的 API 端点**:
-    -   创建一个只读的 API 端点，例如 `GET /api/v1/topology/graph-data`。
-    -   此端点将负责从数据库中查询所有相关信息，并将其处理成前端 `React Flow` 库所需的格式（节点 `nodes` 和边 `edges`）。
+- **节点 (Nodes)**:
+  - **分组节点**:
+    -   `地域分组`: 最高层级的容器，用于区分“公网云服务器”和“本地网络”，由主机的 `role` 字段决定。
+    -   `主机 (Host)`: 代表一个物理或虚拟主机。
+    -   `Compose 项目`: 嵌套在主机节点内，用于将属于同一个 `docker-compose` 项目的容器框在一起。
+  - **实体与逻辑节点**:
+    -   `域名 (Domain)`: 外部访问的入口点。
+    -   `容器 (Container)`: 代表 Docker 容器，并根据镜像名称特殊渲染为 `NPM`, `FRPS`, `FRPC` 等类型。
+    -   `逻辑端口 (Remote Port)`: **核心逻辑节点**。它不代表真实容器，而是 `frps` 为 `frpc` 客户端的 `remotePort` 所开放的逻辑入口。
 
-2.  **数据源**:
-    -   **主机 (Hosts)**: 从 `Host` 表获取，作为图中的一级节点（物理或虚拟服务器）。
-    -   **容器 (Containers)**: 从 `Container` 表获取，作为二级节点，嵌套在对应的主机节点内。容器的 `ports` 字段至关重要，用于展示端口映射。
-    -   **反向代理路由 (Reverse Proxy Routes)**: 从 `ReverseProxyRoute` 表获取，这是连接公网域名和内部服务的关键。
-    -   **FRP 配置**: 从新增的 `FrpsConfig` 和 `FrpcProxy` 表获取。
-
-3.  **数据处理逻辑**:
-    -   **节点 (Nodes) 生成**:
-        -   为每个 `Host` 创建一个“主机”类型的父节点。
-        -   为每个 `Container` 创建一个“容器”类型的子节点，并关联到其 `hostId` 对应的主机节点。
-        -   为每个唯一的 `domain` (来自 `ReverseProxyRoute`) 创建一个“域名”类型的入口节点。
-        -   为 `Nginx Proxy Manager` 和 `frp` 服务（`frps` / `frpc`）创建特定的“服务”类型节点。
-    -   **边 (Edges) 生成（连接关系）**:
-        -   **公网访问**: 创建从“域名”节点到 `NPM` 节点的边。
-        -   **直接反代**: 如果 `ReverseProxyRoute` 的 `forwardHost` 指向的容器与 `NPM` 在同一个主机上，则创建从 `NPM` 到目标容器的直接连线。
-        -   **FRP 穿透**:
-            -   **识别**: 当 `ReverseProxyRoute` 的 `forwardHost` 指向一个 `frps` 实例的 `vhost_http_port` 或 `vhost_https_port` 时，判定为 FRP 流量。
-            -   **流向**:
-                1.  创建从 `NPM` 节点到公网 VPS 上的 `frps` 服务节点的边。
-                2.  根据 `FrpcProxy` 和 `FrpsConfig` 的匹配关系，创建一条虚线或特殊样式的边，从 `frps` (公网) 到内部主机上的 `frpc` 服务节点，代表 FRP 隧道。
-                3.  创建从 `frpc` 节点到内部网络上目标容器的边（基于 `local_ip` 和 `local_port`）。
-
-##### 阶段二：数据模型增强
-
-1.  **增强 `Host` 模型**:
-    -   在 `prisma/schema.prisma` 的 `Host` 模型中，增加一个 `role` 字段，例如：
-        ```prisma
-        model Host {
-          // ... existing fields
-          role String? // e.g., 'public-vps', 'internal-node'
-        }
-        ```
-    -   **目的**: 明确标识公网 VPS 和内部节点，使 FRP 隧道的识别更准确。
-2.  **新增 `frp` 相关模型**:
-    -   见上文“数据模型”部分新增的 `FrpsConfig` 和 `FrpcProxy` 模型。
-
-##### 阶段三：前端 - 可视化呈现 (已完成)
-
-1.  **创建拓扑页面与组件**:
-    -   **状态**: **已完成**.
-    -   **实现**:
-        -   核心渲染逻辑被封装在 `apps/web/app/sections/TopologySection.tsx` 组件中。
-        -   使用 `@tanstack/react-query` 从 `/api/v1/topology/graph-data` 端点异步获取图数据。
-
-2.  **渲染拓扑图**:
-    -   **实现**:
-        -   选用 `react-cytoscapejs` (Cytoscape.js 的 React 封装) 库来渲染节点和边。
-        -   为不同类型的节点（主机, 容器, 域名, NPM, frps, frpc）定义了独立的样式。
-        -   使用 `cytoscape-dagre` 插件进行节点自动布局。
-        -   实现了画布的拖动和缩放功能，提升了用户体验。
-
-3.  **调试与问题解决**:
-    -   **问题 1: Cytoscape 渲染时崩溃，报错 `nonexistant target`**:
-        -   **现象**: API 成功返回 200，但前端页面崩溃。错误表明 Cytoscape 尝试创建一条边，但其目标节点不存在。
-        -   **根源**: 后端 `topology.service.ts` 在生成图数据时存在逻辑缺陷。即使某个容器节点因其父级主机不存在而未被前端实际创建，后端逻辑仍然会生成指向这个“幽灵”容器的边，导致数据不一致。
-        -   **解决方案**: 对 `getGraphData` 方法进行了彻底重构。引入了一个验证机制：
-            1.  在内存中维护一个 `Set`，用于存储所有**已成功创建**的节点的 ID。
-            2.  在创建任何一条边之前，严格检查其 `source` 和 `target` 节点的 ID 是否都存在于该 `Set` 中。
-            3.  只有在两端节点都确认存在的情况下，才生成这条边。这从根本上保证了发送给前端的数据的完整性和一致性，彻底解决了渲染崩溃的问题。
-
-#### 3. 最终效果
-用户需要可以看到一个自动生成的、交互式的全局网络架构图，清晰地展示了：
--   公网域名如何通过 NPM 代理。
--   流量是直接流向公网 VPS 上的容器，还是通过 FRP 隧道穿透到内部网络。
--   每个主机上运行了哪些容器及其端口暴露情况。
+- **边 (Edges) 与核心逻辑**:
+  - **路由类型判断**: 系统通过检查 NPM 路由的 `forwardPort` 是否匹配数据库中任何一个 `FrpcProxy` 的 `remotePort`，来**权威地**判断该路由是 **FRP 链路**还是 **Direct Proxy** 链路。
+  - **FRP 完整链路**:
+    1.  `域名` → `NPM` 容器
+    2.  `NPM` 容器 → `逻辑端口` 节点
+    3.  `FRPS` 容器 → `逻辑端口` 节点 (关系为 "opens")
+    4.  `FRPS` 容器 → `FRPC` 容器 (表示物理隧道，**线的粗细与隧道数量成正比**，动态展示负载)
+    5.  `FRPC` 容器 → `最终目标容器` (此连接**严格限制**在 `frpc` 所在的主机内部)
+  - **Direct Proxy 链路**:
+    1.  `域名` → `NPM` 容器 → `最终目标容器`
+    2.  **核心约束**: 此类连接的目标容器**必须**与 `NPM` 容器在同一个主机上，且该主机的 `role` 不能是 `local`。
+  - **其他约束**:
+    -   指向内部 IP (`192.168.x.x`, `172.16-31.x.x`, `10.x.x.x`) 的路由，其目标容器的搜索范围被严格限制在 NPM 所在的主机。
+    -   NPM 指向自身的路由会被自动过滤。
 
 ### 十四、FRP 配置发现与同步（规划）
 
