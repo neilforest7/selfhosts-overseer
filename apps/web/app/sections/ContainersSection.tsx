@@ -9,10 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Toaster, toast } from 'sonner';
 import { io, type Socket } from 'socket.io-client';
+import { ManualPortDialog } from './ManualPortDialog';
 
 type ContainerItem = {
   id: string;
@@ -30,6 +30,7 @@ type ContainerItem = {
   composeService?: string | null;
   composeWorkingDir?: string | null;
   composeFolderName?: string | null;
+  manualPortMapping?: { exposedPort: string; internalPort: string } | null;
   hostId: string;
 };
 
@@ -54,7 +55,7 @@ export default function ContainersSection() {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
-  const listQuery = useQuery<{ items: ContainerItem[] }>({
+  const listQuery = useQuery<{ items: ContainerItem[] }>({ 
     queryKey: ['containers', q, updateOnly, hostFilter, composeOnly],
     queryFn: async () => {
       const url = new URL('http://localhost:3001/api/v1/containers');
@@ -68,7 +69,7 @@ export default function ContainersSection() {
     }
   });
 
-  const hostsQuery = useQuery<{ items: HostItem[] }>({
+  const hostsQuery = useQuery<{ items: HostItem[] }>({ 
     queryKey: ['hosts'],
     queryFn: async () => {
       const r = await fetch('http://localhost:3001/api/v1/hosts');
@@ -488,10 +489,10 @@ export default function ContainersSection() {
                           <>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({ 
+                              composeOperation.mutate({
                                 hostId: first.hostId, 
                                 project: first.composeProject || 'unknown', 
-                                workingDir, 
+                                workingDir,
                                 operation: 'restart' 
                               });
                             }}>重启服务</DropdownMenuItem>
@@ -518,35 +519,35 @@ export default function ContainersSection() {
                             })()}
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({ 
+                              composeOperation.mutate({
                                 hostId: first.hostId, 
                                 project: first.composeProject || 'unknown', 
-                                workingDir, 
+                                workingDir,
                                 operation: 'pull' 
                               });
                             }}>拉取镜像</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({ 
+                              composeOperation.mutate({
                                 hostId: first.hostId, 
                                 project: first.composeProject || 'unknown', 
-                                workingDir, 
+                                workingDir,
                                 operation: 'up' 
                               });
                             }}>重新部署</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({ 
+                              composeOperation.mutate({
                                 hostId: first.hostId, 
                                 project: first.composeProject || 'unknown', 
-                                workingDir, 
+                                workingDir,
                                 operation: 'down' 
                               });
                             }}>下线（down）</DropdownMenuItem>
                           </>
                         ) : (
                           <>
-                            <DropdownMenuItem onClick={async ()=>{
+                            <DropdownMenuItem onClick={async ()=>{ 
                               const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                               const i = first;
                               setOpId(id); setOpOpen(true); setOpTitle(`更新 ${i.name}`); setLogs([]);
@@ -567,7 +568,7 @@ export default function ContainersSection() {
                                   return (
                                     <>
                                       {!running && (
-                                        <DropdownMenuItem onClick={async ()=>{
+                                        <DropdownMenuItem onClick={async ()=>{ 
                                           const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                                           setOpId(id); setOpOpen(true); setOpTitle(`启动 ${first.name}`); setLogs([]);
                                           toast.info(`已触发启动：${first.name}`);
@@ -584,7 +585,7 @@ export default function ContainersSection() {
                                     </>
                                   );
                                 })()}
-                            <DropdownMenuItem onClick={async ()=>{
+                            <DropdownMenuItem onClick={async ()=>{ 
                               const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                               setOpId(id); setOpOpen(true); setOpTitle(`重启 ${first.name}`); setLogs([]);
                               toast.info(`已触发重启：${first.name}`);
@@ -603,7 +604,7 @@ export default function ContainersSection() {
                                   return (
                                     <>
                                       {running && (
-                                        <DropdownMenuItem onClick={async ()=>{
+                                        <DropdownMenuItem onClick={async ()=>{ 
                                           const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                                           setOpId(id); setOpOpen(true); setOpTitle(`停止 ${first.name}`); setLogs([]);
                                           toast.info(`已触发停止：${first.name}`);
@@ -622,7 +623,7 @@ export default function ContainersSection() {
                                 })()}
                           </>
                         )}
-                        <DropdownMenuItem onClick={async ()=>{
+                        <DropdownMenuItem onClick={async ()=>{ 
                           const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                           const containerName = isCompose ? `${title} 组` : first.name;
                           setOpId(id); setOpOpen(true); setOpTitle(`检查更新: ${containerName}`); setLogs([]);
@@ -633,7 +634,7 @@ export default function ContainersSection() {
                             try {
                               const r = await fetch('http://localhost:3001/api/v1/containers/check-compose-updates', { 
                                 method: 'POST', 
-                                headers: {'Content-Type': 'application/json'}, 
+                                headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify({ 
                                   hostId: first.hostId, 
                                   composeProject: first.composeProject || '', 
@@ -659,7 +660,7 @@ export default function ContainersSection() {
                             try {
                               const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/check-update`, { 
                                 method: 'POST', 
-                                headers: {'Content-Type': 'application/json'}, 
+                                headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify({ opId: id }) 
                               });
                               if (!r.ok) throw new Error('检查失败');
@@ -701,6 +702,7 @@ export default function ContainersSection() {
                                 <TableHead>名称</TableHead>
                                 <TableHead>镜像</TableHead>
                                 <TableHead>版本</TableHead>
+                                <TableHead className="text-right">操作</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -723,6 +725,13 @@ export default function ContainersSection() {
                                         <Badge className="bg-amber-500 text-black hover:bg-amber-500 mx-2">可更新</Badge>
                                       ) : null}
                                     </TableCell>
+                                    <TableCell className="text-right">
+                                      <ManualPortDialog containerId={i.id} existingMapping={i.manualPortMapping}>
+                                        <Button variant="outline" size="sm">
+                                          标记端口
+                                        </Button>
+                                      </ManualPortDialog>
+                                    </TableCell>
                                   </TableRow>
                                 );
                               })}
@@ -738,7 +747,13 @@ export default function ContainersSection() {
           </TableBody>
         </Table>
       </CardContent>
-      <Dialog open={opOpen} onOpenChange={(o)=>{ setOpOpen(o); if(!o){ setLogs([]); setOpId(null); } }}>
+      <Dialog open={opOpen} onOpenChange={(o)=>{
+        setOpOpen(o);
+        if(!o){
+          setLogs([]);
+          setOpId(null);
+        }
+      }}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>{opTitle}</DialogTitle>
@@ -751,5 +766,3 @@ export default function ContainersSection() {
     </Card>
   );
 }
-
-

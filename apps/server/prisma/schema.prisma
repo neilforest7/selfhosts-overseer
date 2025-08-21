@@ -115,6 +115,7 @@ model Container {
   mounts          Json?
   networks        Json?
   labels          Json?
+  manualPortMapping Json?
 
   host            Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
 

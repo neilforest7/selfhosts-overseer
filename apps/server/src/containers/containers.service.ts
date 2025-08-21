@@ -6,6 +6,7 @@ import { CryptoService } from '../security/crypto.service';
 import { DiunService } from '../diun/diun.service';
 import { LogsService } from '../logs/logs.service';
 import { FrpService } from '../frp/frp.service';
+import { UpdateManualPortDto } from './dto/manual-port.dto';
 
 @Injectable()
 export class ContainersService {
@@ -41,6 +42,28 @@ export class ContainersService {
     
     const items = await this.prisma.container.findMany({ where, orderBy: { createdAt: 'desc' }, take: 100 });
     return { items };
+  }
+
+  async updateManualPortMapping(containerId: string, dto: UpdateManualPortDto) {
+    const { exposedPort, internalPort } = dto;
+    return this.prisma.container.update({
+      where: { id: containerId },
+      data: {
+        manualPortMapping: {
+          exposedPort,
+          internalPort,
+        },
+      },
+    });
+  }
+
+  async deleteManualPortMapping(containerId: string) {
+    return this.prisma.container.update({
+      where: { id: containerId },
+      data: {
+        manualPortMapping: null,
+      },
+    });
   }
 
   async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string): Promise<number> {
@@ -182,7 +205,7 @@ export class ContainersService {
 
       const composeFolderName = (() => {
         const wd = composeWorkingDir || '';
-        const parts = wd.split(/[\\/]+/).filter(Boolean);
+        const parts = wd.split(/[\\/]+/ ).filter(Boolean);
         return parts.length ? parts[parts.length - 1] : (composeProject || null);
       })();
       // 统一以 composeProject 作为分组键，避免 working_dir 差异造成分裂
@@ -445,7 +468,7 @@ export class ContainersService {
             where: { id: container.id }, 
             data: { updateCheckedAt: new Date() }
           });
-        } catch {}
+        } catch {} // Ignore errors during update
         
         return { updated: 0, containerName: container.name, error: error instanceof Error ? error.message : String(error) };
       }
@@ -512,7 +535,7 @@ export class ContainersService {
 
       await this.prisma.container.update({ where: { id: c.id }, data: { updateAvailable: false } });
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
-      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
+      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {} // Ignore errors during refresh
       const r = { ok: upRes.code === 0 } as const;
       if (opId) this.gateway.broadcast(opId, 'end', r);
       return r;
@@ -566,7 +589,7 @@ export class ContainersService {
         // 尝试删除可能创建失败的容器
         try {
           await this.docker.exec(hostCred as any, ['rm', '-f', c.name], 60);
-        } catch {}
+        } catch {} // Ignore errors during cleanup
         
         // 恢复备份容器
         const restoreRes = await this.docker.exec(hostCred as any, ['rename', backupName, c.name], 60);
@@ -589,7 +612,7 @@ export class ContainersService {
 
       // 6. 刷新容器状态
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
-      try { await this.refreshStatus(hostCred.id, { containerNames: [c.name] }, opId); } catch {}
+      try { await this.refreshStatus(hostCred.id, { containerNames: [c.name] }, opId); } catch {} // Ignore errors during refresh
       
       const r = { ok: true };
       if (opId) this.gateway.broadcast(opId, 'end', r);
@@ -630,7 +653,7 @@ export class ContainersService {
     if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${restartRes.cmd}\n退出码: ${restartRes.code}`);
     // 仅刷新本容器状态
     if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] 正在刷新容器状态...`);
-    try { await this.refreshStatus(host.id, { containerIds: [c.id] }, opId); } catch {}
+    try { await this.refreshStatus(host.id, { containerIds: [c.id] }, opId); } catch {} // Ignore errors during refresh
     const r = { ok: true };
     if (opId) this.gateway.broadcast(opId, 'end', r);
     return r;
@@ -657,7 +680,7 @@ export class ContainersService {
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${res.code}`);
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
       this.logs.addLog('info', `[${hostCred.address}] 正在刷新 Compose 组状态...`, 'containers');
-      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
+      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {} // Ignore errors during refresh
       const r = { ok: res.code === 0 } as const;
       if (opId) this.gateway.broadcast(opId, 'end', r);
       return r;
@@ -669,7 +692,7 @@ export class ContainersService {
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}\n退出码: ${res.code}`);
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
     this.logs.addLog('info', `[${hostCred.address}] 正在刷新容器状态...`, 'containers');
-    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
+    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {} // Ignore errors during refresh
     const r = { ok: res.code === 0 } as const;
     if (opId) this.gateway.broadcast(opId, 'end', r);
     return r;
@@ -692,7 +715,7 @@ export class ContainersService {
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 退出码: ${res.code}`);
       if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新 Compose 组状态...`);
       this.logs.addLog('info', `[${hostCred.address}] 正在刷新 Compose 组状态...`, 'containers');
-      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {}
+      try { await this.refreshStatus(hostCred.id, { composeProject: c.composeProject || undefined }, opId); } catch {} // Ignore errors during refresh
       const r = { ok: res.code === 0 } as const;
       if (opId) this.gateway.broadcast(opId, 'end', r);
       return r;
@@ -704,7 +727,7 @@ export class ContainersService {
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] ${res.cmd}\n退出码: ${res.code}`);
     if (opId) this.gateway.broadcast(opId, 'data', `[${hostCred.address}] 正在刷新容器状态...`);
     this.logs.addLog('info', `[${hostCred.address}] 正在刷新容器状态...`, 'containers');
-    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {}
+    try { await this.refreshStatus(hostCred.id, { containerIds: [c.id] }, opId); } catch {} // Ignore errors during refresh
     const r = { ok: res.code === 0 } as const;
     if (opId) this.gateway.broadcast(opId, 'end', r);
     return r;
@@ -844,7 +867,7 @@ export class ContainersService {
           // compose ls 无此项目，视为项目已停止/下线，标记为 stopped
           await this.prisma.container.updateMany({ where: { hostId, isComposeManaged: true, composeProject: options.composeProject }, data: { state: 'stopped', status: 'stopped', startedAt: null as any } });
         }
-      } catch {}
+      } catch {} // Ignore errors during compose ls
 
       // 优先通过 docker ps 读取该项目现存容器（包含已重建的新ID）
       const ps = await this.docker.psByComposeProject(hostCred, options.composeProject);
@@ -990,7 +1013,7 @@ export class ContainersService {
         hostLabel: h.address,
         metadata: { operation: `compose_${op}`, project, refreshResult }
       });
-    } catch {}
+    } catch {} // Ignore errors during refresh
     const result = { ok: res.code === 0, code: res.code };
     if (opId) this.gateway.broadcast(opId, 'end', result);
     return result;
@@ -1105,4 +1128,3 @@ export class ContainersService {
     }
   }
 }
-

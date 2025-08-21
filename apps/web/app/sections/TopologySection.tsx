@@ -86,9 +86,28 @@ const stylesheet = [
       'text-valign': 'center',
     },
   },
+  // Logical container styles
+  {
+    selector: 'node[type="logical-container"]',
+    style: {
+      shape: 'ellipse',
+      'background-color': '#f9f9f9',
+      'border-color': '#cccccc',
+      'border-width': 2,
+      'border-style': 'dashed',
+      label: 'data(label)',
+      'font-size': '10px',
+      'text-wrap': 'wrap',
+      'text-max-width': 80,
+      'text-valign': 'center',
+      color: '#555',
+      width: 60,
+      height: 60,
+    },
+  },
   // Node styles
   {
-    selector: 'node[type!="group"][type!="host"][type!="compose-group"][type!="remote-port"]',
+    selector: 'node[type!="group"][type!="host"][type!="compose-group"][type!="remote-port"][type!="logical-container"]',
     style: {
       width: 60,
       height: 60,
@@ -139,8 +158,8 @@ const stylesheet = [
     style: {
       width: 4,
       // 'line-style': 'dashed',
-      'line-color': '#e74c3c',
-      'target-arrow-color': '#e74c3c',
+      'line-color': '#a0b3c4',
+      'target-arrow-color': '#a0b3c4',
     },
   },
 ];

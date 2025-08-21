@@ -189,8 +189,8 @@ export class TopologyService {
           group: 'edges',
           data: {
             id: `edge-frps-${frpsContainer.id}-opens-${portNodeId}`,
-            source: `container-${frpsContainer.id}`,
-            target: portNodeId,
+            target: `container-${frpsContainer.id}`,
+            source: portNodeId,
             label: 'opens',
           },
         });
@@ -267,7 +267,28 @@ export class TopologyService {
                 label: `local:${frpcProxy.localPort}`,
               },
             });
-          } else { this.logger.warn(`Final target container for FRPC proxy ${frpcProxy.name} not found on the same host.`); }
+          } else {
+            this.logger.warn(`Final target container for FRPC proxy ${frpcProxy.name} not found on the same host. Creating a logical node.`);
+            const logicalNodeId = `logical-${frpcProxy.name}-on-${frpcContainer.hostId}`;
+            addNode({
+                group: 'nodes',
+                data: {
+                    id: logicalNodeId,
+                    label: frpcProxy.name,
+                    parent: `host-${frpcContainer.hostId}`,
+                    type: 'logical-container',
+                },
+            });
+            addEdge({
+                group: 'edges',
+                data: {
+                    id: `edge-frpc-${frpcContainer.id}-to-logical-${logicalNodeId}`,
+                    source: `container-${frpcContainer.id}`,
+                    target: logicalNodeId,
+                    label: `local:${frpcProxy.localPort}`,
+                },
+            });
+          }
         } else { this.logger.warn(`FRPC container for proxy ${frpcProxy.name} not found.`); }
       } else {
         // Handle Direct Proxy Route
@@ -355,6 +376,17 @@ export class TopologyService {
     port: number,
     containers: Container[],
   ): Container | undefined {
+    // Final fallback: check manual port mappings
+    const foundByManualPort = containers.find(c => {
+      if (!c.manualPortMapping || typeof c.manualPortMapping !== 'object') return false;
+      const mapping = c.manualPortMapping as any;
+      return mapping.exposedPort === String(port);
+    });
+
+    if (foundByManualPort) {
+      this.logger.debug(`Found container ${foundByManualPort.name} by manual port mapping for port ${port}`);
+      return foundByManualPort;
+    }
     // First, try to find by network IP and port
     const foundByNet = containers.find((c) => {
       if (!c.networks || typeof c.networks !== 'object') return false;
