@@ -10,6 +10,7 @@ export interface HostItem {
   sshUser: string;
   port?: number;
   tags?: string[];
+  role?: 'local' | 'remote';
   sshOptions?: unknown;
   sshAuthMethod?: 'password' | 'privateKey';
   sshPassword?: string | null;
@@ -46,6 +47,7 @@ export class HostsService {
       sshUser: r.sshUser,
       port: r.port ?? undefined,
       tags: r.tags,
+      role: r.role as 'local' | 'remote',
       sshOptions: (r as any).sshOptions ?? undefined,
       sshAuthMethod: (r as any).sshAuthMethod ?? 'password',
       // 不透出明文与密文，仅提供存在标记
@@ -80,6 +82,7 @@ export class HostsService {
         sshUser: host.sshUser,
         port: host.port ?? null,
         tags: host.tags ?? [],
+        role: host.role,
         sshOptions: (host as any).sshOptions ?? undefined,
         sshAuthMethod: (host as any).sshAuthMethod ?? 'password',
         sshPassword: this.crypto.encryptString((host as any).sshPassword ?? null),
@@ -95,6 +98,7 @@ export class HostsService {
       sshUser: created.sshUser,
       port: created.port ?? undefined,
       tags: created.tags,
+      role: created.role as 'local' | 'remote',
       sshOptions: (created as any).sshOptions ?? undefined,
       sshAuthMethod: (created as any).sshAuthMethod ?? 'password',
       hasPassword: Boolean((created as any).sshPassword),
@@ -103,21 +107,32 @@ export class HostsService {
   }
 
   async update(id: string, partial: Partial<HostItem>): Promise<HostItem> {
+    const data: any = {
+      name: partial.name ?? undefined,
+      address: partial.address ?? undefined,
+      sshUser: partial.sshUser ?? undefined,
+      port: partial.port === undefined ? undefined : partial.port,
+      tags: partial.tags ?? undefined,
+      role: partial.role ?? undefined,
+      sshOptions: (partial as any).sshOptions ?? undefined,
+    };
+
+    const hasNewPassword = typeof (partial as any).sshPassword === 'string' && (partial as any).sshPassword.length > 0;
+    const hasNewPrivateKey = typeof (partial as any).sshPrivateKey === 'string' && (partial as any).sshPrivateKey.length > 0;
+
+    if (hasNewPassword || hasNewPrivateKey) {
+      this.logger.log(`正在为主机 ${id} 更新凭据`);
+      data.sshAuthMethod = (partial as any).sshAuthMethod ?? undefined;
+      data.sshPassword = this.crypto.encryptString((partial as any).sshPassword ?? null);
+      data.sshPrivateKey = this.crypto.encryptString((partial as any).sshPrivateKey ?? null);
+      data.sshPrivateKeyPassphrase = this.crypto.encryptString((partial as any).sshPrivateKeyPassphrase ?? null);
+    }
+
     const updated = await this.prisma.host.update({
-      where: { id },    
-      data: {
-        name: partial.name ?? undefined,
-        address: partial.address ?? undefined,
-        sshUser: partial.sshUser ?? undefined,
-        port: partial.port === undefined ? undefined : partial.port,
-        tags: partial.tags ?? undefined,
-        sshOptions: (partial as any).sshOptions ?? undefined,
-        sshAuthMethod: (partial as any).sshAuthMethod ?? undefined,
-        sshPassword: (partial as any).sshPassword === undefined ? undefined : this.crypto.encryptString((partial as any).sshPassword),
-        sshPrivateKey: (partial as any).sshPrivateKey === undefined ? undefined : this.crypto.encryptString((partial as any).sshPrivateKey),
-        sshPrivateKeyPassphrase: (partial as any).sshPrivateKeyPassphrase === undefined ? undefined : this.crypto.encryptString((partial as any).sshPrivateKeyPassphrase)
-      }
+      where: { id },
+      data,
     });
+
     return {
       id: updated.id,
       name: updated.name,
@@ -125,6 +140,7 @@ export class HostsService {
       sshUser: updated.sshUser,
       port: updated.port ?? undefined,
       tags: updated.tags,
+      role: updated.role as 'local' | 'remote',
       sshOptions: (updated as any).sshOptions ?? undefined,
       sshAuthMethod: (updated as any).sshAuthMethod ?? 'password',
       sshPassword: null,
