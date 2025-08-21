@@ -174,7 +174,7 @@ export class TopologyService {
         });
         addEdge({
           group: 'edges',
-          data: { id: `edge-frps-${frpsContainer.id}-opens-${portNodeId}`, target: `container-${frpsContainer.id}`, source: portNodeId, label: 'opens' },
+          data: { id: `edge-frps-${frpsContainer.id}-opens-${portNodeId}`, target: `container-${frpsContainer.id}`, source: portNodeId, label: 'opens', type: 'opens-edge' },
         });
       }
     });
@@ -186,7 +186,7 @@ export class TopologyService {
 
       addEdge({
         group: 'edges',
-        data: { id: `edge-npm-${npmContainer.id}-exposes-${route.domain}`, source: `container-${npmContainer.id}`, target: `domain-${route.domain}`, label: 'exposes' },
+        data: { id: `edge-npm-${npmContainer.id}-exposes-${route.domain}`, source: `container-${npmContainer.id}`, target: `domain-${route.domain}`, label: 'exposes', type: 'exposes-edge' },
       });
 
       const frpcProxy = frpcProxies.find(p => p.remotePort === route.forwardPort);
@@ -210,7 +210,8 @@ export class TopologyService {
               id: `edge-frps-${frpsContainer.id}-to-frpc-${frpcContainer.id}-${frpcProxy.name}`,
               source: `container-${frpsContainer.id}`,
               target: `container-${frpcContainer.id}`,
-              label: 'tunnel',
+              label: `tunnel-${frpcProxy.name}`,
+              type: 'tunnel-edge',
             },
           });
 
@@ -219,7 +220,13 @@ export class TopologyService {
           if (finalTarget) {
             addEdge({
               group: 'edges',
-              data: { id: `edge-frpc-${frpcContainer.id}-to-target-${finalTarget.id}`, source: `container-${frpcContainer.id}`, target: `container-${finalTarget.id}`, label: `local:${frpcProxy.localPort}` },
+              data: {
+                id: `edge-frpc-${frpcContainer.id}-to-target-${finalTarget.id}`, 
+                source: `container-${frpcContainer.id}`, 
+                target: `container-${finalTarget.id}`, 
+                label: `local:${frpcProxy.localPort}`, 
+                type: 'frpc-edge' 
+              },
             });
           } else {
             this.logger.warn(`Final target container for FRPC proxy ${frpcProxy.name} not found on the same host. Creating a logical node.`);
@@ -240,6 +247,7 @@ export class TopologyService {
                     source: `container-${frpcContainer.id}`,
                     target: logicalNodeId,
                     label: `local:${frpcProxy.localPort}`,
+                    type: 'frpc-edge'
                 },
             });
           }
