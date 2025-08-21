@@ -11,9 +11,10 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
-type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; hasPassword?: boolean; hasPrivateKey?: boolean };
+type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; role?: 'local' | 'remote'; hasPassword?: boolean; hasPrivateKey?: boolean };
 
 export default function HostsSection() {
   const qc = useQueryClient();
@@ -100,7 +101,7 @@ export default function HostsSection() {
           <Input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="按标签筛选" className="max-w-xs" />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button>新建主机</Button>
+              <Button onClick={() => setEditing({ role: 'local' })}>新建主机</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>{editing?.id ? '编辑主机' : '新建主机'}</DialogTitle></DialogHeader>
@@ -109,6 +110,21 @@ export default function HostsSection() {
                 <Input placeholder="地址/IP" defaultValue={editing?.address} onChange={(e) => setEditing((p) => ({ ...(p || {}), address: e.target.value }))} />
                 <Input placeholder="SSH 用户" defaultValue={editing?.sshUser} onChange={(e) => setEditing((p) => ({ ...(p || {}), sshUser: e.target.value }))} />
                 <Input placeholder="端口（可选）" type="number" defaultValue={editing?.port} onChange={(e) => setEditing((p) => ({ ...(p || {}), port: Number(e.target.value) }))} />
+                <div className="grid gap-2">
+                  <Label>主机角色</Label>
+                  <Select
+                    value={editing?.role || 'local'}
+                    onValueChange={(value) => setEditing((p) => ({ ...(p || {}), role: value as 'local' | 'remote' }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择主机角色" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="local">本地网络 (Local Network)</SelectItem>
+                      <SelectItem value="remote">公网云服务器 (Public Cloud)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Input placeholder="标签，逗号分隔" defaultValue={(editing?.tags || []).join(',')} onChange={(e) => setEditing((p) => ({ ...(p || {}), tags: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} />
                 <div className="grid gap-2">
                   <Label className="text-sm">认证方式</Label>
@@ -164,6 +180,7 @@ export default function HostsSection() {
               }} /></TableHead>
               <TableHead>名称</TableHead>
               <TableHead>地址</TableHead>
+              <TableHead>角色</TableHead>
               <TableHead>用户</TableHead>
               <TableHead>标签</TableHead>
               <TableHead className="text-right">操作</TableHead>
@@ -175,6 +192,11 @@ export default function HostsSection() {
                 <TableCell className="text-center"><Checkbox checked={!!selected[h.id]} onCheckedChange={(v) => setSelected((s) => ({ ...s, [h.id]: v === true }))} /></TableCell>
                 <TableCell>{h.name}</TableCell>
                 <TableCell className="text-muted-foreground">{h.address}</TableCell>
+                <TableCell>
+                  <Badge variant={h.role === 'remote' ? 'default' : 'secondary'}>
+                    {h.role === 'remote' ? '公网' : '本地'}
+                  </Badge>
+                </TableCell>
                 <TableCell className="text-muted-foreground">{h.sshUser}</TableCell>
                 <TableCell className="space-x-1">
                   {(h.tags || []).map((t) => (<Badge key={t}>{t}</Badge>))}
