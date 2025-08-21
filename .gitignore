@@ -19,3 +19,4 @@ example_frpc.toml
 example_npm_database.sqlite
 example_frps.toml
 example_frpc_with_xtcp.toml
+example_npm_compose_with_mariadb.yml
