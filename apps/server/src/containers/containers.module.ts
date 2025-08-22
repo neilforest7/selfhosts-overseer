@@ -12,6 +12,7 @@ import { DiunModule } from '../diun/diun.module';
 import { ReverseProxyModule } from '../reverse-proxy/reverse-proxy.module';
 import { DockerModule } from '../docker/docker.module';
 import { FrpModule } from '../frp/frp.module';
+import { TasksModule } from '../tasks/tasks.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { FrpModule } from '../frp/frp.module';
     forwardRef(() => ReverseProxyModule),
     DockerModule,
     FrpModule,
+    forwardRef(() => TasksModule),
   ],
   controllers: [ContainersController],
   providers: [
@@ -31,5 +33,6 @@ import { FrpModule } from '../frp/frp.module';
     ExecGateway,
     CryptoService,
   ],
+  exports: [ContainersService],
 })
 export class ContainersModule {}

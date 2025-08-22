@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, forwardRef, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DockerService } from './docker.service';
 import { ExecGateway } from '../realtime/exec.gateway';
@@ -7,6 +7,7 @@ import { DiunService } from '../diun/diun.service';
 import { LogsService } from '../logs/logs.service';
 import { FrpService } from '../frp/frp.service';
 import { UpdateManualPortDto } from './dto/manual-port.dto';
+import { TasksService } from '../tasks/tasks.service';
 
 @Injectable()
 export class ContainersService {
@@ -19,6 +20,8 @@ export class ContainersService {
     private readonly logs: LogsService,
     private readonly diun: DiunService,
     private readonly frpService: FrpService,
+    @Inject(forwardRef(() => TasksService))
+    private readonly tasksService: TasksService,
   ) {}
 
   async list(params: { hostId?: string; hostName?: string; q?: string; updateAvailable?: boolean | undefined; isComposeManaged?: boolean | undefined }) {
@@ -66,7 +69,16 @@ export class ContainersService {
     });
   }
 
-  async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string): Promise<number> {
+  async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string, logCallback?: (log: string) => void): Promise<number> {
+    const broadcast = (stream: 'data' | 'stderr', data: string) => {
+      if (opId) {
+        this.gateway.broadcast(opId, stream, data+ `\n`);
+      }
+      if (logCallback) {
+        logCallback(data + '\n');
+      }
+    };
+
     await this.logs.addLog('info', `开始发现主机 ${host.address} 上的容器`, 'container', { 
       source: 'containers', 
       hostId: host.id, 
@@ -97,7 +109,7 @@ export class ContainersService {
         hostLabel: host.address,
         metadata: { command: cmd, exitCode: code, stderr, operation: 'docker_ps' }
       });
-      if (opId) this.gateway.broadcast(opId, 'stderr', `[${host.address}] ${cmd}\n退出码: ${code}\n${stderr}`);
+      broadcast('stderr', `[${host.address}] ${cmd}\n退出码: ${code}\n${stderr}`);
       return 0;
     }
     
@@ -107,7 +119,7 @@ export class ContainersService {
       hostLabel: host.address,
       metadata: { command: cmd, exitCode: code, operation: 'docker_ps' }
     });
-    if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] ${cmd}\n退出码: ${code}`);
+    broadcast('data', `[${host.address}] ${cmd}\n退出码: ${code}`);
     const lines = stdout.split('\n').filter(Boolean);
     const briefList: { id: string; name: string; image: string; state?: string; status?: string; restartCount?: number }[] = [];
     let upserted = 0;
@@ -194,7 +206,7 @@ export class ContainersService {
       const shortId: string = fullId.slice(0, 12);
       if (fullId) { seenIds.add(fullId); }
       if (shortId) { seenIds.add(shortId); }
-      if (opId) this.gateway.broadcast(opId, 'data', `[${host.address}] 发现容器 ${b.name} (${shortId}) - ${(imageName || '')}:${(imageTag || '')}`);
+      broadcast('data', `[Container Discover] 发现容器 ${b.name} (${host.address}) `); //- ${(imageName || '')}:${(imageTag || '')}
 
       // 统一短ID与完整ID，修复历史重复
       const existing = await this.prisma.container.findFirst({ where: { hostId: host.id, containerId: { in: [fullId, shortId, b.id] } } });
@@ -266,44 +278,37 @@ export class ContainersService {
     } catch {} // Ignore errors during cleanup
 
     // Trigger FRP sync after discovery
-    this.frpService.syncFrpFromHost(host.id).catch(err => {
-      this.logger.error(`Error triggering FRP sync for host ${host.id}`, err);
-    });
+    await this.frpService.syncFrpFromHost(host.id, opId, logCallback);
 
     return upserted;
   }
 
-  async discover(bodyHost?: { id?: string; address?: string; sshUser?: string; port?: number } | { id: 'all' }, opId?: string): Promise<{ upserted: number }> {
-    // 支持：传入完整主机、hostId 或 'all'；若 bodyHost 缺失则视为 all
+  async discover(bodyHost?: { id?: string; address?: string; sshUser?: string; port?: number } | { id: 'all' }, opId?: string): Promise<{ taskId: string }> {
+    if (!opId) {
+      throw new Error('opId is required for discovery');
+    }
+    
+    let targetHostIds: string[];
+
     if (bodyHost && (bodyHost as any).address && (bodyHost as any).sshUser && (bodyHost as any).id) {
-      const n = await this.discoverOnHost(bodyHost as any, opId);
-      const r = { upserted: n };
-      if (opId) this.gateway.broadcast(opId, 'end', r);
-      return r;
-    }
-    const hostId = bodyHost ? ((bodyHost as any).id as string | undefined) : undefined;
-    if (!hostId || hostId === 'all') {
-      const hosts = await this.prisma.host.findMany({ select: { id: true, address: true, sshUser: true, port: true }, take: 1000 });
-      let total = 0;
-      for (const h of hosts) total += await this.discoverOnHost({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined }, opId);
-      // 自动触发一次重复清理（保护性）
-      try { await this.cleanupDuplicates('all', opId); } catch {}
-      const r = { upserted: total };
-      if (opId) this.gateway.broadcast(opId, 'end', r);
-      return r;
+      targetHostIds = [(bodyHost as any).id];
     } else {
-      const h = await this.prisma.host.findUnique({ where: { id: hostId }, select: { id: true, address: true, sshUser: true, port: true } });
-      if (!h) {
-        const r = { upserted: 0 };
-        if (opId) this.gateway.broadcast(opId, 'end', r);
-        return r;
+      const hostId = bodyHost ? ((bodyHost as any).id as string | undefined) : undefined;
+      if (!hostId || hostId === 'all') {
+        const hosts = await this.prisma.host.findMany({ select: { id: true }, take: 1000 });
+        targetHostIds = hosts.map(h => h.id);
+      } else {
+        targetHostIds = [hostId];
       }
-      const n = await this.discoverOnHost({ id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined }, opId);
-      try { await this.cleanupDuplicates(h.id, opId); } catch {}
-      const r = { upserted: n };
-      if (opId) this.gateway.broadcast(opId, 'end', r);
-      return r;
     }
+    
+    await this.tasksService.exec({
+      opId,
+      command: 'internal:discover_containers',
+      targets: targetHostIds,
+    });
+
+    return { taskId: opId };
   }
 
   async checkUpdates(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string): Promise<{ updated: number }> {

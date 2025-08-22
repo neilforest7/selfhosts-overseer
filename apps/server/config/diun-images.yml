@@ -1,42 +1,36 @@
-- name: redis:7-alpine
+- name: jc21/nginx-proxy-manager:latest
   labels:
-    diun.provider: cmelevdub004zthn6h23zbrap
-- name: mcp/puppeteer:latest
+    diun.provider: cmelpj3ag0048e8di5vetat9p
+- name: ghcr.io/snailyp/gemini-balance:latest
   labels:
-    diun.provider: cmelev9zl004tthn6zi5c7lih
-- name: mcp/puppeteer:latest
+    diun.provider: cmelpfkye003se8diktuunta5
+- name: grafana/grafana:latest
   labels:
-    diun.provider: cmemslac20046cp0jlvbmq8gm
-- name: mcp/puppeteer:latest
+    diun.provider: cmelpju0t004ce8dius249yxk
+- name: victoriametrics/victoria-metrics:latest
   labels:
-    diun.provider: cmelv86bw00wrrgzs33xxdrv2
-- name: mcp/puppeteer:latest
+    diun.provider: cmelpk8if004ee8dibbwio72u
+- name: mysql:8
   labels:
-    diun.provider: cmelev8pp004rthn676o4qmaw
-- name: ghcr.io/snowdreamtech/frpc:latest
-  labels:
-    diun.provider: cmelevf500051thn6xe6o48am
-- name: mcp/puppeteer:latest
-  labels:
-    diun.provider: cmemslblt0048cp0j216b4bj8
-- name: mcp/puppeteer:latest
-  labels:
-    diun.provider: cmelv851m00wprgzstanifspp
-- name: ghcr.io/dingyufei615/ai-goofish:latest
-  labels:
-    diun.provider: cmelevghh0053thn6i3ii6nvh
-- name: victoriametrics/vmagent:latest
-  labels:
-    diun.provider: cmelevhqn0055thn6zdtn1jze
-- name: postgres:16-alpine
-  labels:
-    diun.provider: cmelevckj004xthn6jdr25yw1
-- name: prom/node-exporter:latest
-  labels:
-    diun.provider: cmeleviz30057thn6u3yagtwx
+    diun.provider: cmelpfysd003ue8difwh2ppsp
 - name: prom/blackbox-exporter:latest
   labels:
-    diun.provider: cmelevkag0059thn6g141l6lt
-- name: sosedoff/pgweb:0.16.1
+    diun.provider: cmelph9gg0040e8did1wlzqla
+- name: jc21/mariadb-aria:latest
   labels:
-    diun.provider: cmelevb8g004vthn656zmhhdi
+    diun.provider: cmelpjgmd004ae8dixlhqum3b
+- name: postgres:16
+  labels:
+    diun.provider: cmelpi1bf0044e8di1iep9jj2
+- name: victoriametrics/vmagent:latest
+  labels:
+    diun.provider: cmelpgfgp003we8dijol6o7lh
+- name: prom/node-exporter:latest
+  labels:
+    diun.provider: cmelpguv6003ye8die3qmadkn
+- name: docker.n8n.io/n8nio/n8n:latest
+  labels:
+    diun.provider: cmelphmsy0042e8diixar507d
+- name: hunsh/gh-proxy-py:latest
+  labels:
+    diun.provider: cmelpiprp0046e8di20kcc12v

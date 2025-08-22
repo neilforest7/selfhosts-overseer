@@ -10,75 +10,65 @@ import ObservabilitySection from './sections/ObservabilitySection';
 import TopologySection from './sections/TopologySection';
 import SettingsSection from './sections/SettingsSection';
 import CertificatesSection from './sections/CertificatesSection';
-import { OperationDrawer } from '@/components/OperationDrawer';
+import { TaskDrawer } from '@/components/TaskDrawer';
 import LogsSection from './sections/LogsSection';
+import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
+import { ListTodo } from 'lucide-react';
 
 type TabKey = 'overview' | 'hosts' | 'tasks' | 'containers' | 'observability' | 'topology' | 'certificates' | 'logs' | 'settings';
 
 export default function AppShell() {
   const [tab, setTab] = useState<TabKey>('overview');
+  const { actions } = useTaskDrawerStore();
 
   useEffect(() => {
     const applyFromHash = () => {
-      const hash = (typeof window !== 'undefined' && window.location.hash.replace('#', '')) as TabKey | '';
-      if (hash && ['overview','hosts','tasks','containers','observability','topology','certificates','logs','settings'].includes(hash)) {
+      const hash = window.location.hash.slice(1);
+      if (['overview', 'hosts', 'tasks', 'containers', 'observability', 'topology', 'certificates', 'logs', 'settings'].includes(hash)) {
         setTab(hash as TabKey);
       }
     };
     applyFromHash();
-    const onHash = () => applyFromHash();
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    window.addEventListener('hashchange', applyFromHash);
+    return () => window.removeEventListener('hashchange', applyFromHash);
   }, []);
 
-  const switchTab = (next: TabKey) => {
-    setTab(next);
-    if (typeof window !== 'undefined') window.location.hash = next;
+  const renderContent = () => {
+    switch (tab) {
+      case 'overview': return <HostsSection />;
+      case 'hosts': return <HostsSection />;
+      case 'tasks': return <TasksSection />;
+      case 'containers': return <ContainersSection />;
+      case 'observability': return <ObservabilitySection />;
+      case 'topology': return <TopologySection />;
+      case 'certificates': return <CertificatesSection />;
+      case 'logs': return <LogsSection />;
+      case 'settings': return <SettingsSection />;
+      default: return <HostsSection />;
+    }
   };
 
   return (
     <>
-      <div className="grid grid-cols-12 gap-6 h-full">
-        <aside className="col-span-12 md:col-span-2">
-          <div className="rounded-lg border p-2 space-y-1">
-            {([
-              ['overview','总览'],
-              ['hosts','主机'],
-              ['tasks','任务'],
-              ['containers','容器'],
-              ['observability','观测'],
-              ['topology','拓扑'],
-              ['certificates','证书'],
-              ['logs','日志'],
-              ['settings','设置']
-            ] as [TabKey, string][]) .map(([key, label]) => (
-              <Button key={key} variant={tab === key ? 'default' : 'ghost'} className="w-full justify-start" onClick={() => switchTab(key)}>
-                {label}
-              </Button>
-            ))}
-          </div>
-        </aside>
-        <section className="col-span-12 md:col-span-10 space-y-8">
-          {tab === 'overview' && (
-            <div className="space-y-6">
-              <HostsSection />
-              <Separator />
-              <TasksSection />
-            </div>
-          )}
-          {tab === 'hosts' && <HostsSection />}
-          {tab === 'tasks' && <TasksSection />}
-          {tab === 'containers' && <ContainersSection />}
-          {tab === 'observability' && <ObservabilitySection />}
-          {tab === 'topology' && <TopologySection />}
-          {tab === 'certificates' && <CertificatesSection />}
-          {tab === 'logs' && <LogsSection />}
-          {tab === 'settings' && <SettingsSection />}
+      <div className="flex h-screen bg-background text-foreground">
+        <nav className="w-48 border-r p-4 space-y-2">
+          <h1 className="text-lg font-bold mb-4">MCP</h1>
+          {(['overview', 'hosts', 'tasks', 'containers', 'observability', 'topology', 'certificates', 'logs', 'settings'] as TabKey[]).map(t => (
+            <a key={t} href={`#${t}`} onClick={() => setTab(t)} className={`block px-3 py-2 rounded-md text-sm font-medium ${tab === t ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </a>
+          ))}
+        </nav>
+        <section className="flex-1 p-6 overflow-auto">
+          {renderContent()}
         </section>
       </div>
-      <OperationDrawer />
+      <div className="fixed bottom-4 right-4 z-50">
+        <Button onClick={actions.toggleOpen} size="lg" className="rounded-full w-16 h-16 shadow-lg">
+          <ListTodo className="h-8 w-8" />
+        </Button>
+      </div>
+      <TaskDrawer />
     </>
   );
 }
-
-

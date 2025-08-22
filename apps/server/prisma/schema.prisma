@@ -210,3 +210,26 @@ model FrpcProxy {
   frps           FrpsConfig @relation(fields: [frpsConfigId], references: [id], onDelete: Cascade)
 }
 
+model OperationLog {
+  id            String    @id @default(cuid())
+  title         String
+  status        OpStatus  @default(RUNNING)
+  executionType ExecType  @default(MANUAL)
+  startTime     DateTime  @default(now())
+  endTime       DateTime?
+  logs          String    @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+enum OpStatus {
+  RUNNING
+  COMPLETED
+  ERROR
+}
+
+enum ExecType {
+  MANUAL
+  AUTOMATIC
+}
+

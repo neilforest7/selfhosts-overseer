@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { ManualPortDialog } from './ManualPortDialog';
-import { useOperationStore } from '@/lib/stores/operation-store';
+import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 
 
@@ -50,9 +50,9 @@ export default function ContainersSection() {
   const [hostFilter, setHostFilter] = useState('');
   const [composeOnly, setComposeOnly] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const startOperation = useOperationStore(s => s.startOperation);
+  const { startOperation } = useTaskDrawerStore((s) => s.actions);
 
-  const listQuery = useQuery<{ items: ContainerItem[] }>({ 
+  const listQuery = useQuery<{ items: ContainerItem[] }>({
     queryKey: ['containers', q, updateOnly, hostFilter, composeOnly],
     queryFn: async () => {
       const url = new URL('http://localhost:3001/api/v1/containers');
@@ -129,14 +129,15 @@ export default function ContainersSection() {
 
   const discover = useMutation({
     mutationFn: async (hostTarget: string | 'all') => {
-      const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
+      const hostName = hostTarget === 'all' ? '全部主机' : hostsQuery.data?.items?.find((h) => h.id === hostTarget)?.name || hostTarget;
       const title = `容器发现（${hostName}）`;
-      startOperation(id, title);
-      const body = hostTarget === 'all' 
-        ? { opId: id }
-        : { host: { id: hostTarget }, opId: id };
-      const r = await fetch('http://localhost:3001/api/v1/containers/discover', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const opId = await startOperation(title);
+      const body = hostTarget === 'all' ? { opId } : { host: { id: hostTarget }, opId };
+      const r = await fetch('http://localhost:3001/api/v1/containers/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       if (!r.ok) throw new Error('发现失败');
       return r.json();
     },
@@ -163,14 +164,15 @@ export default function ContainersSection() {
 
   const checkUpdates = useMutation({
     mutationFn: async (hostTarget: string | 'all') => {
-      const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
+      const hostName = hostTarget === 'all' ? '全部主机' : hostsQuery.data?.items?.find((h) => h.id === hostTarget)?.name || hostTarget;
       const title = `检查镜像更新（${hostName}）`;
-      startOperation(id, title);
-      const body = hostTarget === 'all' 
-        ? { opId: id }
-        : { host: { id: hostTarget }, opId: id };
-      const r = await fetch('http://localhost:3001/api/v1/containers/check-updates', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const opId = await startOperation(title);
+      const body = hostTarget === 'all' ? { opId } : { host: { id: hostTarget }, opId };
+      const r = await fetch('http://localhost:3001/api/v1/containers/check-updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       if (!r.ok) throw new Error('检查失败');
       return r.json();
     },
@@ -197,12 +199,11 @@ export default function ContainersSection() {
   // Compose 操作（改为直接调用后端 compose/operate 接口）
   const composeOperation = useMutation({
     mutationFn: async ({ hostId, project, workingDir, operation }: { hostId: string; project: string; workingDir: string; operation: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop' }) => {
-      const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      startOperation(id, `Compose ${operation}: ${project}`);
+      const opId = await startOperation(`Compose ${operation}: ${project}`);
       const r = await fetch('http://localhost:3001/api/v1/containers/compose/operate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hostId, project, workingDir, op: operation, opId: id })
+        body: JSON.stringify({ hostId, project, workingDir, op: operation, opId })
       });
       if (!r.ok) throw new Error(`${operation} 操作失败`);
       return r.json();
@@ -544,11 +545,10 @@ export default function ContainersSection() {
                         ) : (
                           <>
                             <DropdownMenuItem onClick={async ()=>{ 
-                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                              startOperation(id, `重启 ${first.name}`);
+                              const opId = await startOperation(`重启 ${first.name}`);
                               toast.info(`已触发重启：${first.name}`);
                               try {
-                                const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
+                                const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                 if (!r.ok) throw new Error(await r.text());
                                 toast.success(`重启请求已受理：${first.name}`);
                               } catch (e: any) {
@@ -563,11 +563,10 @@ export default function ContainersSection() {
                                     <>
                                       {!running && (
                                         <DropdownMenuItem onClick={async ()=>{ 
-                                          const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                          startOperation(id, `启动 ${first.name}`);
+                                          const opId = await startOperation(`启动 ${first.name}`);
                                           toast.info(`已触发启动：${first.name}`);
                                           try {
-                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
+                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                             if (!r.ok) throw new Error(await r.text());
                                             toast.success(`启动请求已受理：${first.name}`);
                                             qc.invalidateQueries({ queryKey: ['containers'] });
@@ -587,11 +586,10 @@ export default function ContainersSection() {
                                     <>
                                       {running && (
                                         <DropdownMenuItem onClick={async ()=>{ 
-                                          const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                          startOperation(id, `停止 ${first.name}`);
+                                          const opId = await startOperation(`停止 ${first.name}`);
                                           toast.info(`已触发停止：${first.name}`);
                                           try {
-                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
+                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                             if (!r.ok) throw new Error(await r.text());
                                             toast.success(`停止请求已受理：${first.name}`);
                                             qc.invalidateQueries({ queryKey: ['containers'] });
@@ -604,12 +602,11 @@ export default function ContainersSection() {
                                   );
                                 })()}
                             <DropdownMenuItem onClick={async ()=>{ 
-                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                               const i = first;
-                              startOperation(id, `更新 ${i.name}`);
+                              const opId = await startOperation(`更新 ${i.name}`);
                               toast.info(`已触发更新：${i.name}`);
                               try {
-                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
+                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId }) });
                                 if (!r.ok) throw new Error(await r.text());
                                 toast.success(`更新请求已受理：${i.name}`);
                                 qc.invalidateQueries({ queryKey: ['containers'] });
@@ -620,9 +617,8 @@ export default function ContainersSection() {
                           </>
                         )}
                         <DropdownMenuItem onClick={async ()=>{ 
-                          const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                           const containerName = isCompose ? `${title} 组` : first.name;
-                          startOperation(id, `检查更新: ${containerName}`);
+                          const opId = await startOperation(`检查更新: ${containerName}`);
                           
                           if (isCompose) {
                             // Compose 组：检查该组所有容器
@@ -634,7 +630,7 @@ export default function ContainersSection() {
                                 body: JSON.stringify({ 
                                   hostId: first.hostId, 
                                   composeProject: first.composeProject || '', 
-                                  opId: id 
+                                  opId
                                 }) 
                               });
                               if (!r.ok) throw new Error('检查失败');
@@ -657,7 +653,7 @@ export default function ContainersSection() {
                               const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/check-update`, { 
                                 method: 'POST', 
                                 headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({ opId: id }) 
+                                body: JSON.stringify({ opId }) 
                               });
                               if (!r.ok) throw new Error('检查失败');
                               const result = await r.json();
