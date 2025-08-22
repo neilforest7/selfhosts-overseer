@@ -1,11 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import CytoscapeComponent from 'react-cytoscapejs';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Maximize, Minimize } from 'lucide-react';
 
 cytoscape.use(dagre);
 
@@ -157,9 +159,6 @@ const stylesheet = [
       'border-color': '#27ae60',
       'text-outline-color': '#27ae60',
       'font-size': '24px',
-      // 'text-outline-width': 3,
-      // 'text-outline-opacity': 1,
-      // 'border-width': 2,
     },
   },
   {
@@ -258,7 +257,6 @@ const stylesheet = [
       'target-arrow-color': '#a0b3c4',
       label: 'data(label)',
       'font-size': '12px',
-      // 'width': 1.5,
     },
   },
 ];
@@ -276,6 +274,24 @@ export default function TopologySection() {
     queryKey: ['topologyData'],
     queryFn: fetchTopologyData,
   });
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  const containerStyle: React.CSSProperties = isMaximized
+    ? {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        zIndex: 9999,
+        backgroundColor: 'white',
+      }
+    : {
+        height: 'calc(100vh - 150px)',
+        width: '100%',
+        border: '1px solid #eee',
+        position: 'relative',
+      };
 
   return (
     <div style={{ marginTop: '-32px' }}>
@@ -284,7 +300,15 @@ export default function TopologySection() {
           <CardTitle>网络拓扑</CardTitle>
         </CardHeader>
         <CardContent>
-          <div style={{ height: 'calc(100vh - 150px)', width: '100%', border: '1px solid #eee' }}>
+          <div style={containerStyle}>
+            <Button
+              variant="outline"
+              size="icon"
+              className="absolute top-2 right-2 z-10"
+              onClick={() => setIsMaximized(!isMaximized)}
+            >
+              {isMaximized ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+            </Button>
             {isLoading && <div>Loading topology...</div>}
             {error && <div>Error fetching topology data.</div>}
             {data && (
