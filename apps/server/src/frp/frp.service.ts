@@ -148,48 +148,55 @@ export class FrpService {
 
     const proxies = Array.isArray(config.proxies) ? config.proxies : Object.entries(config).filter(([key]) => key !== 'common').map(([name, value]) => ({ name, ...value as object }));
 
-    for (const proxyConfig of proxies) {
-      // Skip xtcp and other types that don't have a remote_port
-      if (!proxyConfig.remote_port && !proxyConfig.remotePort) {
-        this.logger.log(`[FRP Sync] Skipping proxy ${proxyConfig.name} of type ${proxyConfig.type} as it has no remote port.`);
-        continue;
-      }
+    const remotePorts = proxies
+      .map(p => parseInt(p.remote_port || p.remotePort))
+      .filter(p => !isNaN(p));
 
-      const name = proxyConfig.name;
-      const result = await this.prisma.frpcProxy.upsert({
-        where: { id: `${inspectData.Id}-${name}` },
-        create: {
-          id: `${inspectData.Id}-${name}`,
-          hostId: host.id,
-          containerId: inspectData.Id,
-          name: name,
-          type: proxyConfig.type,
-          localIp: proxyConfig.local_ip || proxyConfig.localIP,
-          localPort: parseInt(proxyConfig.local_port || proxyConfig.localPort),
-          remotePort: parseInt(proxyConfig.remote_port || proxyConfig.remotePort),
-          subdomain: proxyConfig.subdomain,
-          customDomains: proxyConfig.custom_domains?.split(',') || proxyConfig.customDomains || [],
-          rawConfig: proxyConfig,
-          lastSyncedAt: new Date(),
-          frps: {
-            connect: {
-              id: frpsConfig.id,
-            },
+    await this.prisma.$transaction(async (tx) => {
+      // Step 1: Delete existing proxies for this frpsConfigId that have the same remote ports.
+      const deleted = await tx.frpcProxy.deleteMany({
+        where: {
+          frpsConfigId: frpsConfig.id,
+          remotePort: {
+            in: remotePorts,
           },
         },
-        update: {
-          type: proxyConfig.type,
-          localIp: proxyConfig.local_ip || proxyConfig.localIP,
-          localPort: parseInt(proxyConfig.local_port || proxyConfig.localPort),
-          remotePort: parseInt(proxyConfig.remote_port || proxyConfig.remotePort),
-          subdomain: proxyConfig.subdomain,
-          customDomains: proxyConfig.custom_domains?.split(',') || proxyConfig.customDomains || [],
-          rawConfig: proxyConfig,
-          lastSyncedAt: new Date(),
-        },
       });
-      this.logger.log(`[FRP Sync] Upserted frpc proxy ${name} with id: ${result.id}`);
-    }
+      this.logger.log(`[FRP Sync] Deleted ${deleted.count} old proxy entries for frps ${frpsConfig.id} with matching remote ports.`);
+
+      // Step 2: Create new proxy entries from the config file.
+      for (const proxyConfig of proxies) {
+        if (!proxyConfig.remote_port && !proxyConfig.remotePort) {
+          this.logger.log(`[FRP Sync] Skipping proxy ${proxyConfig.name} of type ${proxyConfig.type} as it has no remote port.`);
+          continue;
+        }
+
+        const name = proxyConfig.name;
+        const result = await tx.frpcProxy.create({
+          data: {
+            id: `${inspectData.Id}-${name}`,
+            hostId: host.id,
+            containerId: inspectData.Id,
+            name: name,
+            type: proxyConfig.type,
+            localIp: proxyConfig.local_ip || proxyConfig.localIP,
+            localPort: parseInt(proxyConfig.local_port || proxyConfig.localPort),
+            remotePort: parseInt(proxyConfig.remote_port || proxyConfig.remotePort),
+            subdomain: proxyConfig.subdomain,
+            customDomains: proxyConfig.custom_domains?.split(',') || proxyConfig.customDomains || [],
+            rawConfig: proxyConfig,
+            lastSyncedAt: new Date(),
+            frps: {
+              connect: {
+                id: frpsConfig.id,
+              },
+            },
+          },
+        });
+        this.logger.log(`[FRP Sync] Created frpc proxy ${name} with id: ${result.id}`);
+      }
+    });
+
     await this.updateContainerWithWebServerPort(containerDbId, config);
   }
 

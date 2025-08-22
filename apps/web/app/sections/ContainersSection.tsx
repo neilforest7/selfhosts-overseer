@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { useMemo, useState, Fragment } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,10 +9,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Toaster, toast } from 'sonner';
-import { io, type Socket } from 'socket.io-client';
+import { toast } from 'sonner';
 import { ManualPortDialog } from './ManualPortDialog';
+import { useOperationStore } from '@/lib/stores/operation-store';
+import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+
 
 type ContainerItem = {
   id: string;
@@ -48,12 +49,8 @@ export default function ContainersSection() {
   const [updateOnly, setUpdateOnly] = useState(false);
   const [hostFilter, setHostFilter] = useState('');
   const [composeOnly, setComposeOnly] = useState(false);
-  const [opOpen, setOpOpen] = useState(false);
-  const [opId, setOpId] = useState<string | null>(null);
-  const [opTitle, setOpTitle] = useState<string>('');
-  const [logs, setLogs] = useState<string[]>([]);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const startOperation = useOperationStore(s => s.startOperation);
 
   const listQuery = useQuery<{ items: ContainerItem[] }>({ 
     queryKey: ['containers', q, updateOnly, hostFilter, composeOnly],
@@ -81,10 +78,17 @@ export default function ContainersSection() {
   // 主机颜色映射 - 使用更多样化的颜色
   const getHostBadgeColor = useMemo(() => {
     const colors = [
-      'default',     // 灰色
-      'secondary',   // 浅灰色
-      'destructive', // 红色
-      'outline',     // 边框样式
+      'bg-slate-600',     // 灰色
+      'bg-sky-600',   // 浅灰色
+      // 'bg-cyan-600', // 红色
+      'bg-teal-600',     // 边框样式
+      'bg-emerald-600',
+      // 'bg-green-600',
+      // 'bg-lime-600',
+      'bg-yellow-600',
+      'bg-amber-600',
+      'bg-orange-600',
+      'bg-red-600',
     ] as const;
     const hostIds = hostsQuery.data?.items?.map(h => h.id) || [];
     const colorMap = new Map<string, typeof colors[number]>();
@@ -126,8 +130,9 @@ export default function ContainersSection() {
   const discover = useMutation({
     mutationFn: async (hostTarget: string | 'all') => {
       const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const title = hostTarget === 'all' ? '容器发现（全部主机）' : `容器发现（${hostTarget}）`;
-      setOpId(id); setOpOpen(true); setOpTitle(title); setLogs([]);
+      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
+      const title = `容器发现（${hostName}）`;
+      startOperation(id, title);
       const body = hostTarget === 'all' 
         ? { opId: id }
         : { host: { id: hostTarget }, opId: id };
@@ -159,8 +164,9 @@ export default function ContainersSection() {
   const checkUpdates = useMutation({
     mutationFn: async (hostTarget: string | 'all') => {
       const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const title = hostTarget === 'all' ? '检查镜像更新（全部主机）' : `检查镜像更新（${hostTarget}）`;
-      setOpId(id); setOpOpen(true); setOpTitle(title); setLogs([]);
+      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
+      const title = `检查镜像更新（${hostName}）`;
+      startOperation(id, title);
       const body = hostTarget === 'all' 
         ? { opId: id }
         : { host: { id: hostTarget }, opId: id };
@@ -192,7 +198,7 @@ export default function ContainersSection() {
   const composeOperation = useMutation({
     mutationFn: async ({ hostId, project, workingDir, operation }: { hostId: string; project: string; workingDir: string; operation: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop' }) => {
       const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      setOpId(id); setOpOpen(true); setOpTitle(`Compose ${operation}: ${project}`); setLogs([]);
+      startOperation(id, `Compose ${operation}: ${project}`);
       const r = await fetch('http://localhost:3001/api/v1/containers/compose/operate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -263,17 +269,7 @@ export default function ContainersSection() {
     }
   });
 
-  useEffect(() => {
-    if (!opOpen || !opId) return;
-    const s = io('http://localhost:3001', { transports: ['websocket'] });
-    socketRef.current = s;
-    s.on('connect', () => { s.emit('joinTask', { taskId: opId }); });
-    const onData = (d: string) => setLogs(ls => [...ls, d]);
-    const onErr = (d: string) => setLogs(ls => [...ls, `[stderr] ${d}`]);
-    const onEnd = (p: any) => setLogs(ls => [...ls, `--- 结束: ${JSON.stringify(p)} ---`]);
-    s.on('data', onData); s.on('stderr', onErr); s.on('end', onEnd);
-    return () => { s.off('data', onData); s.off('stderr', onErr); s.off('end', onEnd); s.disconnect(); };
-  }, [opOpen, opId]);
+  
 
   return (
     <Card>
@@ -338,7 +334,7 @@ export default function ContainersSection() {
             <TableRow>
               <TableHead>主机</TableHead>
               <TableHead>状态</TableHead>
-              <TableHead>容器</TableHead>
+              <TableHead>名称</TableHead>
               <TableHead className="text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -439,7 +435,7 @@ export default function ContainersSection() {
                 <Fragment key={key}>
                   <TableRow>
                     <TableCell>
-                      <Badge variant={getHostBadgeColor(first.hostId)}>
+                      <Badge className={getHostBadgeColor(first.hostId)}>
                         {getHostName(first.hostId)}
                       </Badge>
                     </TableCell>
@@ -449,32 +445,32 @@ export default function ContainersSection() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center justify-between gap-2">
                         <div>
                           <div className="font-medium">
                             {title}
-                            {isCompose ? (
-                              <span className="ml-2"><Badge variant="secondary">compose</Badge></span>
-                            ) : (
-                              <span className="ml-2"><Badge variant="secondary">cli</Badge></span>
-                            )}
-                            {(() => {
-                              // 检查组或容器是否有更新可用
-                              const hasUpdate = items.some(item => item.updateAvailable);
-                              return hasUpdate ? (
-                                <Badge className="bg-amber-500 text-black hover:bg-amber-500 ml-2">可更新</Badge>
-                              ) : null;
-                            })()}
-                            <span className="ml-2 text-xs text-muted-foreground">{isCompose ? `${items.length} 个服务` : ''}</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">{isCompose ? `${items.length} 个服务` : ''}</span>
+                          {isCompose ? (
+                            <span><Badge variant="secondary">compose</Badge></span>
+                          ) : (
+                            <span><Badge variant="secondary">cli</Badge></span>
+                          )}
+                          {(() => {
+                            // 检查组或容器是否有更新可用
+                            const hasUpdate = items.some(item => item.updateAvailable);
+                            return hasUpdate ? (
+                              <Badge className="bg-amber-500 text-black hover:bg-amber-500 ml-2">可更新</Badge>
+                            ) : null;
+                          })()}
                           <Button 
                             variant="ghost" 
                             size="sm"
                             onClick={() => setExpandedGroup(expandedGroup === key ? null : key)}
                           >
-                            {expandedGroup === key ? '收起' : '展开'}
+                            {expandedGroup === key ? <ChevronsDownUp /> : <ChevronsUpDown />}
                           </Button>
                         </div>
                       </div>
@@ -482,9 +478,9 @@ export default function ContainersSection() {
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button size="sm">操作</Button>
+                          <Button size="sm" variant="outline">操作</Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent align="end" className="w-32 bg-background">
                         {isCompose ? (
                           <>
                             <DropdownMenuItem onClick={() => {
@@ -523,9 +519,9 @@ export default function ContainersSection() {
                                 hostId: first.hostId, 
                                 project: first.composeProject || 'unknown', 
                                 workingDir,
-                                operation: 'pull' 
+                                operation: 'down' 
                               });
-                            }}>拉取镜像</DropdownMenuItem>
+                            }}>下线（down）</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
                               composeOperation.mutate({
@@ -541,53 +537,15 @@ export default function ContainersSection() {
                                 hostId: first.hostId, 
                                 project: first.composeProject || 'unknown', 
                                 workingDir,
-                                operation: 'down' 
+                                operation: 'pull' 
                               });
-                            }}>下线（down）</DropdownMenuItem>
+                            }}>拉取镜像</DropdownMenuItem>
                           </>
                         ) : (
                           <>
                             <DropdownMenuItem onClick={async ()=>{ 
                               const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                              const i = first;
-                              setOpId(id); setOpOpen(true); setOpTitle(`更新 ${i.name}`); setLogs([]);
-                              toast.info(`已触发更新：${i.name}`);
-                              try {
-                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
-                                if (!r.ok) throw new Error(await r.text());
-                                toast.success(`更新请求已受理：${i.name}`);
-                                qc.invalidateQueries({ queryKey: ['containers'] });
-                              } catch (e: any) {
-                                toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
-                              }
-                            }}>更新容器</DropdownMenuItem>
-                                {(() => {
-                                  const s = (groupStatus.state || '').toLowerCase();
-                                  const ss = (groupStatus.status || '').toLowerCase();
-                                  const running = s.includes('running') || ss.includes('up');
-                                  return (
-                                    <>
-                                      {!running && (
-                                        <DropdownMenuItem onClick={async ()=>{ 
-                                          const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                          setOpId(id); setOpOpen(true); setOpTitle(`启动 ${first.name}`); setLogs([]);
-                                          toast.info(`已触发启动：${first.name}`);
-                                          try {
-                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
-                                            if (!r.ok) throw new Error(await r.text());
-                                            toast.success(`启动请求已受理：${first.name}`);
-                                            qc.invalidateQueries({ queryKey: ['containers'] });
-                                          } catch (e: any) {
-                                            toast.error(`启动触发失败：${first.name} - ${e?.message || '未知错误'}`);
-                                          }
-                                        }}>启动容器</DropdownMenuItem>
-                                      )}
-                                    </>
-                                  );
-                                })()}
-                            <DropdownMenuItem onClick={async ()=>{ 
-                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                              setOpId(id); setOpOpen(true); setOpTitle(`重启 ${first.name}`); setLogs([]);
+                              startOperation(id, `重启 ${first.name}`);
                               toast.info(`已触发重启：${first.name}`);
                               try {
                                 const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
@@ -603,10 +561,34 @@ export default function ContainersSection() {
                                   const running = s.includes('running') || ss.includes('up');
                                   return (
                                     <>
+                                      {!running && (
+                                        <DropdownMenuItem onClick={async ()=>{ 
+                                          const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                                          startOperation(id, `启动 ${first.name}`);
+                                          toast.info(`已触发启动：${first.name}`);
+                                          try {
+                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
+                                            if (!r.ok) throw new Error(await r.text());
+                                            toast.success(`启动请求已受理：${first.name}`);
+                                            qc.invalidateQueries({ queryKey: ['containers'] });
+                                          } catch (e: any) {
+                                            toast.error(`启动触发失败：${first.name} - ${e?.message || '未知错误'}`);
+                                          }
+                                        }}>启动容器</DropdownMenuItem>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                                {(() => {
+                                  const s = (groupStatus.state || '').toLowerCase();
+                                  const ss = (groupStatus.status || '').toLowerCase();
+                                  const running = s.includes('running') || ss.includes('up');
+                                  return (
+                                    <>
                                       {running && (
                                         <DropdownMenuItem onClick={async ()=>{ 
                                           const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-                                          setOpId(id); setOpOpen(true); setOpTitle(`停止 ${first.name}`); setLogs([]);
+                                          startOperation(id, `停止 ${first.name}`);
                                           toast.info(`已触发停止：${first.name}`);
                                           try {
                                             const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId: id }) });
@@ -621,12 +603,26 @@ export default function ContainersSection() {
                                     </>
                                   );
                                 })()}
+                            <DropdownMenuItem onClick={async ()=>{ 
+                              const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                              const i = first;
+                              startOperation(id, `更新 ${i.name}`);
+                              toast.info(`已触发更新：${i.name}`);
+                              try {
+                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId: id }) });
+                                if (!r.ok) throw new Error(await r.text());
+                                toast.success(`更新请求已受理：${i.name}`);
+                                qc.invalidateQueries({ queryKey: ['containers'] });
+                              } catch (e: any) {
+                                toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
+                              }
+                            }}>更新容器</DropdownMenuItem>
                           </>
                         )}
                         <DropdownMenuItem onClick={async ()=>{ 
                           const id = `op_${Date.now()}_${Math.random().toString(36).slice(2)}`;
                           const containerName = isCompose ? `${title} 组` : first.name;
-                          setOpId(id); setOpOpen(true); setOpTitle(`检查更新: ${containerName}`); setLogs([]);
+                          startOperation(id, `检查更新: ${containerName}`);
                           
                           if (isCompose) {
                             // Compose 组：检查该组所有容器
@@ -678,12 +674,16 @@ export default function ContainersSection() {
                             }
                           }
                         }}>检查更新</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => analyzeNpm.mutate(first.hostId)}>
-                          分析npm
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => analyzeFrp.mutate(first.hostId)}>
-                          分析frp
-                        </DropdownMenuItem>
+                        { (isCompose ? items.some(c => c.name.toLowerCase().includes('npm')) : title.toLowerCase().includes('npm')) &&
+                          <DropdownMenuItem onClick={() => analyzeNpm.mutate(first.hostId)}>
+                            分析npm
+                          </DropdownMenuItem>
+                        }
+                        { (isCompose ? items.some(c => c.name.toLowerCase().includes('frp')) : title.toLowerCase().includes('frp')) &&
+                          <DropdownMenuItem onClick={() => analyzeFrp.mutate(first.hostId)}>
+                            分析frp
+                          </DropdownMenuItem>
+                        }
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -747,22 +747,7 @@ export default function ContainersSection() {
           </TableBody>
         </Table>
       </CardContent>
-      <Dialog open={opOpen} onOpenChange={(o)=>{
-        setOpOpen(o);
-        if(!o){
-          setLogs([]);
-          setOpId(null);
-        }
-      }}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{opTitle}</DialogTitle>
-          </DialogHeader>
-          <div className="mt-2">
-            <pre className="h-80 overflow-auto whitespace-pre-wrap text-sm bg-muted p-3 rounded">{logs.join('\n')}</pre>
-          </div>
-        </DialogContent>
-      </Dialog>
+      
     </Card>
   );
 }
