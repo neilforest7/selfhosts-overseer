@@ -10,11 +10,14 @@ import io, { type Socket } from 'socket.io-client';
 import { Minimize2, ChevronsUp, Terminal, CheckCircle, XCircle, List } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { OperationLogEntry } from '@/lib/types';
 
 const statusMap = {
+  PENDING: { text: '等待中', className: 'bg-gray-500', icon: Terminal },
   RUNNING: { text: '运行中', className: 'bg-blue-500', icon: Terminal },
   COMPLETED: { text: '已完成', className: 'bg-green-500', icon: CheckCircle },
   ERROR: { text: '有错误', className: 'bg-red-500', icon: XCircle },
+  CANCELLED: { text: '已取消', className: 'bg-gray-600', icon: XCircle },
 };
 
 function formatDuration(startTime: string, endTime: string | null) {
@@ -35,10 +38,9 @@ export function TaskDrawer() {
     if (logsContainerRef.current) {
       logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
     }
-  }, [currentTask?.logs]);
+  }, [currentTask?.entries]);
   
   useEffect(() => {
-    // Initial fetch when component mounts
     actions.fetchTasks();
   }, [actions]);
 
@@ -56,7 +58,7 @@ export function TaskDrawer() {
   }, [isOpen, actions]);
 
   useEffect(() => {
-    if (!isOpen || !currentTaskId) {
+    if (!isOpen) {
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -64,35 +66,44 @@ export function TaskDrawer() {
       return;
     }
 
-    if (socketRef.current && socketRef.current.connected) {
-        socketRef.current.emit('joinTask', { taskId: currentTaskId });
-    } else {
-        if (socketRef.current) {
-            socketRef.current.disconnect();
+    if (!socketRef.current || !socketRef.current.connected) {
+      if (socketRef.current) socketRef.current.disconnect();
+      
+      const s = io('http://localhost:3001', { transports: ['websocket'] });
+      socketRef.current = s;
+
+      s.on('task.logHistory', (data: { taskId: string; entries: OperationLogEntry[] }) => {
+        actions.setLogHistory(data.taskId, data.entries);
+      });
+      
+      const streamHandler = (entry: OperationLogEntry) => {
+        // Get the latest state directly from the store to avoid stale closures
+        const state = useTaskDrawerStore.getState();
+        if (entry && state.currentTaskId) {
+          state.actions.addLogEntry(state.currentTaskId, entry);
         }
-        const s = io('http://localhost:3001', { transports: ['websocket'] });
-        socketRef.current = s;
+      };
 
-        s.on('connect', () => {
-            s.emit('joinTask', { taskId: currentTaskId });
-        });
+      s.on('stdout', streamHandler);
+      s.on('stderr', streamHandler);
+      s.on('system', streamHandler);
+      s.on('info', streamHandler);
+      s.on('error', streamHandler);
 
-        s.on('task.logHistory', (data: { taskId: string; logs: string }) => {
-            actions.setLogHistory(data.taskId, data.logs);
-        });
-        s.on('data', (log: string) => actions.addLog(currentTaskId, log));
-        s.on('stderr', (log: string) => actions.addLog(currentTaskId, log));
-        s.on('end', (data: { status: 'succeeded' | 'failed' }) => {
-            actions.updateTaskStatus(currentTaskId, data.status === 'succeeded' ? 'COMPLETED' : 'ERROR', Date.now());
-        });
+      s.on('end', (data: { status: 'succeeded' | 'failed' }) => {
+        // Get the latest state directly from the store
+        const state = useTaskDrawerStore.getState();
+        if (state.currentTaskId) {
+          state.actions.updateTaskStatus(state.currentTaskId, data.status === 'succeeded' ? 'COMPLETED' : 'ERROR', new Date().toISOString());
+        }
+      });
+    }
+    
+    if (currentTaskId) {
+      socketRef.current.emit('joinTask', { taskId: currentTaskId });
     }
 
-    return () => {
-      // Do not disconnect on task switch, just leave room
-      if (socketRef.current && currentTaskId) {
-        // socketRef.current.emit('leaveTask', { taskId: currentTaskId });
-      }
-    };
+    // No cleanup function needed here as we want the socket to persist while the drawer is open
   }, [isOpen, currentTaskId, actions]);
 
   if (!isOpen) {
@@ -120,12 +131,12 @@ export function TaskDrawer() {
             </Button>
           </DrawerHeader>
           <div className="px-4 pb-4 grid grid-cols-12 gap-4 flex-grow min-h-0">
-            {/* Left Panel: Task List */}
             <div className="col-span-3">
               <ScrollArea className="h-[60vh] pr-4">
                 <div className="space-y-2">
                   {taskOrder.map((taskId) => {
                     const task = tasks[taskId];
+                    if (!task) return null;
                     const status = statusMap[task.status];
                     return (
                       <Button
@@ -148,7 +159,6 @@ export function TaskDrawer() {
               </ScrollArea>
             </div>
 
-            {/* Right Panel: Task Details */}
             <div className="col-span-9">
               {currentTask && currentStatus ? (
                 <div className="flex flex-col h-full">
@@ -159,14 +169,24 @@ export function TaskDrawer() {
                       <Badge variant="secondary" className={cn('text-white', currentStatus.className)}>
                         {currentStatus.text}
                       </Badge>
-                      <Badge variant="outline">{currentTask.executionType}</Badge>
+                      <Badge variant="outline">{currentTask.triggerType}</Badge>
                       <span>{new Date(currentTask.startTime).toLocaleString()}</span>
                       <span>耗时: {formatDuration(currentTask.startTime, currentTask.endTime)}</span>
                     </AlertDescription>
                   </Alert>
                   <ScrollArea className="h-[calc(60vh-80px)] mt-4">
                     <pre ref={logsContainerRef} className="whitespace-pre-wrap text-sm bg-muted p-3 rounded h-full">
-                      {currentTask.logs}
+                      {currentTask.entries.map(entry => (
+                        <div key={entry.id}>
+                          <span className="text-gray-500 mr-2">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                          <span className={cn({
+                            'text-red-500': entry.stream === 'stderr' || entry.stream === 'error',
+                            'text-gray-400': entry.stream === 'system',
+                          })}>
+                            {entry.content}
+                          </span>
+                        </div>
+                      ))}
                     </pre>
                   </ScrollArea>
                 </div>

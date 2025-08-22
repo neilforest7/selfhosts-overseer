@@ -1,36 +1,18 @@
-- name: jc21/nginx-proxy-manager:latest
+- name: registry.cn-guangzhou.aliyuncs.com/fnapp/trim-chromium:latest
   labels:
-    diun.provider: cmelpj3ag0048e8di5vetat9p
-- name: ghcr.io/snailyp/gemini-balance:latest
+    diun.provider: cmen884ma00539pkdgo5r5gyb
+- name: lscr.io/linuxserver/transmission:4.0.5
   labels:
-    diun.provider: cmelpfkye003se8diktuunta5
-- name: grafana/grafana:latest
-  labels:
-    diun.provider: cmelpju0t004ce8dius249yxk
-- name: victoriametrics/victoria-metrics:latest
-  labels:
-    diun.provider: cmelpk8if004ee8dibbwio72u
-- name: mysql:8
-  labels:
-    diun.provider: cmelpfysd003ue8difwh2ppsp
-- name: prom/blackbox-exporter:latest
-  labels:
-    diun.provider: cmelph9gg0040e8did1wlzqla
-- name: jc21/mariadb-aria:latest
-  labels:
-    diun.provider: cmelpjgmd004ae8dixlhqum3b
-- name: postgres:16
-  labels:
-    diun.provider: cmelpi1bf0044e8di1iep9jj2
+    diun.provider: cmen8837900519pkdvn5uvxiw
 - name: victoriametrics/vmagent:latest
   labels:
-    diun.provider: cmelpgfgp003we8dijol6o7lh
+    diun.provider: cmen87yvn004v9pkdr5634w6z
+- name: prom/blackbox-exporter:latest
+  labels:
+    diun.provider: cmen880aq004x9pkd8lc57eep
 - name: prom/node-exporter:latest
   labels:
-    diun.provider: cmelpguv6003ye8die3qmadkn
-- name: docker.n8n.io/n8nio/n8n:latest
+    diun.provider: cmen881sy004z9pkdlph4y5um
+- name: ghcr.io/snowdreamtech/frpc:latest
   labels:
-    diun.provider: cmelphmsy0042e8diixar507d
-- name: hunsh/gh-proxy-py:latest
-  labels:
-    diun.provider: cmelpiprp0046e8di20kcc12v
+    diun.provider: cmen87xel004t9pkdzuq5d9be

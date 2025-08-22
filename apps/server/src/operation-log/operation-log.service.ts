@@ -1,79 +1,68 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExecType, OpStatus } from '@prisma/client';
+import { OperationStatus, TriggerType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class OperationLogService {
   constructor(private prisma: PrismaService) {}
 
-  async create(title: string, executionType: ExecType = 'MANUAL') {
-    console.log(`[OperationLogService] create called with title: "${title}"`);
-    try {
-      const result = await this.prisma.operationLog.create({
-        data: {
-          title,
-          executionType,
-          status: 'RUNNING',
-          logs: `--- Task started at: ${new Date().toLocaleString()} ---
-`,
-        },
-      });
-      console.log(`[OperationLogService] create successful for opId: ${result.id}`);
-      return result;
-    } catch (err) {
-      console.error(`[OperationLogService] create FAILED. Error:`, err);
-      throw err;
-    }
+  async create(data: {
+    title: string;
+    triggerType?: TriggerType;
+    triggerContext?: Prisma.JsonValue;
+    context?: Prisma.JsonValue;
+  }) {
+    console.log(`[OperationLogService] create called with title: "${data.title}"`);
+    return this.prisma.operationLog.create({
+      data: {
+        ...data,
+        status: 'PENDING',
+      },
+    });
   }
 
-  async appendToLog(id: string, logContent: string) {
-    try {
-      // SQLite does not support append, so we need to do it manually.
-      const log = await this.prisma.operationLog.findUnique({ where: { id }, select: { logs: true } });
-      if (!log) return;
-
-      const newLogs = log.logs + logContent;
-
-      return await this.prisma.operationLog.update({
-        where: { id },
-        data: {
-          logs: newLogs,
-        },
-      });
-    } catch (err) {
-      console.error(`[OperationLogService] appendToLog FAILED for opId: ${id}. Error:`, err);
-    }
+  async addLogEntry(
+    operationLogId: string,
+    data: {
+      stream: string;
+      content: string;
+      hostId?: string;
+    },
+  ) {
+    return this.prisma.operationLogEntry.create({
+      data: {
+        operationLogId,
+        ...data,
+      },
+    });
   }
 
-  async updateStatus(id: string, status: OpStatus, errorLog?: string) {
+  async addLogEntries(
+    operationLogId: string,
+    entries: {
+      stream: string;
+      content: string;
+      hostId?: string;
+      timestamp: Date;
+    }[],
+  ) {
+    if (entries.length === 0) return;
+    return this.prisma.operationLogEntry.createMany({
+      data: entries.map((e) => ({ ...e, operationLogId })),
+    });
+  }
+
+  async updateStatus(id: string, status: OperationStatus) {
     console.log(`[OperationLogService] updateStatus called for opId: ${id} with status: ${status}`);
-    let logsToAppend = `--- Task finished with status: ${status} at: ${new Date().toLocaleString()} ---
-`;
-    if (errorLog) {
-      logsToAppend += `
---- ERROR ---
-${errorLog}
-`;
+    const data: { status: OperationStatus; endTime?: Date } = { status };
+    if (status === 'COMPLETED' || status === 'ERROR' || status === 'CANCELLED') {
+      data.endTime = new Date();
     }
-
-    try {
-      const log = await this.prisma.operationLog.findUnique({ where: { id }, select: { logs: true } });
-      const newLogs = (log?.logs || '') + logsToAppend;
-
-      const result = await this.prisma.operationLog.update({
-        where: { id },
-        data: {
-          status,
-          endTime: new Date(),
-          logs: newLogs,
-        },
-      });
-      console.log(`[OperationLogService] updateStatus successful for opId: ${id}`);
-      return result;
-    } catch (err) {
-      console.error(`[OperationLogService] updateStatus FAILED for opId: ${id}. Error:`, err);
-      throw err;
-    }
+    return this.prisma.operationLog.update({
+      where: { id },
+      data,
+    });
   }
 
   async findAll() {
@@ -81,13 +70,20 @@ ${errorLog}
       orderBy: {
         startTime: 'desc',
       },
-      take: 50, // Limit to the last 50 tasks for now
+      take: 50,
     });
   }
 
-  async findOne(id: string) {
+  async findOneWithEntries(id: string) {
     return this.prisma.operationLog.findUnique({
       where: { id },
+      include: {
+        entries: {
+          orderBy: {
+            timestamp: 'asc',
+          },
+        },
+      },
     });
   }
 }

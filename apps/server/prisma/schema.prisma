@@ -23,47 +23,22 @@ model AppSetting {
 }
 
 model Host {
-  id       String   @id @default(cuid())
-  name     String
-  address  String
-  sshUser  String
-  port     Int?
-  tags     String[]
-  sshOptions Json?
-  sshAuthMethod SshAuthMethod @default(password)
-  sshPassword   String?
-  sshPrivateKey String?
+  id                      String                @id @default(cuid())
+  name                    String
+  address                 String
+  sshUser                 String
+  port                    Int?
+  tags                    String[]
+  sshOptions              Json?
+  sshAuthMethod           SshAuthMethod         @default(password)
+  sshPassword             String?
+  sshPrivateKey           String?
   sshPrivateKeyPassphrase String?
-  role     HostRole @default(local)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  containers Container[]
-}
-
-model TaskRun {
-  id          String   @id @default(cuid())
-  status      String
-  command     String
-  targets     String[]
-  stdoutRef   String?
-  stderrRef   String?
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  createdAt   DateTime @default(now())
-  logs        TaskLog[]
-}
-
-model TaskLog {
-  id         String   @id @default(cuid())
-  taskId     String
-  ts         DateTime @default(now())
-  stream     String   // 'stdout' | 'stderr'
-  hostLabel  String?  // optional host display
-  content    String
-
-  task       TaskRun  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  @@index([taskId, ts])
+  role                    HostRole              @default(local)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  containers              Container[]
+  operationLogEntries     OperationLogEntry[]
 }
 
 // 统一的系统日志表（用于替代内存缓冲区）
@@ -78,7 +53,6 @@ model SystemLog {
   hostLabel String?  // 主机显示名（可选）
   content   String   // 日志内容
   metadata  Json?    // 扩展字段 {containerId, operation, exitCode, etc}
-  
   @@index([category, ts])
   @@index([hostId, ts])
   @@index([source, ts])
@@ -87,97 +61,94 @@ model SystemLog {
 
 // Containers and related
 model Container {
-  id              String   @id @default(cuid())
-  hostId          String
-  containerId     String
-  name            String
-  state           String?
-  status          String?
-   restartCount    Int?
-  imageName       String?
-  imageTag        String?
-  repoDigest      String?
-  remoteDigest    String?
-  updateAvailable Boolean  @default(false)
-  updateCheckedAt DateTime?
-  createdAt       DateTime @default(now())
-  startedAt       DateTime?
-  isComposeManaged Boolean @default(false)
-  composeProject  String?
-  composeService  String?
-  composeWorkingDir String?
+  id                  String    @id @default(cuid())
+  hostId              String
+  containerId         String
+  name                String
+  state               String?
+  status              String?
+  restartCount        Int?
+  imageName           String?
+  imageTag            String?
+  repoDigest          String?
+  remoteDigest        String?
+  updateAvailable     Boolean   @default(false)
+  updateCheckedAt     DateTime?
+  createdAt           DateTime  @default(now())
+  startedAt           DateTime?
+  isComposeManaged    Boolean   @default(false)
+  composeProject      String?
+  composeService      String?
+  composeWorkingDir   String?
   // Derived grouping helpers
-  composeGroupKey   String?
-  composeFolderName String?
-  composeConfigFiles Json?
-  runCommand      String?
-  ports           Json?
-  mounts          Json?
-  networks        Json?
-  labels          Json?
-  manualPortMapping Json?
-
-  host            Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
-
+  composeGroupKey     String?
+  composeFolderName   String?
+  composeConfigFiles  Json?
+  runCommand          String?
+  ports               Json?
+  mounts              Json?
+  networks            Json?
+  labels              Json?
+  manualPortMapping   Json?
+  host                Host      @relation(fields: [hostId], references: [id], onDelete: Cascade)
   @@unique([hostId, containerId])
   @@index([hostId, composeGroupKey])
 }
 
 model ReverseProxyRoute {
-  id                  String    @id @default(cuid())
-  hostId              String
-  provider            String // "npm"
-  type                String // http/stream/redirect
-  domain              String
-  forwardHost         String?
-  forwardPort         Int?
-  enabled             Boolean   @default(true)
-  certificateId       String?
-  certExpiresAt       DateTime?
-  sslForced           Boolean   @default(false)
-  hstsEnabled         Boolean   @default(false)
-  hstsSubdomains      Boolean   @default(false)
-  http2Support        Boolean   @default(false)
-  allowWebsocketUpgrade Boolean @default(false)
-  blockExploits       Boolean   @default(false)
-  cachingEnabled      Boolean   @default(false)
-  lastSyncedAt        DateTime?
-
+  id                    String    @id @default(cuid())
+  hostId                String
+  provider              String // "npm"
+  type                  String // http/stream/redirect
+  domain                String
+  forwardHost           String?
+  forwardPort           Int?
+  enabled               Boolean   @default(true)
+  certificateId         String?
+  certExpiresAt         DateTime?
+  sslForced             Boolean   @default(false)
+  hstsEnabled           Boolean   @default(false)
+  hstsSubdomains        Boolean   @default(false)
+  http2Support          Boolean   @default(false)
+  allowWebsocketUpgrade Boolean   @default(false)
+  blockExploits         Boolean   @default(false)
+  cachingEnabled        Boolean   @default(false)
+  lastSyncedAt          DateTime?
   @@unique([hostId, domain])
 }
 
 model Certificate {
-  id         String   @id @default(cuid())
-  provider   String
-  cn         String
-  sans       String[]
-  issuer     String?
-  notBefore  DateTime?
-  notAfter   DateTime?
-  autoRenew  Boolean  @default(true)
+  id           String   @id @default(cuid())
+  provider     String
+  cn           String
+  sans         String[]
+  issuer       String?
+  notBefore    DateTime?
+  notAfter     DateTime?
+  autoRenew    Boolean  @default(true)
   lastSyncedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
 }
 
 model HostNpmConfig {
-  hostId         String   @id
-  enabled        Boolean  @default(false)
-  dbType         String   @default("sqlite") // sqlite | mysql
-  connectionMode String   @default("container-local")
-  containerName  String?
-  sqlitePath     String?  @default("/data/database.sqlite")
+  hostId               String   @id
+  enabled              Boolean  @default(false)
+  dbType               String   @default("sqlite") // sqlite | mysql
+  connectionMode       String   @default("container-local")
+  containerName        String?
+  sqlitePath           String?  @default("/data/database.sqlite")
   mysqlUseContainerEnv Boolean? @default(false)
-  updatedAt      DateTime @updatedAt
+  updatedAt            DateTime @updatedAt
 }
 
 // Optional: docker-compose projects indexed separately
 model ComposeProject {
-  id                 String   @id @default(cuid())
-  project            String
-  workingDir         String
-  configFiles        String[]
+  id                  String   @id @default(cuid())
+  project             String
+  workingDir          String
+  configFiles         String[]
   effectiveConfigHash String?
-  lastSyncedAt       DateTime?
+  lastSyncedAt        DateTime?
 }
 
 model FrpsConfig {
@@ -194,42 +165,66 @@ model FrpsConfig {
 }
 
 model FrpcProxy {
-  id             String     @id @default(cuid())
-  hostId         String
-  containerId    String
-  frpsConfigId   String
-  name           String
-  type           String
-  localIp        String
-  localPort      Int
-  remotePort     Int
-  subdomain      String?
-  customDomains  String[]
-  rawConfig      Json?
-  lastSyncedAt   DateTime?
-  frps           FrpsConfig @relation(fields: [frpsConfigId], references: [id], onDelete: Cascade)
+  id            String     @id @default(cuid())
+  hostId        String
+  containerId   String
+  frpsConfigId  String
+  name          String
+  type          String
+  localIp       String
+  localPort     Int
+  remotePort    Int
+  subdomain     String?
+  customDomains String[]
+  rawConfig     Json?
+  lastSyncedAt  DateTime?
+  frps          FrpsConfig @relation(fields: [frpsConfigId], references: [id], onDelete: Cascade)
 }
 
+// Main table for any user or system-initiated operation
 model OperationLog {
-  id            String    @id @default(cuid())
-  title         String
-  status        OpStatus  @default(RUNNING)
-  executionType ExecType  @default(MANUAL)
-  startTime     DateTime  @default(now())
-  endTime       DateTime?
-  logs          String    @db.Text
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id             String              @id @default(cuid())
+  title          String // User-friendly title, e.g., "Discover Containers on Finonas"
+  status         OperationStatus     @default(PENDING) // More detailed status
+  // What triggered this operation?
+  triggerType    TriggerType         @default(USER)
+  triggerContext Json? // Context about the trigger, e.g., { "userId": "...", "ip": "..." } or { "schedule": "daily-cleanup" }
+  // What is this operation about?
+  context        Json? // Context about the operation itself, e.g., { "command": "ls -la", "targets": ["hostId1"] } or { "containerId": "...", "action": "restart" }
+  startTime      DateTime            @default(now())
+  endTime        DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  // Relation to its detailed log entries
+  entries        OperationLogEntry[]
 }
 
-enum OpStatus {
-  RUNNING
-  COMPLETED
-  ERROR
+// A single log line/entry related to an OperationLog
+model OperationLogEntry {
+  id             String       @id @default(cuid())
+  timestamp      DateTime     @default(now())
+  stream         String // 'stdout', 'stderr', 'system', 'info', 'error'
+  content        String       @db.Text
+  // Relation to the parent OperationLog
+  operationLog   OperationLog @relation(fields: [operationLogId], references: [id], onDelete: Cascade)
+  operationLogId String
+  // Optional relation to a specific host
+  host           Host?        @relation(fields: [hostId], references: [id], onDelete: SetNull)
+  hostId         String?
 }
 
-enum ExecType {
-  MANUAL
-  AUTOMATIC
+enum OperationStatus {
+  PENDING // Created, but not yet picked up by a worker
+  RUNNING // Actively being executed
+  COMPLETED // Finished successfully
+  ERROR // Finished with errors
+  CANCELLED // Cancelled by a user or system
+}
+
+enum TriggerType {
+  USER // Initiated by a human user via the UI/API
+  SCHEDULE // Initiated by a scheduled job (cron)
+  WEBHOOK // Initiated by an external webhook
+  SYSTEM // Initiated by an internal system event (e.g., post-discovery tasks)
 }
 

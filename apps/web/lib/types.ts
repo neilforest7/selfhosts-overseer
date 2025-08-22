@@ -1,11 +1,17 @@
+export type OperationLogEntry = {
+  id: string;
+  timestamp: string;
+  stream: string;
+  content: string;
+  hostId: string | null;
+};
+
 export type OperationLog = {
   id: string;
   title: string;
-  status: 'RUNNING' | 'COMPLETED' | 'ERROR';
-  executionType: 'MANUAL' | 'AUTOMATIC';
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'ERROR' | 'CANCELLED';
+  triggerType: 'USER' | 'SCHEDULE' | 'WEBHOOK' | 'SYSTEM';
   startTime: string;
   endTime: string | null;
-  logs: string;
-  createdAt: string;
-  updatedAt: string;
+  entries: OperationLogEntry[];
 };

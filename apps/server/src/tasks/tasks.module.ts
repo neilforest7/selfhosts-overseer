@@ -8,6 +8,7 @@ import { ExecGateway } from '../realtime/exec.gateway';
 import { CryptoService } from '../security/crypto.service';
 import { OperationLogModule } from '../operation-log/operation-log.module';
 import { ContainersModule } from '../containers/containers.module';
+import { OperationLogService } from '../operation-log/operation-log.service';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { ContainersModule } from '../containers/containers.module';
     forwardRef(() => ContainersModule),
   ],
   controllers: [TasksController],
-  providers: [TasksService, ExecGateway, CryptoService],
+  providers: [TasksService, ExecGateway, CryptoService, OperationLogService],
   exports: [TasksService],
 })
 export class TasksModule {}

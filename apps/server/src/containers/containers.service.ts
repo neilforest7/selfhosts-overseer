@@ -8,6 +8,7 @@ import { LogsService } from '../logs/logs.service';
 import { FrpService } from '../frp/frp.service';
 import { UpdateManualPortDto } from './dto/manual-port.dto';
 import { TasksService } from '../tasks/tasks.service';
+import { ReverseProxyService } from '../reverse-proxy/reverse-proxy.service';
 
 @Injectable()
 export class ContainersService {
@@ -22,6 +23,8 @@ export class ContainersService {
     private readonly frpService: FrpService,
     @Inject(forwardRef(() => TasksService))
     private readonly tasksService: TasksService,
+    @Inject(forwardRef(() => ReverseProxyService))
+    private readonly reverseProxyService: ReverseProxyService,
   ) {}
 
   async list(params: { hostId?: string; hostName?: string; q?: string; updateAvailable?: boolean | undefined; isComposeManaged?: boolean | undefined }) {
@@ -70,12 +73,9 @@ export class ContainersService {
   }
 
   async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId?: string, logCallback?: (log: string) => void): Promise<number> {
-    const broadcast = (stream: 'data' | 'stderr', data: string) => {
-      if (opId) {
-        this.gateway.broadcast(opId, stream, data+ `\n`);
-      }
+    const log = (message: string) => {
       if (logCallback) {
-        logCallback(data + '\n');
+        logCallback(message + '\n');
       }
     };
 
@@ -109,7 +109,7 @@ export class ContainersService {
         hostLabel: host.address,
         metadata: { command: cmd, exitCode: code, stderr, operation: 'docker_ps' }
       });
-      broadcast('stderr', `[${host.address}] ${cmd}\n退出码: ${code}\n${stderr}`);
+      log(`[${host.address}] ${cmd}\n退出码: ${code}\n${stderr}`);
       return 0;
     }
     
@@ -119,7 +119,7 @@ export class ContainersService {
       hostLabel: host.address,
       metadata: { command: cmd, exitCode: code, operation: 'docker_ps' }
     });
-    broadcast('data', `[${host.address}] ${cmd}\n退出码: ${code}`);
+    log(`[${host.address}] ${cmd}\n退出码: ${code}`);
     const lines = stdout.split('\n').filter(Boolean);
     const briefList: { id: string; name: string; image: string; state?: string; status?: string; restartCount?: number }[] = [];
     let upserted = 0;
@@ -206,7 +206,7 @@ export class ContainersService {
       const shortId: string = fullId.slice(0, 12);
       if (fullId) { seenIds.add(fullId); }
       if (shortId) { seenIds.add(shortId); }
-      broadcast('data', `[Container Discover] 发现容器 ${b.name} (${host.address}) `); //- ${(imageName || '')}:${(imageTag || '')}
+      log(`[Container Discover] 发现容器 ${b.name} (${host.address}) `); //- ${(imageName || '')}:${(imageTag || '')}
 
       // 统一短ID与完整ID，修复历史重复
       const existing = await this.prisma.container.findFirst({ where: { hostId: host.id, containerId: { in: [fullId, shortId, b.id] } } });
@@ -279,6 +279,9 @@ export class ContainersService {
 
     // Trigger FRP sync after discovery
     await this.frpService.syncFrpFromHost(host.id, opId, logCallback);
+    
+    // Trigger NPM sync after discovery
+    await this.reverseProxyService.syncRoutesFromHost(host.id, opId, logCallback);
 
     return upserted;
   }

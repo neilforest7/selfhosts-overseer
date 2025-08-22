@@ -1,10 +1,13 @@
 import { Controller, Get, Post, Body, Param } from '@nestjs/common';
 import { OperationLogService } from './operation-log.service';
-import { ExecType } from '@prisma/client';
+import { TriggerType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 class CreateOperationLogDto {
   title: string;
-  executionType?: ExecType;
+  triggerType?: TriggerType;
+  triggerContext?: Prisma.JsonValue;
+  context?: Prisma.JsonValue;
 }
 
 @Controller('api/v1/operations')
@@ -13,7 +16,7 @@ export class OperationLogController {
 
   @Post()
   create(@Body() createOperationLogDto: CreateOperationLogDto) {
-    return this.operationLogService.create(createOperationLogDto.title, createOperationLogDto.executionType);
+    return this.operationLogService.create(createOperationLogDto);
   }
 
   @Get()
@@ -23,6 +26,6 @@ export class OperationLogController {
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.operationLogService.findOne(id);
+    return this.operationLogService.findOneWithEntries(id);
   }
 }

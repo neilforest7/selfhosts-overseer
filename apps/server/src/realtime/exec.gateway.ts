@@ -1,16 +1,16 @@
 import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import { PrismaService } from '../prisma/prisma.service';
+import { OperationLogService } from '../operation-log/operation-log.service';
 
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
 export class ExecGateway {
   @WebSocketServer()
   server!: Server;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly operationLogService: OperationLogService) {}
 
-  broadcast(taskId: string, event: 'data' | 'stderr' | 'end' | 'error', payload: unknown): void {
-    this.server.to(`task:${taskId}`).emit(event, payload);
+  broadcast(taskId: string, stream: string, payload: unknown): void {
+    this.server.to(`task:${taskId}`).emit(stream, payload);
   }
 
   joinRoom(client: Socket, taskId: string): void {
@@ -23,13 +23,10 @@ export class ExecGateway {
     if (!taskId) return;
     this.joinRoom(client, taskId);
 
-    const opLog = await this.prisma.operationLog.findUnique({
-      where: { id: taskId },
-    });
+    const opLog = await this.operationLogService.findOneWithEntries(taskId);
 
     if (opLog) {
-      // Send the entire log history in one event to replace client-side logs
-      client.emit('task.logHistory', { taskId, logs: opLog.logs });
+      client.emit('task.logHistory', { taskId, entries: opLog.entries });
     }
   }
 }

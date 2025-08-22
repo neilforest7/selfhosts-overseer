@@ -7,21 +7,12 @@ import { ExecGateway } from '../realtime/exec.gateway';
 import { CryptoService } from '../security/crypto.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContainersService } from '../containers/containers.service';
-
-export type TaskStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+import { OperationLog } from '@prisma/client';
 
 export interface ExecRequest {
-  targets: string[]; // host ids (later)
+  opId: string;
   command: string;
-  opId?: string; // optional frontend-provided operation ID
-}
-
-export interface TaskRun {
-  id: string;
-  status: TaskStatus;
-  request: ExecRequest;
-  startedAt?: string;
-  finishedAt?: string;
+  targets: string[];
 }
 
 @Injectable()
@@ -38,114 +29,69 @@ export class TasksService {
     private readonly containersService: ContainersService,
   ) {}
 
-  async exec(req: ExecRequest): Promise<TaskRun> {
-    const taskId = req.opId;
-    if (!taskId) {
-      throw new Error('Operation ID (opId) is required to execute a task.');
-    }
+  async exec(req: ExecRequest): Promise<OperationLog> {
+    const { opId, command, targets } = req;
+    console.log(`🎯 Starting task for opId: ${opId}, command: ${command}`);
 
-    console.log(`🎯 关联任务: ${req.command} (目标: ${req.targets.length} 台, ID: ${taskId})`);
+    await this.operationLogService.updateStatus(opId, 'RUNNING');
 
-    const created = await this.prisma.taskRun.create({
-      data: {
-        id: taskId,
-        status: 'running',
-        command: req.command,
-        targets: req.targets,
-        startedAt: new Date(),
-      },
+    // Fire-and-forget execution
+    void this.runTask(opId, command, targets).catch(async (err) => {
+      console.error(`Task ${opId} failed unexpectedly:`, err);
+      await this.operationLogService.addLogEntry(opId, {
+        stream: 'error',
+        content: `An unexpected error occurred: ${err.message}`,
+      });
+      await this.operationLogService.updateStatus(opId, 'ERROR');
     });
 
-    // fire-and-forget execution
-    void this.runTask(created.id).catch((err) => {
-      console.error(`Task ${taskId} failed unexpectedly:`, err);
-      // Ensure the operation is marked as failed on unexpected error
-      this.operationLogService.updateStatus(taskId, 'ERROR', `An unexpected error occurred: ${err.message}`);
-    });
-
-    return {
-      id: created.id,
-      status: 'running',
-      request: { command: req.command, targets: req.targets, opId: taskId },
-      startedAt: created.startedAt?.toISOString(),
-    };
+    return this.prisma.operationLog.findUnique({ where: { id: opId } });
   }
 
-  async get(id: string): Promise<TaskRun | undefined> {
-    const r = await this.prisma.taskRun.findUnique({ where: { id } });
-    if (!r) return undefined;
-    return {
-      id: r.id,
-      status: r.status as TaskStatus,
-      request: { command: r.command, targets: r.targets },
-      startedAt: r.startedAt?.toISOString(),
-      finishedAt: r.finishedAt?.toISOString(),
-    };
-  }
-
-  private async runTask(taskId: string): Promise<void> {
-    console.log(`[TasksService] runTask started for taskId: ${taskId}`);
-    const task = await this.prisma.taskRun.findUnique({ where: { id: taskId } });
-    if (!task) {
-      console.error(`[TasksService] Task with id ${taskId} not found in database. Aborting runTask.`);
-      return;
-    }
+  private async runTask(opId: string, command: string, targets: string[]): Promise<void> {
+    await this.operationLogService.updateStatus(opId, 'RUNNING');
     const settings = await this.settingsService.get();
     const { items: allHosts } = await this.hostsService.list(undefined, 1000);
-    const targets = task.targets.map((tid) => allHosts.find((h) => h.id === tid)).filter(Boolean) as any[];
-    console.log(`[TasksService] taskId: ${taskId} - Found ${targets.length} target hosts.`);
+    const targetHosts = targets.map((tid) => allHosts.find((h) => h.id === tid)).filter(Boolean) as any[];
 
-    const timeoutSec = settings.commandTimeoutSeconds;
     let anyFailed = false;
-    const logsBuffer: string[] = [];
+    const logsBuffer: { stream: string; content: string; hostId?: string; timestamp: Date }[] = [];
 
-    const startSummary = `>>> 任务开始: 命令 "${task.command}" · 目标 ${targets.length} 台 · 并发 ${settings.sshConcurrency} · 超时 ${timeoutSec}s\n`;
-    logsBuffer.push(startSummary);
-    this.gateway.broadcast(taskId, 'data', startSummary);
+    const addEntry = (stream: string, content: string, hostId?: string) => {
+      const entryData = { stream, content, hostId, timestamp: new Date() };
+      logsBuffer.push(entryData);
+      // For real-time UI, we add a temporary client-side ID
+      this.gateway.broadcast(opId, stream, { ...entryData, id: `temp_${Date.now()}_${Math.random()}` });
+    };
 
-    if (targets.length === 0) {
-      const msg = '未选择任何目标主机\n';
-      logsBuffer.push(msg);
-      this.gateway.broadcast(taskId, 'stderr', msg);
-    }
+    addEntry('system', `>>> Task started: command "${command}" on ${targetHosts.length} targets.`);
 
     const runOne = async (target: any) => {
-      if (task.command === 'internal:discover_containers') {
+      if (command === 'internal:discover_containers') {
         try {
-          await this.containersService.discoverOnHost(target, taskId, (log) => {
-            logsBuffer.push(log);
+          await this.containersService.discoverOnHost(target, opId, (log) => {
+            addEntry('info', log, target.id);
           });
         } catch (err) {
           anyFailed = true;
-          const errorMsg = `[${target.name}] Discovery failed: ${err.message}\n`;
-          console.error(`[TasksService] internal:discover_containers failed for taskId: ${taskId} on host ${target.name}`, err);
-          logsBuffer.push(errorMsg);
-          this.gateway.broadcast(taskId, 'stderr', errorMsg);
+          addEntry('error', `[${target.name}] Discovery failed: ${err.message}`, target.id);
         }
         return;
       }
 
       const prefix = `[${target.name}@${target.address}] `;
-      console.log(`[TasksService] runOne started for taskId: ${taskId} on host ${target.name}`);
-      
-      const logAndBroadcast = (stream: 'data' | 'stderr', content: string) => {
-        logsBuffer.push(content);
-        this.gateway.broadcast(taskId, stream, content);
-      };
-
-      logAndBroadcast('data', `${prefix}>>> 开始\n`);
+      addEntry('system', `${prefix}>>> Starting execution...`, target.id);
 
       const hostDetail = await this.prisma.host.findUnique({ where: { id: target.id } });
       if (!hostDetail) {
-        logAndBroadcast('stderr', `${prefix}主机信息未找到\n`);
         anyFailed = true;
-        console.error(`[TasksService] runOne failed for taskId: ${taskId} on host ${target.name} - Host detail not found.`);
+        addEntry('error', `${prefix}Host details not found.`, target.id);
         return;
       }
-
-      const decPassword = this.crypto?.decryptString(hostDetail.sshPassword) ?? undefined;
-      const decKey = this.crypto?.decryptString(hostDetail.sshPrivateKey) ?? undefined;
-      const decPassphrase = this.crypto?.decryptString(hostDetail.sshPrivateKeyPassphrase) ?? undefined;
+      
+      const decPassword = this.crypto.decryptString(hostDetail.sshPassword);
+      const decKey = this.crypto.decryptString(hostDetail.sshPrivateKey);
+      const decPassphrase = this.crypto.decryptString(hostDetail.sshPrivateKeyPassphrase);
 
       const code = await this.sshService.execute({
         host: target.address,
@@ -154,27 +100,19 @@ export class TasksService {
         password: decPassword,
         privateKey: decKey,
         privateKeyPassphrase: decPassphrase,
-        command: task.command,
-        connectTimeoutSeconds: Math.min(30, Math.max(5, Math.floor(timeoutSec / 2))),
-        killAfterSeconds: timeoutSec,
-        onStdout: (chunk) => {
-          const lines = chunk.toString().trimEnd().split('\n').map(line => `${prefix}${line}\n`).join('');
-          logAndBroadcast('data', lines);
-
-        },
-        onStderr: (chunk) => {
-          const lines = chunk.toString().trimEnd().split('\n').map(line => `${prefix}${line}\n`).join('');
-          logAndBroadcast('stderr', lines);
-        },
+        command: command,
+        connectTimeoutSeconds: 30,
+        killAfterSeconds: 100,
+        onStdout: (chunk) => addEntry('stdout', `${prefix}${chunk.toString()}`, target.id),
+        onStderr: (chunk) => addEntry('stderr', `${prefix}${chunk.toString()}`, target.id),
       });
-      if (code !== 0) anyFailed = true;
-      console.log(`[TasksService] runOne finished for taskId: ${taskId} on host ${target.name} with exit code ${code}`);
 
-      logAndBroadcast('data', `${prefix}<<< 结束 (code ${code})\n`);
+      if (code !== 0) anyFailed = true;
+      addEntry('system', `${prefix}<<< Finished with exit code ${code}.`, target.id);
     };
 
     const concurrency = settings.sshConcurrency;
-    const queue = targets.slice();
+    const queue = targetHosts.slice();
     const workers: Promise<void>[] = [];
     for (let i = 0; i < Math.max(1, concurrency); i++) {
       workers.push(
@@ -187,25 +125,15 @@ export class TasksService {
         })(),
       );
     }
-    console.log(`[TasksService] taskId: ${taskId} - Waiting for all ${workers.length} workers to finish.`);
     await Promise.all(workers);
-    console.log(`[TasksService] taskId: ${taskId} - All workers finished.`);
 
-    // Now, append all buffered logs in a single operation.
+    addEntry('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
+    
     if (logsBuffer.length > 0) {
-      console.log(`[TasksService] taskId: ${taskId} - Appending ${logsBuffer.length} log entries to the database.`);
-      await this.operationLogService.appendToLog(taskId, logsBuffer.join(''));
+      await this.operationLogService.addLogEntries(opId, logsBuffer);
     }
 
-    const finalStatus = anyFailed ? 'ERROR' : 'COMPLETED';
-    console.log(`[TasksService] taskId: ${taskId} - Preparing to update final status to: ${finalStatus}`);
-    try {
-      await this.operationLogService.updateStatus(taskId, finalStatus);
-      console.log(`[TasksService] taskId: ${taskId} - Successfully updated final status to: ${finalStatus}`);
-    } catch (err) {
-      console.error(`[TasksService] taskId: ${taskId} - FAILED to update final status. Error:`, err);
-    }
-    this.gateway.broadcast(taskId, 'end', { status: anyFailed ? 'failed' : 'succeeded' });
-    console.log(`[TasksService] taskId: ${taskId} - Broadcasted 'end' event.`);
+    await this.operationLogService.updateStatus(opId, anyFailed ? 'ERROR' : 'COMPLETED');
+    this.gateway.broadcast(opId, 'end', { status: anyFailed ? 'succeeded' : 'failed' });
   }
 }

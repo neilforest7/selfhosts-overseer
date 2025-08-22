@@ -13,6 +13,7 @@ import { ReverseProxyModule } from '../reverse-proxy/reverse-proxy.module';
 import { DockerModule } from '../docker/docker.module';
 import { FrpModule } from '../frp/frp.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { OperationLogModule } from '../operation-log/operation-log.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TasksModule } from '../tasks/tasks.module';
     DockerModule,
     FrpModule,
     forwardRef(() => TasksModule),
+    OperationLogModule,
   ],
   controllers: [ContainersController],
   providers: [
