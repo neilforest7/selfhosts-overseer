@@ -1,30 +1,42 @@
-- name: mcp/puppeteer:latest
-  labels:
-    diun.provider: cmelev8pp004rthn676o4qmaw
-- name: mcp/puppeteer:latest
-  labels:
-    diun.provider: cmelev9zl004tthn6zi5c7lih
-- name: sosedoff/pgweb:0.16.1
-  labels:
-    diun.provider: cmelevb8g004vthn656zmhhdi
-- name: postgres:16-alpine
-  labels:
-    diun.provider: cmelevckj004xthn6jdr25yw1
 - name: redis:7-alpine
   labels:
     diun.provider: cmelevdub004zthn6h23zbrap
+- name: mcp/puppeteer:latest
+  labels:
+    diun.provider: cmelev9zl004tthn6zi5c7lih
+- name: mcp/puppeteer:latest
+  labels:
+    diun.provider: cmemslac20046cp0jlvbmq8gm
+- name: mcp/puppeteer:latest
+  labels:
+    diun.provider: cmelv86bw00wrrgzs33xxdrv2
+- name: mcp/puppeteer:latest
+  labels:
+    diun.provider: cmelev8pp004rthn676o4qmaw
 - name: ghcr.io/snowdreamtech/frpc:latest
   labels:
     diun.provider: cmelevf500051thn6xe6o48am
+- name: mcp/puppeteer:latest
+  labels:
+    diun.provider: cmemslblt0048cp0j216b4bj8
+- name: mcp/puppeteer:latest
+  labels:
+    diun.provider: cmelv851m00wprgzstanifspp
 - name: ghcr.io/dingyufei615/ai-goofish:latest
   labels:
     diun.provider: cmelevghh0053thn6i3ii6nvh
 - name: victoriametrics/vmagent:latest
   labels:
     diun.provider: cmelevhqn0055thn6zdtn1jze
+- name: postgres:16-alpine
+  labels:
+    diun.provider: cmelevckj004xthn6jdr25yw1
 - name: prom/node-exporter:latest
   labels:
     diun.provider: cmeleviz30057thn6u3yagtwx
 - name: prom/blackbox-exporter:latest
   labels:
     diun.provider: cmelevkag0059thn6g141l6lt
+- name: sosedoff/pgweb:0.16.1
+  labels:
+    diun.provider: cmelevb8g004vthn656zmhhdi

@@ -105,12 +105,12 @@ export default function HostsSection() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>{editing?.id ? '编辑主机' : '新建主机'}</DialogTitle></DialogHeader>
-              <div className="grid gap-3">
+              <div className="grid gap-4">
                 <Input placeholder="名称" defaultValue={editing?.name} onChange={(e) => setEditing((p) => ({ ...(p || {}), name: e.target.value }))} />
                 <Input placeholder="地址/IP" defaultValue={editing?.address} onChange={(e) => setEditing((p) => ({ ...(p || {}), address: e.target.value }))} />
                 <Input placeholder="SSH 用户" defaultValue={editing?.sshUser} onChange={(e) => setEditing((p) => ({ ...(p || {}), sshUser: e.target.value }))} />
                 <Input placeholder="端口（可选）" type="number" defaultValue={editing?.port} onChange={(e) => setEditing((p) => ({ ...(p || {}), port: Number(e.target.value) }))} />
-                <div className="grid gap-2">
+                <div className="grid gap-3">
                   <Label>主机角色</Label>
                   <Select
                     value={editing?.role || 'local'}
@@ -125,6 +125,7 @@ export default function HostsSection() {
                     </SelectContent>
                   </Select>
                 </div>
+                <Label>主机标签</Label>
                 <Input placeholder="标签，逗号分隔" defaultValue={(editing?.tags || []).join(',')} onChange={(e) => setEditing((p) => ({ ...(p || {}), tags: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} />
                 <div className="grid gap-2">
                   <Label className="text-sm">认证方式</Label>
