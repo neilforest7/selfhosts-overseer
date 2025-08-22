@@ -32,29 +32,36 @@ export class ReverseProxyService {
     });
   }
 
-  async syncRoutesFromHost(hostId: string) {
-    this.logger.log(`[NPM Sync] Task started for host: ${hostId}`);
+  async syncRoutesFromHost(hostId: string, opId?: string, logCallback?: (log: string) => void) {
+    const log = (message: string, level: 'log' | 'warn' | 'error' = 'log') => {
+      this.logger[level](message);
+      if (logCallback) {
+        logCallback(message + '\n');
+      }
+    };
+
+    log(`[NPM Sync] Task started for host: ${hostId}`);
     const host = await this.getHostWithCreds(hostId);
     if (!host) {
-      this.logger.warn(`[NPM Sync] Host not found: ${hostId}`);
+      log(`[NPM Sync] Host not found: ${hostId}`, 'warn');
       return;
     }
 
-    this.logger.log(`[NPM Sync] Starting sync for host: ${host.name} (${host.address})`);
+    log(`[NPM Sync] Starting sync for host: ${host.name} (${host.address})`);
 
     const npmContainer = await this.prisma.container.findFirst({
       where: { hostId, name: { contains: 'npm-app' } },
     });
 
     if (!npmContainer) {
-      this.logger.log(`[NPM Sync] No NPM container found on host ${host.name}`);
+      log(`[NPM Sync] No NPM container found on host ${host.name}`);
       return;
     }
-    this.logger.log(`[NPM Sync] Found NPM container: ${npmContainer.name} (${npmContainer.containerId})`);
+    log(`[NPM Sync] Found NPM container: ${npmContainer.name} (${npmContainer.containerId})`);
 
     const inspectData = await this.docker.inspectContainers({ ...host, port: host.port ?? undefined }, [npmContainer.containerId]);
     if (!inspectData || inspectData.length === 0) {
-      this.logger.warn(`[NPM Sync] Could not inspect NPM container ${npmContainer.name}`);
+      log(`[NPM Sync] Could not inspect NPM container ${npmContainer.name}`, 'warn');
       return;
     }
 
@@ -62,19 +69,19 @@ export class ReverseProxyService {
     let routes = [];
 
     if (envVars['DB_MYSQL_HOST']) {
-      this.logger.log('[NPM Sync] Detected MySQL/MariaDB configuration.');
-      routes = await this.syncFromMysql(host, inspectData[0], envVars);
+      log('[NPM Sync] Detected MySQL/MariaDB configuration.');
+      routes = await this.syncFromMysql(host, inspectData[0], envVars, log);
     } else {
-      this.logger.log('[NPM Sync] Detected SQLite configuration.');
-      routes = await this.syncFromSqlite(host, inspectData[0]);
+      log('[NPM Sync] Detected SQLite configuration.');
+      routes = await this.syncFromSqlite(host, inspectData[0], log);
     }
 
     if (!routes) {
-      this.logger.error('[NPM Sync] Failed to retrieve routes from NPM.');
+      log('[NPM Sync] Failed to retrieve routes from NPM.', 'error');
       return;
     }
 
-    this.logger.log(`[NPM Sync] Found ${routes.length} routes in the database.`);
+    log(`[NPM Sync] Found ${routes.length} routes in the database.`);
     const now = new Date();
     let upsertedCount = 0;
 
@@ -86,8 +93,8 @@ export class ReverseProxyService {
         try {
           domainNames = JSON.parse(domainsRaw);
         } catch (e) {
-          this.logger.warn(`[NPM Sync] JSON parsing failed for '${domainsRaw}'. Falling back to string split.`);
-          domainNames = domainsRaw.replace(/[\[\]"]/g, '').split(',').map(d => d.trim());
+          log(`[NPM Sync] JSON parsing failed for '${domainsRaw}'. Falling back to string split.`, 'warn');
+          domainNames = domainsRaw.replace(/[[\]"]/g, '').split(',').map(d => d.trim());
         }
       } else if (domainsRaw) {
         domainNames = domainsRaw.split(',').map(d => d.trim());
@@ -121,10 +128,10 @@ export class ReverseProxyService {
           update: data,
         });
         upsertedCount++;
-        this.logger.log(`[NPM Sync] Upserted route for domain: ${domain}`);
+        log(`[NPM Sync] Upserted route for domain: ${domain}`);
       }
     }
-    this.logger.log(`[NPM Sync] Finished processing all routes. Upserted ${upsertedCount} routes.`);
+    log(`[NPM Sync] Finished processing all routes. Upserted ${upsertedCount} routes.`);
   }
 
   private parseEnvArray(env: string[]): { [key: string]: string } {
@@ -138,55 +145,52 @@ export class ReverseProxyService {
     return result;
   }
 
-  private async syncFromSqlite(host: HostWithCreds, npmContainerInspect: any): Promise<any[] | null> {
+  private async syncFromSqlite(host: HostWithCreds, npmContainerInspect: any, log: (message: string, level?: 'log' | 'warn' | 'error') => void): Promise<any[] | null> {
     const dbPath = await this.findNpmDbPath(host, npmContainerInspect);
     if (!dbPath) {
-      this.logger.warn(`[NPM Sync] Could not find NPM database path for container ${npmContainerInspect.Name}`);
+      log(`[NPM Sync] Could not find NPM database path for container ${npmContainerInspect.Name}`, 'warn');
       return null;
     }
-    this.logger.log(`[NPM Sync] Found NPM database path: ${dbPath}`);
+    log(`[NPM Sync] Found NPM database path: ${dbPath}`);
 
     const tempDbPath = path.join('/tmp', `npm_${Date.now()}.sqlite`);
-    this.logger.log(`[NPM Sync] Downloading database to temporary path: ${tempDbPath}`);
+    log(`[NPM Sync] Downloading database to temporary path: ${tempDbPath}`);
     const downloaded = await this.downloadDbFile(host, dbPath, tempDbPath);
     if (!downloaded) {
-      this.logger.warn(`[NPM Sync] Failed to download NPM database from ${dbPath}`);
+      log(`[NPM Sync] Failed to download NPM database from ${dbPath}`, 'warn');
       return null;
     }
-    this.logger.log(`[NPM Sync] Database downloaded successfully.`);
+    log(`[NPM Sync] Database downloaded successfully.`);
 
     const routes = await this.queryRoutesFromSqliteDb(tempDbPath);
     await fs.unlink(tempDbPath);
-    this.logger.log(`[NPM Sync] Deleted temporary database file: ${tempDbPath}`);
+    log(`[NPM Sync] Deleted temporary database file: ${tempDbPath}`);
     return routes;
   }
 
-  private async syncFromMysql(host: HostWithCreds, npmContainerInspect: any, envVars: { [key: string]: string }): Promise<any[] | null> {
+  private async syncFromMysql(host: HostWithCreds, npmContainerInspect: any, envVars: { [key: string]: string }, log: (message: string, level?: 'log' | 'warn' | 'error') => void): Promise<any[] | null> {
     const dbHostService = envVars['DB_MYSQL_HOST'];
     const user = envVars['DB_MYSQL_USER'];
     const password = envVars['DB_MYSQL_PASSWORD'];
     const database = envVars['DB_MYSQL_NAME'];
     const query = `SELECT ph.*, c.expires_on FROM proxy_host ph LEFT JOIN certificate c ON ph.certificate_id = c.id`;
 
-    // Find the network the NPM container is on
     const networks = npmContainerInspect.NetworkSettings?.Networks;
     const networkName = networks ? Object.keys(networks)[0] : null;
     if (!networkName) {
-      this.logger.error(`[NPM Sync] Could not determine the network for the NPM container.`);
+      log(`[NPM Sync] Could not determine the network for the NPM container.`, 'error');
       return null;
     }
-    this.logger.log(`[NPM Sync] NPM container is on network: ${networkName}`);
+    log(`[NPM Sync] NPM container is on network: ${networkName}`);
 
-    // Use a temporary mysql container on the same network to run the query.
-    // The --password argument is used for direct, reliable authentication.
     const mysqlCommand = `mysql -h '${dbHostService}' -u'${user}' --password='${password}' '${database}' -e "${query}"`;
     const runCommand = `docker run --rm --network ${networkName} mysql:8 ${mysqlCommand}`;
 
-    this.logger.log(`[NPM Sync] Executing command on host ${host.name} via temporary container.`);
+    log(`[NPM Sync] Executing command on host ${host.name} via temporary container.`);
     const { code, stdout, stderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, runCommand);
 
     if (code !== 0) {
-      this.logger.error(`[NPM Sync] Failed to execute mysql query in temporary container. Exit code: ${code}, Stderr: ${stderr.toString()}`);
+      log(`[NPM Sync] Failed to execute mysql query in temporary container. Exit code: ${code}, Stderr: ${stderr.toString()}`, 'error');
       return null;
     }
 
