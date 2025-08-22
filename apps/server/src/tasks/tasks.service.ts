@@ -134,6 +134,6 @@ export class TasksService {
     }
 
     await this.operationLogService.updateStatus(opId, anyFailed ? 'ERROR' : 'COMPLETED');
-    this.gateway.broadcast(opId, 'end', { status: anyFailed ? 'succeeded' : 'failed' });
+    this.gateway.broadcast(opId, 'end', { status: anyFailed ? 'failed' : 'succeeded' });
   }
 }
