@@ -48,18 +48,22 @@ export default function ContainersSection() {
   const [q, setQ] = useState('');
   const [updateOnly, setUpdateOnly] = useState(false);
   const [hostFilter, setHostFilter] = useState('');
-  const [composeOnly, setComposeOnly] = useState(false);
+  const [filterMode, setFilterMode] = useState<'all' | 'compose' | 'cli'>('all');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const { startOperation } = useTaskDrawerStore((s) => s.actions);
 
   const listQuery = useQuery<{ items: ContainerItem[] }>({
-    queryKey: ['containers', q, updateOnly, hostFilter, composeOnly],
+    queryKey: ['containers', q, updateOnly, hostFilter, filterMode],
     queryFn: async () => {
       const url = new URL('http://localhost:3001/api/v1/containers');
       if (q) url.searchParams.set('q', q);
       if (updateOnly) url.searchParams.set('updateAvailable', 'true');
       if (hostFilter) url.searchParams.set('hostName', hostFilter);
-      if (composeOnly) url.searchParams.set('composeManaged', 'true');
+      if (filterMode === 'compose') {
+        url.searchParams.set('composeManaged', 'true');
+      } else if (filterMode === 'cli') {
+        url.searchParams.set('composeManaged', 'false');
+      }
       const r = await fetch(url);
       if (!r.ok) throw new Error('加载失败');
       return r.json();
@@ -274,60 +278,72 @@ export default function ContainersSection() {
 
   return (
     <Card>
-      <CardHeader><CardTitle>容器</CardTitle></CardHeader>
+      <CardHeader className='flex-row align-middle items-center gap-2 '>
+        <CardTitle className='flex-1'>容器</CardTitle>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm">发现容器</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => discover.mutate('all')}>
+              全部主机
+            </DropdownMenuItem>
+            {hostsQuery.data?.items?.map(host => (
+              <DropdownMenuItem key={host.id} onClick={() => discover.mutate(host.id)}>
+                {host.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm">检查更新</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => checkUpdates.mutate('all')}>
+              全部主机
+            </DropdownMenuItem>
+            {hostsQuery.data?.items?.map(host => (
+              <DropdownMenuItem key={host.id} onClick={() => checkUpdates.mutate(host.id)}>
+                {host.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex gap-2 items-center flex-wrap">
-          <Input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="搜索容器/镜像" className="max-w-xs" />
-          <Button variant={updateOnly ? 'secondary' : 'default'} onClick={()=>setUpdateOnly(v=>!v)}>{updateOnly ? '显示全部' : '仅看可更新'}</Button>
-          <Button variant={composeOnly ? 'secondary' : 'ghost'} onClick={()=>setComposeOnly(v=>!v)}>{composeOnly ? '显示全部' : '仅 Compose'}</Button>
+          <Select value={hostFilter || "all"} onValueChange={(value) => setHostFilter(value === "all" ? "" : value)}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="选择主机" />
+            </SelectTrigger>
+            <SelectContent align="start" className="bg-background text-foreground">
+              <SelectItem value="all">全部主机</SelectItem>
+              {hostsQuery.data?.items?.map(host => (
+                <SelectItem key={host.id} value={host.name}>
+                  {host.name} ({host.address})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           
           
           
           <div className="ml-auto flex gap-2">
-            <Select value={hostFilter || "all"} onValueChange={(value) => setHostFilter(value === "all" ? "" : value)}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="选择主机" />
+            <Button variant={updateOnly ? 'default' : 'ghost'} onClick={() => setUpdateOnly(v => !v)}>仅看可更新</Button>
+            <Select value={filterMode} onValueChange={(value) => setFilterMode(value as 'all' | 'compose' | 'cli')}>
+              <SelectTrigger className="w-[250px]">
+                <SelectValue placeholder="筛选容器" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部主机</SelectItem>
-                {hostsQuery.data?.items?.map(host => (
-                  <SelectItem key={host.id} value={host.name}>
-                    {host.name} ({host.address})
-                  </SelectItem>
-                ))}
+              <SelectContent align="start" className="bg-background text-foreground">
+                <SelectItem value="all">显示全部</SelectItem>
+                <SelectItem value="compose">仅 Compose</SelectItem>
+                <SelectItem value="cli">仅 CLI</SelectItem>
               </SelectContent>
             </Select>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button>发现容器</Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => discover.mutate('all')}>
-                  全部主机
-                </DropdownMenuItem>
-                {hostsQuery.data?.items?.map(host => (
-                  <DropdownMenuItem key={host.id} onClick={() => discover.mutate(host.id)}>
-                    {host.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button>检查更新</Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => checkUpdates.mutate('all')}>
-                  全部主机
-                </DropdownMenuItem>
-                {hostsQuery.data?.items?.map(host => (
-                  <DropdownMenuItem key={host.id} onClick={() => checkUpdates.mutate(host.id)}>
-                    {host.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="搜索容器/镜像" className="min-w-md"/>
+            {/* <Button variant={updateOnly ? 'secondary' : 'default'} onClick={()=>setUpdateOnly(v=>!v)}>{updateOnly ? '显示全部' : '仅看可更新'}</Button> */}
           </div>
         </div>
         <Table>
@@ -481,7 +497,7 @@ export default function ContainersSection() {
                         <DropdownMenuTrigger asChild>
                           <Button size="sm" variant="outline">操作</Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-32 bg-background">
+                        <DropdownMenuContent align="start" className="w-32 bg-background">
                         {isCompose ? (
                           <>
                             <DropdownMenuItem onClick={() => {

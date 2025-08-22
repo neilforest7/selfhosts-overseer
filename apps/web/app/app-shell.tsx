@@ -50,7 +50,7 @@ export default function AppShell() {
 
   return (
     <>
-      <div className="flex h-screen bg-background text-foreground">
+      <div className="flex h-full bg-background text-foreground">
         <nav className="w-48 border-r p-4 space-y-2">
           <h1 className="text-lg font-bold mb-4">MCP</h1>
           {(['overview', 'hosts', 'tasks', 'containers', 'observability', 'topology', 'certificates', 'logs', 'settings'] as TabKey[]).map(t => (
