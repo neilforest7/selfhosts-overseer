@@ -6,11 +6,20 @@ import { SettingsModule } from '../settings/settings.module';
 import { SshModule } from '../ssh/ssh.module';
 import { ExecGateway } from '../realtime/exec.gateway';
 import { CryptoService } from '../security/crypto.service';
+import { OperationLogModule } from '../operation-log/operation-log.module';
+import { ContainersModule } from '../containers/containers.module';
 
 @Module({
-  imports: [forwardRef(() => HostsModule), forwardRef(() => SettingsModule), SshModule],
+  imports: [
+    forwardRef(() => HostsModule),
+    forwardRef(() => SettingsModule),
+    SshModule,
+    OperationLogModule,
+    forwardRef(() => ContainersModule),
+  ],
   controllers: [TasksController],
-  providers: [TasksService, ExecGateway, CryptoService]
+  providers: [TasksService, ExecGateway, CryptoService],
+  exports: [TasksService],
 })
 export class TasksModule {}
 

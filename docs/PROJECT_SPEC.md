@@ -125,6 +125,104 @@
 - FRP：GET `/api/v1/frp/configs`；POST `/api/v1/frp/sync/:hostId`
 - 设置：GET/PUT `/api/v1/settings`；健康：GET `/api/v1/health`
 
+### 功能增强：全局多任务抽屉
+
+#### 1. 目标
+将现有的单任务操作抽屉（`OperationDrawer`）升级为一个全局、持久化的多任务管理中心。用户可以查看当前正在运行的任务、最近完成或失败的历史任务，并能在它们之间自由切换查看详情和日志。
+
+#### 2. 实现方案（全栈）
+
+##### 2.1. 数据库 (`apps/server/prisma/schema.prisma`)
+
+为了持久化任务记录，需要在数据模型中增加一个新的表 `OperationLog`。
+
+- **新增 `OperationLog` 模型**:
+  ```prisma
+  model OperationLog {
+    id              String        @id @default(cuid())
+    title           String
+    status          OpStatus      @default(RUNNING)
+    executionType   ExecType      @default(MANUAL)
+    startTime       DateTime      @default(now())
+    endTime         DateTime?
+    logs            String        @db.Text
+    createdAt       DateTime      @default(now())
+    updatedAt       DateTime      @updatedAt
+  }
+
+  enum OpStatus {
+    RUNNING
+    COMPLETED
+    ERROR
+  }
+
+  enum ExecType {
+    MANUAL
+    AUTOMATIC
+  }
+  ```
+- **执行迁移**: 运行 `npx prisma migrate dev --name add_operation_log` 创建新的数据库表。
+
+##### 2.2. 后端 (`apps/server`)
+
+需要创建新的模块、服务和控制器来管理 `OperationLog`，并改造现有的 WebSocket 网关以与新表交互。
+
+1.  **创建 `OperationLog` 模块**:
+    -   `operation-log.module.ts`
+    -   `operation-log.service.ts`
+    -   `operation-log.controller.ts`
+
+2.  **`OperationLogService`**:
+    -   `create(title, executionType)`: 创建一个新的 `OperationLog` 记录，状态为 `RUNNING`，并返回新记录的 `id`。
+    -   `appendToLog(id, logContent)`: 向指定 `id` 的记录的 `logs` 字段追加内容。
+    -   `updateStatus(id, status, errorLog?)`: 更新任务的最终状态（`COMPLETED` 或 `ERROR`）并记录 `endTime`。
+    -   `findAll()`: 获取所有 `OperationLog` 记录，按 `startTime` 降序排列（支持分页）。
+    -   `findOne(id)`: 获取单个 `OperationLog` 的详细信息。
+
+3.  **`OperationLogController`**:
+    -   `POST /api/v1/operations`: 接收任务标题和执行类型，调用 `service.create`，返回新任务的 `id`。
+    -   `GET /api/v1/operations`: 调用 `service.findAll`，返回历史任务列表。
+    -   `GET /api/v1/operations/:id`: 调用 `service.findOne`，返回单个任务详情。
+
+4.  **改造 WebSocket 网关 (`exec.gateway.ts`)**:
+    -   当一个新任务通过 `tasks.service` 启动时，不再仅仅返回一个临时的 `taskId`。
+    -   `tasks.service` 将首先调用 `operationLogService.create` 在数据库中创建记录。
+    -   返回给客户端的 `opId` 将是数据库记录的 `id`。
+    -   WebSocket 网关在收到 `data`, `stderr`, `end` 事件时，会调用 `operationLogService` 的相应方法 (`appendToLog`, `updateStatus`) 来实时更新数据库中的任务记录。
+
+##### 2.3. 前端 (`apps/web`)
+
+前端需要大幅修改状态管理和 UI 组件，以支持多任务视图。
+
+1.  **状态管理 (`lib/stores/operation-store.ts`)**:
+    -   **重命名**: 考虑将 `useOperationStore` 重命名为 `useTaskDrawerStore` 以反映其新职责。
+    -   **状态结构**:
+        -   `tasks: OperationLog[]`: 存储从后端获取的任务列表。
+        -   `currentTaskId: string | null`: 当前在抽屉中选中的任务 ID。
+        -   `isOpen`, `isMinimized`: 控制抽屉的显示状态。
+    -   **Actions**:
+        -   `startOperation(title, executionType)`:
+            1.  向后端 `POST /api/v1/operations` 发起请求，创建任务记录并获取 `taskId`。
+            2.  调用 `fetchTasks()` 刷新任务列表。
+            3.  将返回的 `taskId` 设置为 `currentTaskId`。
+            4.  打开抽屉 (`set({ isOpen: true })`)。
+        -   `fetchTasks()`: 调用 `GET /api/v1/operations` 获取最新任务列表并更新 `tasks` 状态。
+        -   `selectTask(taskId)`: 将 `currentTaskId` 设置为传入的 `taskId`。
+        -   `receiveLogUpdate(taskId, logChunk)`: 通过 WebSocket 接收实时日志，找到对应的任务并更新其 `logs` 字段。
+
+2.  **UI 组件 (`components/OperationDrawer.tsx`)**:
+    -   **双栏布局**: 抽屉内部将分为左右两栏。
+    -   **左栏 (任务列表)**:
+        -   一个可滚动的列表，展示 `store.tasks` 中的所有任务。
+        -   每项显示任务标题、状态图标 (运行/完成/失败) 和开始时间。
+        -   当前选中的任务 (`currentTaskId`) 会有高亮背景。
+        -   点击列表项会调用 `store.selectTask(taskId)`。
+    -   **右栏 (任务详情)**:
+        -   显示当前选中任务 (`currentTaskId`) 的详细信息。
+        -   顶部是之前实现的 `Alert` 组件，展示标题、状态、时间、耗时等元数据。
+        -   下方是日志内容的 `pre` 滚动区域。
+        -   如果选中的是正在运行的任务，WebSocket 连接会建立，并实时追加日志。如果选中的是历史任务，则只显示数据库中存储的静态日志。
+
 ### 八、部署与运行
 - 形态：单机 Docker Compose（默认）
   - 组件：Server/Web、PostgreSQL、Redis、Prometheus、VictoriaMetrics、Loki、Grafana

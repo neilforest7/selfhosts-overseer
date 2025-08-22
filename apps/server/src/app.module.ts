@@ -10,11 +10,24 @@ import { CertificatesModule } from './certificates/certificates.module';
 import { LogsModule } from './logs/logs.module';
 import { FrpModule } from './frp/frp.module';
 import { TopologyModule } from './topology/topology.module';
+import { OperationLogModule } from './operation-log/operation-log.module';
 
 @Module({
-  imports: [PrismaModule, SettingsModule, HostsModule, TasksModule, ContainersModule, ReverseProxyModule, CertificatesModule, LogsModule, FrpModule, TopologyModule],
+  imports: [
+    PrismaModule,
+    SettingsModule,
+    HostsModule,
+    TasksModule,
+    ContainersModule,
+    ReverseProxyModule,
+    CertificatesModule,
+    LogsModule,
+    FrpModule,
+    TopologyModule,
+    OperationLogModule,
+  ],
   controllers: [AppController],
-  providers: []
+  providers: [],
 })
 export class AppModule {}
 
