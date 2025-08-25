@@ -15,15 +15,17 @@ export class ScheduledTasksService {
 
   private calculateNextRun(cron: string): Date | null {
     try {
+      // Correctly call parseExpression on the imported namespace
       const interval = parser.parseExpression(cron);
       return interval.next().toDate();
     } catch (err) {
-      // If cron is invalid, return null
       return null;
     }
   }
 
-  async create(data: Prisma.ScheduledTaskCreateInput): Promise<ScheduledTask> {
+  async create(
+    data: Omit<Prisma.ScheduledTaskCreateInput, 'nextRunAt'>,
+  ): Promise<ScheduledTask> {
     const nextRunAt = this.calculateNextRun(data.cron);
     return this.prisma.scheduledTask.create({
       data: {
@@ -55,7 +57,7 @@ export class ScheduledTasksService {
     id: string,
     data: Prisma.ScheduledTaskUpdateInput,
   ): Promise<ScheduledTask> {
-    const updateData = { ...data };
+    const updateData: Prisma.ScheduledTaskUpdateInput = { ...data };
     if (typeof data.cron === 'string') {
       updateData.nextRunAt = this.calculateNextRun(data.cron);
     }
@@ -66,7 +68,7 @@ export class ScheduledTasksService {
   }
 
   async remove(id: string): Promise<void> {
-    await this.findOne(id); // Ensure it exists before trying to delete
+    await this.findOne(id);
     await this.prisma.scheduledTask.delete({
       where: { id },
     });
@@ -81,22 +83,26 @@ export class ScheduledTasksService {
       );
     }
 
-    const payload = task.taskPayload as any;
-    if (!payload || !payload.command || !Array.isArray(payload.targets)) {
-      throw new BadRequestException('Task payload is invalid for EXEC_COMMAND.');
+    if (!task.command || !task.targetHostIds) {
+      throw new BadRequestException(
+        'Task is missing command or target hosts for EXEC_COMMAND.',
+      );
     }
 
     const opLog = await this.operationLogService.create({
       title: `Manual Run: ${task.name}`,
       triggerType: 'USER',
-      context: { scheduledTaskId: task.id, ...payload },
+      context: {
+        scheduledTaskId: task.id,
+        command: task.command,
+        targets: task.targetHostIds,
+      },
     });
 
-    // This will run in the background
     this.tasksService.exec({
       opId: opLog.id,
-      command: payload.command,
-      targets: payload.targets,
+      command: task.command,
+      targets: task.targetHostIds,
     });
 
     return opLog;
