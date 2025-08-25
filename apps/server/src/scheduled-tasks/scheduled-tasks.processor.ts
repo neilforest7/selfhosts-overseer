@@ -33,6 +33,7 @@ export class ScheduledTasksProcessor {
 
       for (const task of tasks) {
         try {
+          // Correctly call parseExpression on the imported namespace
           const interval = parser.parseExpression(task.cron, { currentDate: task.nextRunAt || now });
           const nextRun = interval.next().toDate();
 

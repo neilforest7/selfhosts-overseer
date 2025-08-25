@@ -25,7 +25,6 @@ import { CreateEditTaskDialog } from './CreateEditTaskDialog';
 import { toast } from 'sonner';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 
-// Make sure to export the type for the dialog component
 export type ScheduledTask = {
   id: string;
   name: string;
@@ -35,7 +34,8 @@ export type ScheduledTask = {
   isEnabled: boolean;
   lastRunAt: string | null;
   nextRunAt: string | null;
-  taskPayload: Record<string, any> | null;
+  command: string | null;
+  targetHostIds: string[];
 };
 
 async function fetchScheduledTasks(): Promise<ScheduledTask[]> {
@@ -120,20 +120,10 @@ export default function TasksSection() {
   };
 
   const handleSave = (data: any) => {
-    try {
-      const payload = {
-        ...data,
-        taskPayload: data.taskPayload ? JSON.parse(data.taskPayload) : null,
-      };
-      if (selectedTask) {
-        updateMutation.mutate({ id: selectedTask.id, data: payload });
-      } else {
-        createMutation.mutate(payload);
-      }
-    } catch (e) {
-      toast.error('任务参数格式错误', {
-        description: '任务参数必须是合法的 JSON 格式。',
-      });
+    if (selectedTask) {
+      updateMutation.mutate({ id: selectedTask.id, data });
+    } else {
+      createMutation.mutate(data);
     }
   };
 

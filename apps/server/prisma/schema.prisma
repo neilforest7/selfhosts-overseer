@@ -234,8 +234,10 @@ model ScheduledTask {
   name        String    @unique // User-friendly name, e.g., "Daily Container Update Check"
   description String?
   taskType    String // Task type identifier, e.g., "EXEC_COMMAND", "CHECK_CONTAINER_UPDATES"
-  taskPayload Json? // Parameters for the task, e.g., { "command": "docker system prune -af", "targets": ["hostId1"] }
   cron        String // CRON expression for scheduling, e.g., "0 3 * * *"
+  // Parameters for EXEC_COMMAND
+  command     String?
+  targetHostIds String[]
   isEnabled   Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
