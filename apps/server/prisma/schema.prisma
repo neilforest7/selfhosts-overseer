@@ -228,3 +228,18 @@ enum TriggerType {
   SYSTEM // Initiated by an internal system event (e.g., post-discovery tasks)
 }
 
+// Definition of a scheduled task
+model ScheduledTask {
+  id          String    @id @default(cuid())
+  name        String    @unique // User-friendly name, e.g., "Daily Container Update Check"
+  description String?
+  taskType    String // Task type identifier, e.g., "EXEC_COMMAND", "CHECK_CONTAINER_UPDATES"
+  taskPayload Json? // Parameters for the task, e.g., { "command": "docker system prune -af", "targets": ["hostId1"] }
+  cron        String // CRON expression for scheduling, e.g., "0 3 * * *"
+  isEnabled   Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+}
+

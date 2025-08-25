@@ -114,11 +114,25 @@
 - `HostNpmConfig`：hostId(id)、enabled、dbType('sqlite'|'mysql')、connectionMode('container-local')、containerName?、sqlitePath（默认 `/data/database.sqlite`）、mysqlUseContainerEnv（从容器 `DB_MYSQL_*` 读取）、updatedAt
 - `FrpsConfig`：id、hostId、containerId、bindPort?、vhostHttpPort?、vhostHttpsPort?、subdomainHost?、rawConfig(Json?)、lastSyncedAt?
 - `FrpcProxy`：id、hostId、containerId、frpsConfigId、name、type('tcp'|'udp'|'http'|'https'|'stcp'|'xtcp')、localIp、localPort、remotePort、subdomain?、customDomains[]、rawConfig(Json?)、lastSyncedAt?
+- `ScheduledTask`：id、name、description?、taskType、taskPayload(Json?)、cron、isEnabled、createdAt、updatedAt、lastRunAt?、nextRunAt?
 
-### 七、API 概览（对前端、n8n、AI Agent）
+### 七、任务与操作管理 (Task & Operation Management)
+为了实现强大的自动化能力，系统对“任务”和“操作”进行了明确的区分：
+
+- **计划任务 (`ScheduledTask`)**: 代表一个**任务定义**。它是一个静态的配置实体，描述了“做什么”（`taskType`, `taskPayload`）和“何时做”（`cron`）。例如，“每天凌晨3点在所有主机上执行 `docker system prune -af`”。这些任务由用户通过 UI 进行 CRUD 管理。
+
+- **操作日志 (`OperationLog`)**: 代表一次**任务执行记录**。它是一个动态的、一次性的日志实体。每当一个 `ScheduledTask` 被调度器自动触发，或用户手动点击“立即运行”，系统都会创建一个 `OperationLog` 来跟踪这次执行的全过程，包括其状态（运行中、成功、失败）、触发方式、起止时间以及详细的输出日志（`OperationLogEntry`）。
+
+这种设计将任务的“定义”与“执行”解耦，使得任务管理和执行历史的追踪都变得清晰、可靠。
+
+### 八、API 概览（对前端、n8n、AI Agent）
 - Hosts：GET/POST/PATCH/DELETE `/api/v1/hosts`；POST `/api/v1/hosts/:id/test-connection`
-- 执行：GET `/api/v1/tasks`；POST `/api/v1/tasks/exec`；GET `/api/v1/tasks/:id`；GET `/api/v1/tasks/:id/logs`；GET `/api/v1/tasks/:id/logs/export`
-  - 回显：Socket.IO 事件 `joinTask` 订阅 `task:{taskId}` 接收 `data|stderr|end|error`
+- 计划任务：GET/POST/PATCH/DELETE `/api/v1/scheduled-tasks`；POST `/api/v1/scheduled-tasks/:id/run`
+- 执行与操作：
+  - POST `/api/v1/tasks/exec`（用于临时的、一次性的命令执行）
+  - GET `/api/v1/operations`（获取所有操作历史记录）
+  - GET `/api/v1/operations/:id`（获取单次操作的详情和日志）
+  - 回显：Socket.IO 事件 `joinTask` 订阅 `task:{taskId}` 接收 `stdout|stderr|system|info|error|end`
 - 日志：GET `/api/v1/logs/application|system|docker`
 - 容器：GET `/api/v1/containers`（支持 hostId/hostName/q/updateAvailable/composeManaged）；POST `discover|check-updates|:id/update|:id/restart|compose/operate|refresh-status|cleanup-duplicates|purge`
 - 反向代理：GET `/api/v1/reverse-proxy/routes?hostId=`；证书：GET `/api/v1/certificates`
@@ -223,7 +237,7 @@
         -   下方是日志内容的 `pre` 滚动区域。
         -   如果选中的是正在运行的任务，WebSocket 连接会建立，并实时追加日志。如果选中的是历史任务，则只显示数据库中存储的静态日志。
 
-### 八、部署与运行
+### 九、部署与运行
 - 形态：单机 Docker Compose（默认）
   - 组件：Server/Web、PostgreSQL、Redis、Prometheus、VictoriaMetrics、Loki、Grafana
   - 可选：cAdvisor（按需部署）
@@ -247,12 +261,12 @@
     - Logs Explorer（Loki 日志浏览）
     - NPM Routes Overview（按域名/状态码的请求量与错误率，基于 Loki 日志）
 
-### 九、容量与性能建议（7 天留存）
+### 十、容量与性能建议（7 天留存）
 - 10–30 台 VPS 建议：4 vCPU / 8 GB RAM；磁盘 100–200 GB（VM+Loki+DB 合计）
 - 并发：SSH 并发默认 30（可配置 10–100）；命令超时默认 100s（可配置）
 - 日志量估算：日 5–20 GB → 7 天 35–140 GB（按需设置 Loki 限速与保留）
 
-### 十、里程碑
+### 十一、里程碑
 - M0 最小可用
   - 资产录入/连通性、批量命令/脚本、实时输出
   - 安装 Node Exporter/Promtail；Grafana 预置面板；VM/Loki 7 天保留
@@ -265,19 +279,19 @@
   - 可选轻量 Agent；批量更新稳定性优化
   - cAdvisor 面板预置；容器回滚/固定 digest 的覆盖策略
 
-### 十一、风险与对策
+### 十二、风险与对策
 - 日志爆量：Promtail 限流/丢弃低价值标签；Loki 保留/压缩/分区
 - SSH 并发抖动：设置全局并发阈值与队列退避
 - 单点：VM/Loki/DB 单实例；后续可按需扩展 HA
 
-### 十二、配置项（默认值）
+### 十三、配置项（默认值）
 - SSH 并发：30；命令超时：100s；重试：1 次；全局队列并发：50
 - 容器发现：每 10 分钟；版本检查：每日 00:45（可配置）
 - 指标保留：7 天（VictoriaMetrics）；日志保留：7 天（Loki）
 - cAdvisor：默认关闭，可“一键启用”
   注：以上均可在 Web 前端“设置 → 调度与并发”中修改并持久化。
 
-### 十三、网络拓扑图
+### 十四、网络拓扑图
 #### 1. 目标
 自动生成一个可视化的网络拓扑图，清晰展示所有受管主机、容器、对外域名以及它们之间的连接关系，特别是 `frp` 穿透和 `Nginx Proxy Manager` (NPM) 的反向代理流量。
 
@@ -315,7 +329,7 @@
     -   指向内部 IP (`192.168.x.x`, `172.16-31.x.x`, `10.x.x.x`) 的路由，其目标容器的搜索范围被严格限制在 NPM 所在的主机。
     -   NPM 指向自身的路由会被自动过滤。
 
-### 十四、FRP 配置发现与同步（规划）
+### 十五、FRP 配置发现与同步（规划）
 
 #### 1. 目标
 自动发现并解析所有主机上的 `frps` 和 `frpc` 容器的配置文件，提取其监听端口和代理规则，并将这些关系存储到数据库中，为网络拓扑图提供数据支持。
@@ -346,7 +360,7 @@
     -   此同步过程应在每次容器发现 (`discoverOnHost`) 成功后自动触发。
     -   同时，创建一个新的 API 端点 `POST /api/v1/frp/sync/:hostId`，允许用户手动触发对单个主机的 `frp` 配置同步。
 
-### 十五、非功能与未来规划
+### 十六、非功能与未来规划
 - 未来可选：
   - 危险命令防护开关（黑白名单/提示）
   - 私有镜像仓库凭证（GHCR/Harbor）
