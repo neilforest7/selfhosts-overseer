@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, ScheduledTask, OperationLog } from '@prisma/client';
 import { TasksService } from '../tasks/tasks.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
-import * as parser from 'cron-parser';
+import { CronExpressionParser } from 'cron-parser';
 
 @Injectable()
 export class ScheduledTasksService {
@@ -15,8 +15,7 @@ export class ScheduledTasksService {
 
   private calculateNextRun(cron: string): Date | null {
     try {
-      // Correctly call parseExpression on the imported namespace
-      const interval = parser.parseExpression(cron);
+      const interval = CronExpressionParser.parse(cron);
       return interval.next().toDate();
     } catch (err) {
       return null;

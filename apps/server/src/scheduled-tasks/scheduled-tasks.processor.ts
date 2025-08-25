@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScheduledTasksService } from './scheduled-tasks.service';
-import * as parser from 'cron-parser';
+import { CronExpressionParser } from 'cron-parser';
 
 @Injectable()
 export class ScheduledTasksProcessor {
@@ -33,15 +33,14 @@ export class ScheduledTasksProcessor {
 
       for (const task of tasks) {
         try {
-          // Correctly call parseExpression on the imported namespace
-          const interval = parser.parseExpression(task.cron, { currentDate: task.nextRunAt || now });
+          const interval = CronExpressionParser.parse(task.cron, { currentDate: task.nextRunAt || now });
           const nextRun = interval.next().toDate();
 
           if (!task.nextRunAt || nextRun <= now) {
             this.logger.log(`Running scheduled task: ${task.name}`);
             await this.scheduledTasksService.runManually(task.id);
             
-            const nextInterval = parser.parseExpression(task.cron);
+            const nextInterval = CronExpressionParser.parse(task.cron);
             const nextRunTime = nextInterval.next().toDate();
             
             await this.prisma.scheduledTask.update({
