@@ -162,9 +162,15 @@ export class HostsService {
     this.logger.log(`测试主机连接: ${h.name} (${h.address}:${h.port ?? 22})`);
     const usePassword = (h as any).sshAuthMethod === 'password';
     const useKey = (h as any).sshAuthMethod === 'privateKey';
-    const decPassword = this.crypto.decryptString((h as any).sshPassword ?? null) ?? undefined;
-    const decKey = this.crypto.decryptString((h as any).sshPrivateKey ?? null) ?? undefined;
-    const decPassphrase = this.crypto.decryptString((h as any).sshPrivateKeyPassphrase ?? null) ?? undefined;
+
+    const decryptedPassword = this.crypto.decryptString((h as any).sshPassword ?? null);
+    const decPassword = decryptedPassword ? decryptedPassword.toString() : undefined;
+
+    const decryptedKey = this.crypto.decryptString((h as any).sshPrivateKey ?? null);
+    const decKey = decryptedKey ? decryptedKey.toString() : undefined;
+
+    const decryptedPassphrase = this.crypto.decryptString((h as any).sshPrivateKeyPassphrase ?? null);
+    const decPassphrase = decryptedPassphrase ? decryptedPassphrase.toString() : undefined;
     const res = await this.ssh.executeCapture({
       host: h.address,
       user: h.sshUser,
