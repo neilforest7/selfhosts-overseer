@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { ClientOnly } from '@/components/ClientOnly';
 
 type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; role?: 'local' | 'remote'; hasPassword?: boolean; hasPrivateKey?: boolean };
 
@@ -99,75 +100,77 @@ export default function HostsSection() {
       <CardContent className="space-y-4">
         <div className="flex gap-2">
           <Input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="按标签筛选" className="max-w-xs" />
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => setEditing({ role: 'local' })}>新建主机</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>{editing?.id ? '编辑主机' : '新建主机'}</DialogTitle></DialogHeader>
-              <div className="grid gap-4">
-                <Input placeholder="名称" defaultValue={editing?.name} onChange={(e) => setEditing((p) => ({ ...(p || {}), name: e.target.value }))} />
-                <Input placeholder="地址/IP" defaultValue={editing?.address} onChange={(e) => setEditing((p) => ({ ...(p || {}), address: e.target.value }))} />
-                <Input placeholder="SSH 用户" defaultValue={editing?.sshUser} onChange={(e) => setEditing((p) => ({ ...(p || {}), sshUser: e.target.value }))} />
-                <Input placeholder="端口（可选）" type="number" defaultValue={editing?.port} onChange={(e) => setEditing((p) => ({ ...(p || {}), port: Number(e.target.value) }))} />
-                <div className="grid gap-3">
-                  <Label>主机角色</Label>
-                  <Select
-                    value={editing?.role || 'local'}
-                    onValueChange={(value) => setEditing((p) => ({ ...(p || {}), role: value as 'local' | 'remote' }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="选择主机角色" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="local">本地主机 (Local Network)</SelectItem>
-                      <SelectItem value="remote">公网主机 (Public Cloud)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Label>主机标签</Label>
-                <Input placeholder="标签，逗号分隔" defaultValue={(editing?.tags || []).join(',')} onChange={(e) => setEditing((p) => ({ ...(p || {}), tags: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} />
-                <div className="grid gap-2">
-                  <Label className="text-sm">认证方式</Label>
-                  <div className="flex gap-3">
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="sshAuthMethod"
-                        defaultChecked={(editing as any)?.sshAuthMethod !== 'privateKey'}
-                        onChange={() => setEditing((p)=>({ ...(p||{}), sshAuthMethod: 'password', sshPrivateKey: undefined, sshPrivateKeyPassphrase: undefined }))}
-                      />
-                      密码
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="radio"
-                        name="sshAuthMethod"
-                        defaultChecked={(editing as any)?.sshAuthMethod === 'privateKey'}
-                        onChange={() => setEditing((p)=>({ ...(p||{}), sshAuthMethod: 'privateKey', sshPassword: undefined }))}
-                      />
-                      私钥
-                    </label>
+          <ClientOnly>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={() => setEditing({ role: 'local' })}>新建主机</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>{editing?.id ? '编辑主机' : '新建主机'}</DialogTitle></DialogHeader>
+                <div className="grid gap-4">
+                  <Input placeholder="名称" defaultValue={editing?.name} onChange={(e) => setEditing((p) => ({ ...(p || {}), name: e.target.value }))} />
+                  <Input placeholder="地址/IP" defaultValue={editing?.address} onChange={(e) => setEditing((p) => ({ ...(p || {}), address: e.target.value }))} />
+                  <Input placeholder="SSH 用户" defaultValue={editing?.sshUser} onChange={(e) => setEditing((p) => ({ ...(p || {}), sshUser: e.target.value }))} />
+                  <Input placeholder="端口（可选）" type="number" defaultValue={editing?.port} onChange={(e) => setEditing((p) => ({ ...(p || {}), port: Number(e.target.value) }))} />
+                  <div className="grid gap-3">
+                    <Label>主机角色</Label>
+                    <Select
+                      value={editing?.role || 'local'}
+                      onValueChange={(value) => setEditing((p) => ({ ...(p || {}), role: value as 'local' | 'remote' }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="选择主机角色" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="local">本地主机 (Local Network)</SelectItem>
+                        <SelectItem value="remote">公网主机 (Public Cloud)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Label>主机标签</Label>
+                  <Input placeholder="标签，逗号分隔" defaultValue={(editing?.tags || []).join(',')} onChange={(e) => setEditing((p) => ({ ...(p || {}), tags: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }))} />
+                  <div className="grid gap-2">
+                    <Label className="text-sm">认证方式</Label>
+                    <div className="flex gap-3">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          name="sshAuthMethod"
+                          defaultChecked={(editing as any)?.sshAuthMethod !== 'privateKey'}
+                          onChange={() => setEditing((p)=>({ ...(p||{}), sshAuthMethod: 'password', sshPrivateKey: undefined, sshPrivateKeyPassphrase: undefined }))}
+                        />
+                        密码
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="radio"
+                          name="sshAuthMethod"
+                          defaultChecked={(editing as any)?.sshAuthMethod === 'privateKey'}
+                          onChange={() => setEditing((p)=>({ ...(p||{}), sshAuthMethod: 'privateKey', sshPassword: undefined }))}
+                        />
+                        私钥
+                      </label>
+                    </div>
+                  </div>
+                  {((editing as any)?.sshAuthMethod ?? 'password') === 'password' ? (
+                    <Input placeholder="密码" type="password" onChange={(e)=>setEditing((p)=>({ ...(p||{}), sshPassword: e.target.value }))} />
+                  ) : (
+                    <>
+                      <Textarea placeholder="粘贴私钥 PEM" rows={6} onChange={(e)=>setEditing((p)=>({ ...(p||{}), sshPrivateKey: e.target.value }))} />
+                      <Input placeholder="私钥口令（可选）" type="password" onChange={(e)=>setEditing((p)=>({ ...(p||{}), sshPrivateKeyPassphrase: e.target.value }))} />
+                    </>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    {editing?.id ? (
+                      <Button onClick={() => editing?.id && updateMutation.mutate({ ...(editing as Host), id: editing.id })} disabled={updateMutation.isPending}>保存</Button>
+                    ) : (
+                      <Button onClick={() => addMutation.mutate(editing || {})} disabled={addMutation.isPending}>创建</Button>
+                    )}
                   </div>
                 </div>
-                {((editing as any)?.sshAuthMethod ?? 'password') === 'password' ? (
-                  <Input placeholder="密码" type="password" onChange={(e)=>setEditing((p)=>({ ...(p||{}), sshPassword: e.target.value }))} />
-                ) : (
-                  <>
-                    <Textarea placeholder="粘贴私钥 PEM" rows={6} onChange={(e)=>setEditing((p)=>({ ...(p||{}), sshPrivateKey: e.target.value }))} />
-                    <Input placeholder="私钥口令（可选）" type="password" onChange={(e)=>setEditing((p)=>({ ...(p||{}), sshPrivateKeyPassphrase: e.target.value }))} />
-                  </>
-                )}
-                <div className="flex justify-end gap-2">
-                  {editing?.id ? (
-                    <Button onClick={() => editing?.id && updateMutation.mutate({ ...(editing as Host), id: editing.id })} disabled={updateMutation.isPending}>保存</Button>
-                  ) : (
-                    <Button onClick={() => addMutation.mutate(editing || {})} disabled={addMutation.isPending}>创建</Button>
-                  )}
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          </ClientOnly>
           <Button variant="destructive" onClick={bulkDelete} disabled={!Object.values(selected).some(Boolean)}>删除所选</Button>
         </div>
         <Table>
