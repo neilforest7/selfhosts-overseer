@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -15,6 +14,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/command';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import cronstrue from 'cronstrue/i18n';
 
 const formSchema = z.object({
   name: z.string().min(1, '名称不能为空'),
@@ -58,7 +59,7 @@ type TaskFormValues = z.infer<typeof formSchema>;
 type Host = { id: string; name: string };
 
 async function fetchHosts(): Promise<{ items: Host[] }> {
-  const r = await fetch('api/v1/hosts?limit=1000');
+  const r = await fetch('/api/v1/hosts?limit=1000');
   if (!r.ok) throw new Error('Failed to fetch hosts');
   return r.json();
 }
@@ -78,11 +79,12 @@ export function CreateEditTaskDialog({
   onSave,
   isSaving,
 }: CreateEditTaskDialogProps) {
-  const { data: hostsData, isLoading: isLoadingHosts } = useQuery({
+  const { data: hostsData } = useQuery({
     queryKey: ['hosts', 'all'],
     queryFn: fetchHosts,
   });
   const hosts = hostsData?.items || [];
+  const [cronDescription, setCronDescription] = useState('');
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(formSchema),
@@ -96,25 +98,41 @@ export function CreateEditTaskDialog({
     },
   });
 
+  const cronValue = form.watch('cron');
   useEffect(() => {
-    if (task) {
-      form.reset({
-        name: task.name,
-        description: task.description || '',
-        taskType: task.taskType,
-        cron: task.cron,
-        command: task.command || '',
-        targetHostIds: task.targetHostIds || [],
-      });
-    } else {
-      form.reset({
-        name: '',
-        description: '',
-        taskType: 'EXEC_COMMAND',
-        cron: '0 0 * * *',
-        command: 'echo "Hello from $(hostname)"',
-        targetHostIds: [],
-      });
+    try {
+      // Ensure at least 5 parts for a basic validation
+      if (cronValue.split(' ').length >= 5) {
+        setCronDescription(cronstrue.toString(cronValue, { locale: 'zh_CN' }));
+      } else {
+        setCronDescription('');
+      }
+    } catch (e) {
+      setCronDescription('');
+    }
+  }, [cronValue]);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (task) {
+        form.reset({
+          name: task.name,
+          description: task.description || '',
+          taskType: task.taskType,
+          cron: task.cron,
+          command: task.command || '',
+          targetHostIds: task.targetHostIds || [],
+        });
+      } else {
+        form.reset({
+          name: '',
+          description: '',
+          taskType: 'EXEC_COMMAND',
+          cron: '0 0 * * *',
+          command: 'echo "Hello from $(hostname)"',
+          targetHostIds: [],
+        });
+      }
     }
   }, [task, form, isOpen]);
 
@@ -126,15 +144,13 @@ export function CreateEditTaskDialog({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSave)} className="space-y-4">
-            {/* Name, Description, Type, Cron */}
             <FormField name="name" control={form.control} render={({ field }) => ( <FormItem><FormLabel>名称</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
             <FormField name="description" control={form.control} render={({ field }) => ( <FormItem><FormLabel>描述</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem> )} />
             <div className="grid grid-cols-2 gap-4">
               <FormField name="taskType" control={form.control} render={({ field }) => ( <FormItem><FormLabel>类型</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="EXEC_COMMAND">远程命令</SelectItem></SelectContent></Select><FormMessage /></FormItem> )} />
-              <FormField name="cron" control={form.control} render={({ field }) => ( <FormItem><FormLabel>CRON</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+              <FormField name="cron" control={form.control} render={({ field }) => ( <FormItem><FormLabel>CRON</FormLabel><FormControl><Input {...field} /></FormControl><FormDescription className="h-4">{cronDescription}</FormDescription><FormMessage /></FormItem> )} />
             </div>
             
-            {/* Task Type Specific Fields */}
             {form.watch('taskType') === 'EXEC_COMMAND' && (
               <>
                 <FormField name="command" control={form.control} render={({ field }) => ( <FormItem><FormLabel>命令</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
@@ -160,7 +176,7 @@ export function CreateEditTaskDialog({
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[550px] p-0 bg-background">
+                        <PopoverContent className="w-[550px] p-0">
                           <Command>
                             <CommandInput placeholder="搜索主机..." />
                             <CommandList>
