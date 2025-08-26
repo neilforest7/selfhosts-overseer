@@ -5,20 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, MoreHorizontal, Play, Trash2, Pencil } from 'lucide-react';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { CreateEditTaskDialog } from './CreateEditTaskDialog';
@@ -34,12 +22,11 @@ export type ScheduledTask = {
   isEnabled: boolean;
   lastRunAt: string | null;
   nextRunAt: string | null;
-  command: string | null;
-  targetHostIds: string[];
+  taskPayload: Record<string, any> | null;
 };
 
 async function fetchScheduledTasks(): Promise<ScheduledTask[]> {
-  const r = await fetch('http://localhost:3001/api/v1/scheduled-tasks');
+  const r = await fetch('/api/v1/scheduled-tasks');
   if (!r.ok) throw new Error('Failed to fetch scheduled tasks');
   return r.json();
 }
@@ -63,45 +50,27 @@ export default function TasksSection() {
       toast.success('操作成功');
     },
     onError: (error: Error) => {
-      toast.error('操作失败', {
-        description: error.message,
-      });
+      toast.error('操作失败', { description: error.message });
     },
   };
 
   const createMutation = useMutation({
-    mutationFn: (data: any) =>
-      fetch('http://localhost:3001/api/v1/scheduled-tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }),
+    mutationFn: (data: any) => fetch('/api/v1/scheduled-tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
     ...mutationOptions,
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) =>
-      fetch(`http://localhost:3001/api/v1/scheduled-tasks/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }),
+    mutationFn: ({ id, data }: { id: string; data: any }) => fetch(`/api/v1/scheduled-tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
     ...mutationOptions,
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) =>
-      fetch(`http://localhost:3001/api/v1/scheduled-tasks/${id}`, {
-        method: 'DELETE',
-      }),
+    mutationFn: (id: string) => fetch(`/api/v1/scheduled-tasks/${id}`, { method: 'DELETE' }),
     ...mutationOptions,
   });
 
   const runMutation = useMutation({
-    mutationFn: (id: string) =>
-      fetch(`http://localhost:3001/api/v1/scheduled-tasks/${id}/run`, {
-        method: 'POST',
-      }).then(res => res.json()),
+    mutationFn: (id: string) => fetch(`/api/v1/scheduled-tasks/${id}/run`, { method: 'POST' }).then(res => res.json()),
     onSuccess: (opLog) => {
       toast.success(`任务 "${opLog.title}" 已开始执行`);
       taskDrawerActions.selectTask(opLog.id);
@@ -113,10 +82,7 @@ export default function TasksSection() {
   });
 
   const handleToggle = (task: ScheduledTask) => {
-    updateMutation.mutate({
-      id: task.id,
-      data: { isEnabled: !task.isEnabled },
-    });
+    updateMutation.mutate({ id: task.id, data: { isEnabled: !task.isEnabled } });
   };
 
   const handleSave = (data: any) => {
@@ -145,68 +111,31 @@ export default function TasksSection() {
                   <TableHead className="w-[80px]">状态</TableHead>
                   <TableHead>名称</TableHead>
                   <TableHead>类型</TableHead>
-                  <TableHead>CRON 表达式</TableHead>
+                  <TableHead>详情</TableHead>
+                  <TableHead>CRON</TableHead>
                   <TableHead>下次运行</TableHead>
                   <TableHead className="w-[100px]">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
-                      加载中...
-                    </TableCell>
-                  </TableRow>
-                ) : tasks.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
-                      未找到任何计划任务。
-                    </TableCell>
-                  </TableRow>
-                ) : (
+                {isLoading ? ( <TableRow><TableCell colSpan={7} className="h-24 text-center">加载中...</TableCell></TableRow> ) 
+                : tasks.length === 0 ? ( <TableRow><TableCell colSpan={7} className="h-24 text-center">未找到任何计划任务。</TableCell></TableRow> ) 
+                : (
                   tasks.map((task) => (
                     <TableRow key={task.id}>
-                      <TableCell>
-                        <Switch
-                          checked={task.isEnabled}
-                          onCheckedChange={() => handleToggle(task)}
-                          aria-label="Toggle task status"
-                        />
-                      </TableCell>
+                      <TableCell><Switch checked={task.isEnabled} onCheckedChange={() => handleToggle(task)} /></TableCell>
                       <TableCell className="font-medium">{task.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{task.taskType}</Badge>
-                      </TableCell>
+                      <TableCell><Badge variant="outline">{task.taskType}</Badge></TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{renderTaskPayload(task)}</TableCell>
                       <TableCell className="font-mono">{task.cron}</TableCell>
-                      <TableCell>
-                        {task.nextRunAt
-                          ? new Date(task.nextRunAt).toLocaleString()
-                          : 'N/A'}
-                      </TableCell>
+                      <TableCell>{task.nextRunAt ? new Date(task.nextRunAt).toLocaleString() : 'N/A'}</TableCell>
                       <TableCell>
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <span className="sr-only">Open menu</span>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
+                          <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => runMutation.mutate(task.id)}>
-                              <Play className="mr-2 h-4 w-4" />
-                              立即运行
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setSelectedTask(task); setIsDialogOpen(true); }}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              编辑
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-red-600"
-                              onClick={() => deleteMutation.mutate(task.id)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              删除
-                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => runMutation.mutate(task.id)}><Play className="mr-2 h-4 w-4" />立即运行</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setSelectedTask(task); setIsDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />编辑</DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600" onClick={() => deleteMutation.mutate(task.id)}><Trash2 className="mr-2 h-4 w-4" />删除</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -227,4 +156,19 @@ export default function TasksSection() {
       />
     </>
   );
+}
+
+function renderTaskPayload(task: ScheduledTask) {
+  const payload = task.taskPayload as any;
+  if (!payload) return null;
+  switch (task.taskType) {
+    case 'EXEC_COMMAND':
+      return <><span className="font-bold">CMD:</span> {payload.command} <span className="font-bold ml-2">Hosts:</span> {payload.targetHostIds?.length || 0}</>;
+    case 'DISCOVER_CONTAINERS':
+      return <><span className="font-bold">Host:</span> {payload.hostId}</>;
+    case 'CHECK_HOST_HEALTH':
+      return <><span className="font-bold">Hosts:</span> {payload.targetHostIds?.length || 0}</>;
+    default:
+      return JSON.stringify(payload);
+  }
 }
