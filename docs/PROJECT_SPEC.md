@@ -23,9 +23,11 @@
   - 日志：Promtail → Loki（保留 7 天）
   - 可视化：Grafana（预置主机/容器面板）
   - 可选：cAdvisor 一键部署（默认关闭），提供容器级指标
-- 自动化与智能：
-  - n8n：接收告警事件（HTTP/Webhook），回调控制平面执行任务
-  - AI Agent：以工具函数方式访问主机/指标/日志与执行命令、发布/回滚
+- **自动化中心 (Automation Center)**:
+  - **核心理念**: 解耦“触发器 (Triggers)”、“动作 (Actions)”与“通知 (Notifications)”，实现 `M x N x P` 的灵活自动化流程编排。
+  - **触发器**: 定义“何时/何种条件下”执行动作。支持 CRON 定时、外部 Webhook 调用、内部系统事件（如 `container.down`）等。
+  - **动作**: 定义“做什么事”。采用可插拔的插件式架构，支持远程命令、容器发现、健康检查、调用 Webhook 等多种可扩展的任务类型。
+  - **通知**: 定义“完成后如何告知结果”。支持按条件（成功/失败/总是）通过多种渠道（邮件、Slack、Webhook）发送通知。
 - 网络：控制平面可直连各 VPS 的 SSH(22)；仅暴露 443；Agentless 为默认
 - 可选轻量 Agent（Go）：出站长连接至控制平面，提供高并发与弱网稳态（默认不启）
 
@@ -104,8 +106,6 @@
 
 ### 六、数据模型（核心）
 - `Host`：id、name、address、sshUser、port?、tags[]、sshOptions(Json?)、sshAuthMethod('password'|'privateKey')、sshPassword?、sshPrivateKey?、sshPrivateKeyPassphrase?、createdAt、updatedAt
-- `TaskRun`：id、status、command、targets[]、stdoutRef?、stderrRef?、startedAt?、finishedAt?、createdAt
-- `TaskLog`：id、taskId、ts、stream('stdout'|'stderr')、hostLabel?、content
 - `Container`：id、hostId、containerId、name、state?、status?、restartCount?、imageName?、imageTag?、repoDigest?、remoteDigest?、updateAvailable、updateCheckedAt?、createdAt、startedAt?、isComposeManaged、composeProject?、composeService?、composeWorkingDir?、composeGroupKey?、composeFolderName?、composeConfigFiles(Json?)、runCommand?、ports(Json?)、mounts(Json?)、networks(Json?)、labels(Json?)
 - `ComposeProject`（可选缓存）：id、project、workingDir、configFiles[]、effectiveConfigHash?、lastSyncedAt?
 - `AlertRule`/`AlertEvent`：阈值触发与事件负载（用于发送到 n8n）
@@ -114,22 +114,35 @@
 - `HostNpmConfig`：hostId(id)、enabled、dbType('sqlite'|'mysql')、connectionMode('container-local')、containerName?、sqlitePath（默认 `/data/database.sqlite`）、mysqlUseContainerEnv（从容器 `DB_MYSQL_*` 读取）、updatedAt
 - `FrpsConfig`：id、hostId、containerId、bindPort?、vhostHttpPort?、vhostHttpsPort?、subdomainHost?、rawConfig(Json?)、lastSyncedAt?
 - `FrpcProxy`：id、hostId、containerId、frpsConfigId、name、type('tcp'|'udp'|'http'|'https'|'stcp'|'xtcp')、localIp、localPort、remotePort、subdomain?、customDomains[]、rawConfig(Json?)、lastSyncedAt?
-- `ScheduledTask`：id、name、description?、taskType、taskPayload(Json?)、cron、isEnabled、createdAt、updatedAt、lastRunAt?、nextRunAt?
+- **`Action`**: id、name、description?、taskType、taskPayload(Json?)、createdAt、updatedAt
+- **`Trigger`**: id、actionId、type('CRON'|'WEBHOOK'|'EVENT')、config(Json)、isEnabled
+- **`Notification`**: id、actionId、channelType('EMAIL'|'SLACK'|'WEBHOOK')、config(Json)、notifyOn('SUCCESS'|'FAILURE'|'ALWAYS')
 
-### 七、任务与操作管理 (Task & Operation Management)
-为了实现强大的自动化能力，系统对“任务”和“操作”进行了明确的区分：
+### 七、自动化中心 (Automation Center)
+为了实现强大的自动化能力，系统对“动作”、“触发器”和“通知”进行了明确的区分，构建了一个灵活的自动化流程编排引擎。
 
-- **计划任务 (`ScheduledTask`)**: 代表一个**任务定义**。它是一个静态的配置实体，描述了“做什么”（`taskType`, `taskPayload`）和“何时做”（`cron`）。例如，“每天凌晨3点在所有主机上执行 `docker system prune -af`”。这些任务由用户通过 UI 进行 CRUD 管理。
+- **动作 (`Action`)**: 代表一个**可执行的任务单元**。它是一个静态的配置实体，描述了“做什么事”（`taskType`）以及执行该任务所需的参数（`taskPayload`）。例如，“一个用于在特定主机上执行 `docker system prune -af` 的动作”。所有动作都由用户通过 UI 进行 CRUD 管理。
 
-- **操作日志 (`OperationLog`)**: 代表一次**任务执行记录**。它是一个动态的、一次性的日志实体。每当一个 `ScheduledTask` 被调度器自动触发，或用户手动点击“立即运行”，系统都会创建一个 `OperationLog` 来跟踪这次执行的全过程，包括其状态（运行中、成功、失败）、触发方式、起止时间以及详细的输出日志（`OperationLogEntry`）。
+- **触发器 (`Trigger`)**: 代表一个**动作的启动条件**。每个动作可以关联多个触发器。支持的类型包括：
+  - **`CRON`**: 基于时间的触发器，使用 CRON 表达式定义。
+  - **`WEBHOOK`**: 提供一个唯一的 URL，可由外部系统（如 Grafana 告警、GitHub Actions）调用来触发关联的动作。
+  - **`EVENT`**: 订阅系统内部发布的事件（如 `container.down`），当事件发生时触发关联的动作。
 
-这种设计将任务的“定义”与“执行”解耦，使得任务管理和执行历史的追踪都变得清晰、可靠。
+- **通知 (`Notification`)**: 代表一个**动作完成后的反馈机制**。每个动作可以关联多个通知规则。用户可以配置通知的渠道（如 `EMAIL`, `SLACK`, `WEBHOOK`）和触发条件（`仅成功时`, `仅失败时`, `总是通知`）。
+
+- **操作日志 (`OperationLog`)**: 代表一次**动作的执行记录**。它是一个动态的、一次性的日志实体。每当一个 `Trigger` 触发了一个 `Action`，或用户手动执行一个 `Action` 时，系统都会创建一个 `OperationLog` 来跟踪这次执行的全过程，包括其状态、触发方式、起止时间以及详细的输出日志（`OperationLogEntry`）。
+
+这种设计将“做什么”、“何时做”以及“如何通知”彻底解耦，使得自动化流程的管理和扩展变得清晰、可靠且极其灵活。
 
 ### 八、API 概览（对前端、n8n、AI Agent）
 - Hosts：GET/POST/PATCH/DELETE `/api/v1/hosts`；POST `/api/v1/hosts/:id/test-connection`
-- 计划任务：GET/POST/PATCH/DELETE `/api/v1/scheduled-tasks`；POST `/api/v1/scheduled-tasks/:id/run`
-- 执行与操作：
-  - POST `/api/v1/tasks/exec`（用于临时的、一次性的命令执行）
+- **自动化中心**:
+  - Actions: GET/POST/PATCH/DELETE `/api/v1/actions`
+  - Triggers: GET/POST/PATCH/DELETE `/api/v1/actions/:actionId/triggers`
+  - Notifications: GET/POST/PATCH/DELETE `/api/v1/actions/:actionId/notifications`
+  - 手动执行: POST `/api/v1/actions/:id/run`
+  - Webhook 触发: POST `/api/v1/trigger/:triggerId`
+- **执行与操作日志**:
   - GET `/api/v1/operations`（获取所有操作历史记录）
   - GET `/api/v1/operations/:id`（获取单次操作的详情和日志）
   - 回显：Socket.IO 事件 `joinTask` 订阅 `task:{taskId}` 接收 `stdout|stderr|system|info|error|end`
@@ -138,104 +151,6 @@
 - 反向代理：GET `/api/v1/reverse-proxy/routes?hostId=`；证书：GET `/api/v1/certificates`
 - FRP：GET `/api/v1/frp/configs`；POST `/api/v1/frp/sync/:hostId`
 - 设置：GET/PUT `/api/v1/settings`；健康：GET `/api/v1/health`
-
-### 功能增强：全局多任务抽屉
-
-#### 1. 目标
-将现有的单任务操作抽屉（`OperationDrawer`）升级为一个全局、持久化的多任务管理中心。用户可以查看当前正在运行的任务、最近完成或失败的历史任务，并能在它们之间自由切换查看详情和日志。
-
-#### 2. 实现方案（全栈）
-
-##### 2.1. 数据库 (`apps/server/prisma/schema.prisma`)
-
-为了持久化任务记录，需要在数据模型中增加一个新的表 `OperationLog`。
-
-- **新增 `OperationLog` 模型**:
-  ```prisma
-  model OperationLog {
-    id              String        @id @default(cuid())
-    title           String
-    status          OpStatus      @default(RUNNING)
-    executionType   ExecType      @default(MANUAL)
-    startTime       DateTime      @default(now())
-    endTime         DateTime?
-    logs            String        @db.Text
-    createdAt       DateTime      @default(now())
-    updatedAt       DateTime      @updatedAt
-  }
-
-  enum OpStatus {
-    RUNNING
-    COMPLETED
-    ERROR
-  }
-
-  enum ExecType {
-    MANUAL
-    AUTOMATIC
-  }
-  ```
-- **执行迁移**: 运行 `npx prisma migrate dev --name add_operation_log` 创建新的数据库表。
-
-##### 2.2. 后端 (`apps/server`)
-
-需要创建新的模块、服务和控制器来管理 `OperationLog`，并改造现有的 WebSocket 网关以与新表交互。
-
-1.  **创建 `OperationLog` 模块**:
-    -   `operation-log.module.ts`
-    -   `operation-log.service.ts`
-    -   `operation-log.controller.ts`
-
-2.  **`OperationLogService`**:
-    -   `create(title, executionType)`: 创建一个新的 `OperationLog` 记录，状态为 `RUNNING`，并返回新记录的 `id`。
-    -   `appendToLog(id, logContent)`: 向指定 `id` 的记录的 `logs` 字段追加内容。
-    -   `updateStatus(id, status, errorLog?)`: 更新任务的最终状态（`COMPLETED` 或 `ERROR`）并记录 `endTime`。
-    -   `findAll()`: 获取所有 `OperationLog` 记录，按 `startTime` 降序排列（支持分页）。
-    -   `findOne(id)`: 获取单个 `OperationLog` 的详细信息。
-
-3.  **`OperationLogController`**:
-    -   `POST /api/v1/operations`: 接收任务标题和执行类型，调用 `service.create`，返回新任务的 `id`。
-    -   `GET /api/v1/operations`: 调用 `service.findAll`，返回历史任务列表。
-    -   `GET /api/v1/operations/:id`: 调用 `service.findOne`，返回单个任务详情。
-
-4.  **改造 WebSocket 网关 (`exec.gateway.ts`)**:
-    -   当一个新任务通过 `tasks.service` 启动时，不再仅仅返回一个临时的 `taskId`。
-    -   `tasks.service` 将首先调用 `operationLogService.create` 在数据库中创建记录。
-    -   返回给客户端的 `opId` 将是数据库记录的 `id`。
-    -   WebSocket 网关在收到 `data`, `stderr`, `end` 事件时，会调用 `operationLogService` 的相应方法 (`appendToLog`, `updateStatus`) 来实时更新数据库中的任务记录。
-
-##### 2.3. 前端 (`apps/web`)
-
-前端需要大幅修改状态管理和 UI 组件，以支持多任务视图。
-
-1.  **状态管理 (`lib/stores/operation-store.ts`)**:
-    -   **重命名**: 考虑将 `useOperationStore` 重命名为 `useTaskDrawerStore` 以反映其新职责。
-    -   **状态结构**:
-        -   `tasks: OperationLog[]`: 存储从后端获取的任务列表。
-        -   `currentTaskId: string | null`: 当前在抽屉中选中的任务 ID。
-        -   `isOpen`, `isMinimized`: 控制抽屉的显示状态。
-    -   **Actions**:
-        -   `startOperation(title, executionType)`:
-            1.  向后端 `POST /api/v1/operations` 发起请求，创建任务记录并获取 `taskId`。
-            2.  调用 `fetchTasks()` 刷新任务列表。
-            3.  将返回的 `taskId` 设置为 `currentTaskId`。
-            4.  打开抽屉 (`set({ isOpen: true })`)。
-        -   `fetchTasks()`: 调用 `GET /api/v1/operations` 获取最新任务列表并更新 `tasks` 状态。
-        -   `selectTask(taskId)`: 将 `currentTaskId` 设置为传入的 `taskId`。
-        -   `receiveLogUpdate(taskId, logChunk)`: 通过 WebSocket 接收实时日志，找到对应的任务并更新其 `logs` 字段。
-
-2.  **UI 组件 (`components/OperationDrawer.tsx`)**:
-    -   **双栏布局**: 抽屉内部将分为左右两栏。
-    -   **左栏 (任务列表)**:
-        -   一个可滚动的列表，展示 `store.tasks` 中的所有任务。
-        -   每项显示任务标题、状态图标 (运行/完成/失败) 和开始时间。
-        -   当前选中的任务 (`currentTaskId`) 会有高亮背景。
-        -   点击列表项会调用 `store.selectTask(taskId)`。
-    -   **右栏 (任务详情)**:
-        -   显示当前选中任务 (`currentTaskId`) 的详细信息。
-        -   顶部是之前实现的 `Alert` 组件，展示标题、状态、时间、耗时等元数据。
-        -   下方是日志内容的 `pre` 滚动区域。
-        -   如果选中的是正在运行的任务，WebSocket 连接会建立，并实时追加日志。如果选中的是历史任务，则只显示数据库中存储的静态日志。
 
 ### 九、部署与运行
 - 形态：单机 Docker Compose（默认）
@@ -366,5 +281,3 @@
   - 私有镜像仓库凭证（GHCR/Harbor）
   - Tracing（Tempo）与更细的拓扑映射
 - 明确不做：审计/审批/RBAC/SSO/工单
-
-

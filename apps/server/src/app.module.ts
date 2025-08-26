@@ -11,7 +11,7 @@ import { LogsModule } from './logs/logs.module';
 import { FrpModule } from './frp/frp.module';
 import { TopologyModule } from './topology/topology.module';
 import { OperationLogModule } from './operation-log/operation-log.module';
-import { ScheduledTasksModule } from './scheduled-tasks/scheduled-tasks.module';
+import { ActionsModule } from './actions/actions.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -28,7 +28,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     FrpModule,
     TopologyModule,
     OperationLogModule,
-    ScheduledTasksModule,
+    ActionsModule,
   ],
   controllers: [AppController],
   providers: [],

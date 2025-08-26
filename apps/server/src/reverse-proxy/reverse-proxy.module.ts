@@ -5,6 +5,7 @@ import { ReverseProxyService } from './reverse-proxy.service';
 import { ContainersModule } from '../containers/containers.module';
 import { SecurityModule } from '../security/security.module';
 import { SettingsModule } from '../settings/settings.module';
+import { OperationLogModule } from '../operation-log/operation-log.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { SettingsModule } from '../settings/settings.module';
     forwardRef(() => ContainersModule),
     SecurityModule,
     SettingsModule,
+    OperationLogModule,
   ],
   controllers: [ReverseProxyController],
   providers: [ReverseProxyService],

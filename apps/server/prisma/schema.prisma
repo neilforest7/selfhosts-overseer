@@ -41,25 +41,24 @@ model Host {
   operationLogEntries     OperationLogEntry[]
 }
 
-// 统一的系统日志表（用于替代内存缓冲区）
+// Unified system log table
 model SystemLog {
   id        String   @id @default(cuid())
   ts        DateTime @default(now())
-  category  String   // 'container' | 'application' | 'system' | 'security'
-  level     String   // 'info' | 'warn' | 'error' | 'debug'
-  stream    String   // 'stdout' | 'stderr' | 'system'
-  source    String?  // 'server' | 'containers' | 'console' | hostId
-  hostId    String?  // 关联主机（可选）
-  hostLabel String?  // 主机显示名（可选）
-  content   String   // 日志内容
-  metadata  Json?    // 扩展字段 {containerId, operation, exitCode, etc}
+  category  String
+  level     String
+  stream    String
+  source    String?
+  hostId    String?
+  hostLabel String?
+  content   String
+  metadata  Json?
   @@index([category, ts])
   @@index([hostId, ts])
   @@index([source, ts])
-  @@index([ts]) // 全局时间索引
+  @@index([ts])
 }
 
-// Containers and related
 model Container {
   id                  String    @id @default(cuid())
   hostId              String
@@ -80,7 +79,6 @@ model Container {
   composeProject      String?
   composeService      String?
   composeWorkingDir   String?
-  // Derived grouping helpers
   composeGroupKey     String?
   composeFolderName   String?
   composeConfigFiles  Json?
@@ -98,8 +96,8 @@ model Container {
 model ReverseProxyRoute {
   id                    String    @id @default(cuid())
   hostId                String
-  provider              String // "npm"
-  type                  String // http/stream/redirect
+  provider              String
+  type                  String
   domain                String
   forwardHost           String?
   forwardPort           Int?
@@ -133,7 +131,7 @@ model Certificate {
 model HostNpmConfig {
   hostId               String   @id
   enabled              Boolean  @default(false)
-  dbType               String   @default("sqlite") // sqlite | mysql
+  dbType               String   @default("sqlite")
   connectionMode       String   @default("container-local")
   containerName        String?
   sqlitePath           String?  @default("/data/database.sqlite")
@@ -141,7 +139,6 @@ model HostNpmConfig {
   updatedAt            DateTime @updatedAt
 }
 
-// Optional: docker-compose projects indexed separately
 model ComposeProject {
   id                  String   @id @default(cuid())
   project             String
@@ -181,65 +178,87 @@ model FrpcProxy {
   frps          FrpsConfig @relation(fields: [frpsConfigId], references: [id], onDelete: Cascade)
 }
 
-// Main table for any user or system-initiated operation
 model OperationLog {
   id             String              @id @default(cuid())
-  title          String // User-friendly title, e.g., "Discover Containers on Finonas"
-  status         OperationStatus     @default(PENDING) // More detailed status
-  // What triggered this operation?
+  title          String
+  status         OperationStatus     @default(PENDING)
   triggerType    TriggerType         @default(USER)
-  triggerContext Json? // Context about the trigger, e.g., { "userId": "...", "ip": "..." } or { "schedule": "daily-cleanup" }
-  // What is this operation about?
-  context        Json? // Context about the operation itself, e.g., { "command": "ls -la", "targets": ["hostId1"] } or { "containerId": "...", "action": "restart" }
+  triggerContext Json?
+  context        Json?
   startTime      DateTime            @default(now())
   endTime        DateTime?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
-  // Relation to its detailed log entries
   entries        OperationLogEntry[]
 }
 
-// A single log line/entry related to an OperationLog
 model OperationLogEntry {
   id             String       @id @default(cuid())
   timestamp      DateTime     @default(now())
-  stream         String // 'stdout', 'stderr', 'system', 'info', 'error'
+  stream         String
   content        String       @db.Text
-  // Relation to the parent OperationLog
   operationLog   OperationLog @relation(fields: [operationLogId], references: [id], onDelete: Cascade)
   operationLogId String
-  // Optional relation to a specific host
   host           Host?        @relation(fields: [hostId], references: [id], onDelete: SetNull)
   hostId         String?
 }
 
 enum OperationStatus {
-  PENDING // Created, but not yet picked up by a worker
-  RUNNING // Actively being executed
-  COMPLETED // Finished successfully
-  ERROR // Finished with errors
-  CANCELLED // Cancelled by a user or system
+  PENDING
+  RUNNING
+  COMPLETED
+  ERROR
+  CANCELLED
 }
 
 enum TriggerType {
-  USER // Initiated by a human user via the UI/API
-  SCHEDULE // Initiated by a scheduled job (cron)
-  WEBHOOK // Initiated by an external webhook
-  SYSTEM // Initiated by an internal system event (e.g., post-discovery tasks)
+  USER
+  SCHEDULE
+  WEBHOOK
+  SYSTEM
+  EVENT
 }
 
-// Definition of a scheduled task
-model ScheduledTask {
-  id          String    @id @default(cuid())
-  name        String    @unique // User-friendly name, e.g., "Daily Container Update Check"
-  description String?
-  taskType    String // Task type identifier, e.g., "EXEC_COMMAND", "CHECK_CONTAINER_UPDATES"
-  taskPayload Json? // Parameters for the task, e.g., { "command": "docker system prune -af", "targets": ["hostId1"] }
-  cron        String // CRON expression for scheduling, e.g., "0 3 * * *"
-  isEnabled   Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  lastRunAt   DateTime?
-  nextRunAt   DateTime?
+// --- Automation Center Models ---
+
+model Action {
+  id            String         @id @default(cuid())
+  name          String         @unique
+  description   String?
+  taskType      String
+  taskPayload   Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  triggers      Trigger[]
+  notifications Notification[]
 }
 
+model Trigger {
+  id        String      @id @default(cuid())
+  actionId  String
+  type      TriggerType
+  config    Json
+  isEnabled Boolean     @default(true)
+  action    Action      @relation(fields: [actionId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id          String            @id @default(cuid())
+  actionId    String
+  channelType NotificationChannel
+  config      Json
+  notifyOn    NotifyCondition   @default(ALWAYS)
+  action      Action            @relation(fields: [actionId], references: [id], onDelete: Cascade)
+}
+
+enum NotificationChannel {
+  EMAIL
+  SLACK
+  WEBHOOK
+}
+
+enum NotifyCondition {
+  SUCCESS
+  FAILURE
+  ALWAYS
+}

@@ -60,6 +60,34 @@ export class HostsService {
     return { items, nextCursor: records.length ? records[records.length - 1].id : null };
   }
 
+  async findOne(id: string, includeCredentials = false): Promise<HostItem> {
+    const host = await this.prisma.host.findUnique({ where: { id } });
+    if (!host) {
+      throw new Error(`Host with ID ${id} not found`);
+    }
+    
+    const decryptedPassword = this.crypto.decryptString(host.sshPassword);
+    const decryptedKey = this.crypto.decryptString(host.sshPrivateKey);
+    const decryptedPassphrase = this.crypto.decryptString(host.sshPrivateKeyPassphrase);
+
+    return {
+      id: host.id,
+      name: host.name,
+      address: host.address,
+      sshUser: host.sshUser,
+      port: host.port ?? undefined,
+      tags: host.tags,
+      role: host.role as 'local' | 'remote',
+      sshOptions: host.sshOptions as any,
+      sshAuthMethod: host.sshAuthMethod as any,
+      sshPassword: includeCredentials ? (decryptedPassword ? decryptedPassword.toString() : undefined) : null,
+      sshPrivateKey: includeCredentials ? (decryptedKey ? decryptedKey.toString() : undefined) : null,
+      sshPrivateKeyPassphrase: includeCredentials ? (decryptedPassphrase ? decryptedPassphrase.toString() : undefined) : null,
+      hasPassword: !!host.sshPassword,
+      hasPrivateKey: !!host.sshPrivateKey,
+    };
+  }
+
   async add(host: HostItem): Promise<HostItem> {
     this.logger.log(`创建新主机: ${host.name} (${host.address}:${host.port ?? 22})`);
     // 检查是否已存在相同地址和用户的主机

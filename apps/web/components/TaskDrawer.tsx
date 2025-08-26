@@ -7,10 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import io, { type Socket } from 'socket.io-client';
-import { Minimize2, ChevronsUp, Terminal, CheckCircle, XCircle, List } from 'lucide-react';
+import { Minimize2, ChevronsUp, Terminal, CheckCircle, XCircle, List, ClipboardCopy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { OperationLogEntry } from '@/lib/types';
+import { toast } from 'sonner';
 
 const statusMap = {
   PENDING: { text: '等待中', className: 'bg-gray-500', icon: Terminal },
@@ -44,17 +45,10 @@ export function TaskDrawer() {
     actions.fetchTasks();
   }, [actions]);
 
-  // This effect handles polling for status updates when the drawer is open.
   useEffect(() => {
     if (!isOpen) return;
-
-    const intervalId = setInterval(() => {
-      actions.fetchTasks();
-    }, 3000); // Refresh every 3 seconds
-
-    return () => {
-      clearInterval(intervalId);
-    };
+    const intervalId = setInterval(() => actions.fetchTasks(), 3000);
+    return () => clearInterval(intervalId);
   }, [isOpen, actions]);
 
   useEffect(() => {
@@ -77,7 +71,6 @@ export function TaskDrawer() {
       });
       
       const streamHandler = (entry: OperationLogEntry) => {
-        // Get the latest state directly from the store to avoid stale closures
         const state = useTaskDrawerStore.getState();
         if (entry && state.currentTaskId) {
           state.actions.addLogEntry(state.currentTaskId, entry);
@@ -91,7 +84,6 @@ export function TaskDrawer() {
       s.on('error', streamHandler);
 
       s.on('end', (data: { status: 'succeeded' | 'failed' }) => {
-        // Get the latest state directly from the store
         const state = useTaskDrawerStore.getState();
         if (state.currentTaskId) {
           state.actions.updateTaskStatus(state.currentTaskId, data.status === 'succeeded' ? 'COMPLETED' : 'ERROR', new Date().toISOString());
@@ -102,13 +94,19 @@ export function TaskDrawer() {
     if (currentTaskId) {
       socketRef.current.emit('joinTask', { taskId: currentTaskId });
     }
-
-    // No cleanup function needed here as we want the socket to persist while the drawer is open
   }, [isOpen, currentTaskId, actions]);
 
-  if (!isOpen) {
-    return null;
-  }
+  const handleCopyLogs = () => {
+    if (!currentTask || !currentTask.entries) return;
+    const logText = currentTask.entries
+      .map(entry => `[${new Date(entry.timestamp).toLocaleTimeString()}] [${entry.stream}] ${entry.content}`)
+      .join('\n');
+    navigator.clipboard.writeText(logText)
+      .then(() => toast.success('日志已复制到剪贴板'))
+      .catch(() => toast.error('复制失败'));
+  };
+
+  if (!isOpen) return null;
 
   const currentStatus = currentTask ? statusMap[currentTask.status] : null;
   const Icon = currentStatus?.icon || Terminal;
@@ -126,9 +124,15 @@ export function TaskDrawer() {
         <DrawerContent className="max-h-[80vh]">
           <DrawerHeader className="flex justify-between items-start">
             <DrawerTitle>后台任务</DrawerTitle>
-            <Button variant="ghost" size="icon" onClick={actions.toggleMinimize}>
-              <Minimize2 className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleCopyLogs} disabled={!currentTask || !currentTask.entries?.length}>
+                <ClipboardCopy className="h-4 w-4 mr-2" />
+                复制日志
+              </Button>
+              <Button variant="ghost" size="icon" onClick={actions.toggleMinimize}>
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            </div>
           </DrawerHeader>
           <div className="px-4 pb-4 grid grid-cols-12 gap-4 flex-grow min-h-0">
             <div className="col-span-3">
@@ -166,9 +170,7 @@ export function TaskDrawer() {
                     <Icon className="h-4 w-4" />
                     <AlertTitle>{currentTask.title}</AlertTitle>
                     <AlertDescription className="space-x-4 mt-2">
-                      <Badge variant="secondary" className={cn('text-white', currentStatus.className)}>
-                        {currentStatus.text}
-                      </Badge>
+                      <Badge variant="secondary" className={cn('text-white', currentStatus.className)}>{currentStatus.text}</Badge>
                       <Badge variant="outline">{currentTask.triggerType}</Badge>
                       <span>{new Date(currentTask.startTime).toLocaleString()}</span>
                       <span>耗时: {formatDuration(currentTask.startTime, currentTask.endTime)}</span>
@@ -179,12 +181,7 @@ export function TaskDrawer() {
                       {currentTask.entries.map(entry => (
                         <div key={entry.id}>
                           <span className="text-gray-500 mr-2">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                          <span className={cn({
-                            'text-red-500': entry.stream === 'stderr' || entry.stream === 'error',
-                            'text-gray-400': entry.stream === 'system',
-                          })}>
-                            {entry.content}
-                          </span>
+                          <span className={cn({ 'text-red-500': entry.stream === 'stderr' || entry.stream === 'error', 'text-gray-400': entry.stream === 'system' })}>{entry.content}</span>
                         </div>
                       ))}
                     </pre>

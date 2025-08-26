@@ -1,10 +1,10 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { ScheduledTasksService } from './scheduled-tasks.service';
-import { ScheduledTasksController } from './scheduled-tasks.controller';
+import { ActionsService } from './actions.service';
+import { ActionsController } from './actions.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { OperationLogModule } from '../operation-log/operation-log.module';
-import { ScheduledTasksProcessor } from './scheduled-tasks.processor';
+import { ActionsProcessor } from './actions.processor';
 import { HostsModule } from '../hosts/hosts.module';
 import { ContainersModule } from '../containers/containers.module';
 
@@ -16,8 +16,8 @@ import { ContainersModule } from '../containers/containers.module';
     HostsModule,
     forwardRef(() => ContainersModule),
   ],
-  controllers: [ScheduledTasksController],
-  providers: [ScheduledTasksService, ScheduledTasksProcessor],
-  exports: [ScheduledTasksService],
+  controllers: [ActionsController],
+  providers: [ActionsService, ActionsProcessor],
+  exports: [ActionsService],
 })
-export class ScheduledTasksModule {}
+export class ActionsModule {}
