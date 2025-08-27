@@ -66,7 +66,6 @@ export class ContainersService {
   async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId: string): Promise<void> {
     let isFailed = false;
     const log = async (stream: 'system' | 'info' | 'error', content: string) => {
-      // No need to await, let it run in the background
       this.operationLogService.addLogEntry(opId, { stream, content, hostId: host.id });
     };
 
@@ -81,47 +80,49 @@ export class ContainersService {
       const decPassphrase = this.crypto.decryptString(h.sshPrivateKeyPassphrase)?.toString();
       const hostCred = { ...host, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase } as any;
 
-      const { code, stdout, stderr } = await this.docker.exec(hostCred, ['ps', '-a'], 60);
-      
+      // Step 1: Fetch all online container details from the host
+      const { code, stdout, stderr } = await this.docker.exec(hostCred, ['ps', '-a', '--format', '{{.ID}}'], 60);
       if (code !== 0) {
         throw new Error(`'docker ps -a' failed with exit code ${code}: ${stderr}`);
-      }
+      } 
       
-      await log('info', `'docker ps -a' completed successfully.`);
-      
-      const lines = stdout.split('\n').filter(Boolean);
-      const briefList: { id: string; name: string; image: string; status?: string; }[] = [];
-      for (const line of lines.slice(1)) {
-        const parts = line.trim().split(/\s{2,}/);
-        if (parts.length >= 6) {
-          briefList.push({ id: parts[0], name: parts[parts.length - 1], image: parts[1], status: parts[4] });
-        }
-      }
-
-      if (briefList.length === 0) {
-        await log('system', 'No containers found on the host.');
+      const onlineContainerIds = stdout.split('\n').filter(Boolean);
+      if (onlineContainerIds.length === 0) {
+        await log('system', 'No containers found on the host. Marking all existing DB entries as exited.');
+        await this.prisma.container.updateMany({ where: { hostId: host.id }, data: { state: 'exited', status: 'exited' } });
+        // Finalize and exit early
+        await this.operationLogService.updateStatus(opId, 'COMPLETED');
         return;
       }
 
-      await log('info', `Found ${briefList.length} containers. Inspecting details...`);
-      const details = await this.docker.inspectContainers(hostCred, briefList.map(b => b.id));
-      const detailMap = new Map(details.map(d => [d.Id.slice(0, 12), d]));
-      const seenIds = new Set<string>();
+      await log('info', `Found ${onlineContainerIds.length} online containers. Inspecting details...`);
+      const onlineContainersDetails = await this.docker.inspectContainers(hostCred, onlineContainerIds);
+      const onlineContainerIdsSet = new Set(onlineContainersDetails.map(d => d.Id));
 
-      for (const b of briefList) {
-        const det = detailMap.get(b.id);
-        if (!det) continue;
-
-        const { imageName, imageTag } = await this.docker.resolveImageNameTag(hostCred, det.Config.Image);
-        const repoDigest = await this.docker.getContainerImageDigest(hostCred, det.Id);
+      // Step 2: Upsert all online containers to ensure their latest state is in the DB.
+      const upsertOperations = [];
+      for (const det of onlineContainersDetails) {
+        const containerName = det.Name.startsWith('/') ? det.Name.substring(1) : det.Name;
         const labels = det.Config.Labels || {};
         const composeProject = labels['com.docker.compose.project'] || null;
         const composeService = labels['com.docker.compose.service'] || null;
+        const isCompose = !!(composeProject && composeService);
+        const composeWorkingDir = labels['com.docker.compose.project.working_dir'] || null;
+        const composeFolderName = (() => {
+          if (!composeWorkingDir) return composeProject;
+          const parts = composeWorkingDir.split(/[\/]+/).filter(Boolean);
+          return parts.length ? parts[parts.length - 1] : composeProject;
+        })();
+        const composeConfigFilesRaw = labels['com.docker.compose.project.config_files'];
+        const composeConfigFiles = composeConfigFilesRaw ? String(composeConfigFilesRaw).split(',') : null;
+
+        const { imageName, imageTag } = await this.docker.resolveImageNameTag(hostCred, det.Config.Image);
+        const repoDigest = await this.docker.getContainerImageDigest(hostCred, det.Id);
 
         const commonData = {
-          name: b.name,
+          name: containerName,
           state: det.State.Status,
-          status: b.status,
+          status: det.State.Status,
           imageName,
           imageTag,
           repoDigest,
@@ -130,48 +131,81 @@ export class ContainersService {
           mounts: det.Mounts,
           networks: det.NetworkSettings.Networks,
           labels,
-          isComposeManaged: !!composeProject,
+          isComposeManaged: isCompose,
           composeProject,
           composeService,
-          composeWorkingDir: labels['com.docker.compose.project.working_dir'] || null,
+          composeWorkingDir,
+          composeFolderName,
+          composeConfigFiles,
           composeGroupKey: composeProject ? `${host.id}::compose::${composeProject}` : null,
-          runCommand: !composeProject ? await this.generateRunCommand(det, b.name) : undefined
+          runCommand: !isCompose ? await this.generateRunCommand(det, containerName) : undefined,
         };
 
-        await this.prisma.container.upsert({
+        upsertOperations.push(this.prisma.container.upsert({
           where: { hostId_containerId: { hostId: host.id, containerId: det.Id } },
-          update: commonData as any,
-          create: { hostId: host.id, containerId: det.Id, ...commonData } as any,
-        });
-        seenIds.add(det.Id);
+          update: commonData,
+          create: { hostId: host.id, containerId: det.Id, ...commonData },
+        }));
+      }
+      await this.prisma.$transaction(upsertOperations);
+      await log('info', `Synchronized ${onlineContainersDetails.length} online container records.`);
+
+      // Step 3: Clean up stale duplicates from the database
+      const allHostContainersInDb = await this.prisma.container.findMany({ where: { hostId: host.id } });
+      const logicalKeyToContainers = new Map<string, any[]>();
+
+      for (const c of allHostContainersInDb) {
+        const logicalKey = c.isComposeManaged
+          ? `compose_${c.composeProject}_${c.composeService}`
+          : `cli_${c.name}`;
+        
+        if (!logicalKeyToContainers.has(logicalKey)) {
+          logicalKeyToContainers.set(logicalKey, []);
+        }
+        logicalKeyToContainers.get(logicalKey).push(c);
       }
 
-      await log('info', `Successfully upserted ${seenIds.size} container records.`);
+      const idsToDelete = [];
+      for (const containers of logicalKeyToContainers.values()) {
+        if (containers.length > 1) {
+          const onlineContainer = containers.find(c => onlineContainerIdsSet.has(c.containerId));
+          if (onlineContainer) {
+            // If one version is online, all other versions for this logical key are stale.
+            const staleContainers = containers.filter(c => c.id !== onlineContainer.id);
+            idsToDelete.push(...staleContainers.map(c => c.id));
+          }
+        }
+      }
+
+      if (idsToDelete.length > 0) {
+        await this.prisma.container.deleteMany({ where: { id: { in: idsToDelete } } });
+        await log('info', `Deleted ${idsToDelete.length} stale duplicate container records.`);
+      }
+
+      // Step 4: Mark containers that are no longer online as 'exited'
+      const finalDbContainerIds = new Set((await this.prisma.container.findMany({ where: { hostId: host.id }, select: { containerId: true } })).map(c => c.containerId));
+      const containersToMarkExited = [...finalDbContainerIds].filter(id => !onlineContainerIdsSet.has(id));
       
-      const missing = await this.prisma.container.updateMany({
-        where: { hostId: host.id, containerId: { notIn: Array.from(seenIds) } },
-        data: { state: 'exited', status: 'exited' },
-      });
-
-      if (missing.count > 0) {
-        await log('info', `Marked ${missing.count} previously seen containers as exited.`);
+      if (containersToMarkExited.length > 0) {
+        await this.prisma.container.updateMany({
+          where: { hostId: host.id, containerId: { in: containersToMarkExited } },
+          data: { state: 'exited', status: 'exited' },
+        });
+        await log('info', `Marked ${containersToMarkExited.length} missing containers as exited.`);
       }
 
+      // Step 5: Run subsequent sync tasks
       await this.frpService.syncFrpFromHost(host.id, opId);
       await this.reverseProxyService.syncRoutesFromHost(host.id, opId);
 
-      await log('system', 'Container discovery finished.');
+      await log('system', 'Container discovery finished successfully.');
 
     } catch (err) {
       isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
       await log('error', `Discovery failed: ${errorMessage}`);
     } finally {
-      if (!isFailed) {
-        await this.operationLogService.updateStatus(opId, 'COMPLETED');
-      } else {
-        await this.operationLogService.updateStatus(opId, 'ERROR');
-      }
+      await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
     }
   }
 
