@@ -58,7 +58,11 @@ export class ReverseProxyService {
         where: { hostId, name: { contains: 'npm-app' } },
       });
 
-      if (!npmContainer) throw new Error(`No NPM container found on host ${host.name}`);
+      if (!npmContainer) {
+        await log('info', `No NPM container found on host ${host.name}, skipping sync.`);
+        // This is not an error, so we don't throw. The action can complete successfully.
+        return;
+      }
       
       await log('info', `Found NPM container: ${npmContainer.name} (${npmContainer.containerId})`);
 
