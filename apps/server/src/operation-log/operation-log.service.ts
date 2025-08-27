@@ -1,13 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OperationStatus, TriggerType } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { ExecGateway } from '../realtime/exec.gateway';
 
 @Injectable()
 export class OperationLogService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => ExecGateway))
+    private readonly execGateway: ExecGateway,
+  ) {}
 
-  async create(data: {
+  create(data: {
     title: string;
     triggerType?: TriggerType;
     triggerContext?: Prisma.JsonValue;
@@ -18,8 +23,28 @@ export class OperationLogService {
       data: {
         ...data,
         status: 'PENDING',
+        triggerContext: data.triggerContext ?? Prisma.DbNull,
+        context: data.context ?? Prisma.DbNull,
       },
     });
+  }
+
+  async log(
+    operationLogId: string,
+    stream: 'stdout' | 'stderr' | 'system' | 'info' | 'error',
+    content: string,
+    hostId?: string,
+  ) {
+    const entry = await this.prisma.operationLogEntry.create({
+      data: {
+        operationLogId,
+        stream,
+        content,
+        hostId,
+      },
+    });
+    this.execGateway.broadcast(operationLogId, stream, entry);
+    return entry;
   }
 
   async addLogEntry(
@@ -30,15 +55,17 @@ export class OperationLogService {
       hostId?: string;
     },
   ) {
-    return this.prisma.operationLogEntry.create({
+    const entry = await this.prisma.operationLogEntry.create({
       data: {
         operationLogId,
         ...data,
       },
     });
+    this.execGateway.broadcast(operationLogId, data.stream, entry);
+    return entry;
   }
 
-  async addLogEntries(
+  addLogEntries(
     operationLogId: string,
     entries: {
       stream: string;
@@ -59,13 +86,19 @@ export class OperationLogService {
     if (status === 'COMPLETED' || status === 'ERROR' || status === 'CANCELLED') {
       data.endTime = new Date();
     }
-    return this.prisma.operationLog.update({
+    const result = await this.prisma.operationLog.update({
       where: { id },
       data,
     });
+    if (status === 'COMPLETED') {
+        this.execGateway.broadcast(id, 'end', { status: 'succeeded' });
+    } else if (status === 'ERROR' || status === 'CANCELLED') {
+        this.execGateway.broadcast(id, 'end', { status: 'failed' });
+    }
+    return result;
   }
 
-  async findAll() {
+  findAll() {
     return this.prisma.operationLog.findMany({
       orderBy: {
         startTime: 'desc',
@@ -74,7 +107,7 @@ export class OperationLogService {
     });
   }
 
-  async findOneWithEntries(id: string) {
+  findOneWithEntries(id: string) {
     return this.prisma.operationLog.findUnique({
       where: { id },
       include: {

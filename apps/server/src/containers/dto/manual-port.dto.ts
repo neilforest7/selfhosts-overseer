@@ -3,9 +3,9 @@ import { IsNotEmpty, IsNumberString } from 'class-validator';
 export class UpdateManualPortDto {
   @IsNumberString()
   @IsNotEmpty()
-  exposedPort: string;
+  exposedPort = '';
 
   @IsNumberString()
   @IsNotEmpty()
-  internalPort: string;
+  internalPort = '';
 }

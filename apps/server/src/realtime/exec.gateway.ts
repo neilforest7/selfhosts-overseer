@@ -1,13 +1,17 @@
 import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { OperationLogService } from '../operation-log/operation-log.service';
+import { forwardRef, Inject } from '@nestjs/common';
 
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
 export class ExecGateway {
   @WebSocketServer()
   server!: Server;
 
-  constructor(private readonly operationLogService: OperationLogService) {}
+  constructor(
+    @Inject(forwardRef(() => OperationLogService))
+    private readonly operationLogService: OperationLogService,
+  ) {}
 
   broadcast(taskId: string, stream: string, payload: unknown): void {
     this.server.to(`task:${taskId}`).emit(stream, payload);

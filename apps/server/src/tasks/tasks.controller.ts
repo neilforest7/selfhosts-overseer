@@ -3,9 +3,9 @@ import { TasksService } from './tasks.service';
 import { OperationLog } from '@prisma/client';
 
 class ExecDto {
-  opId: string;
-  command: string;
-  targets: string[];
+  opId = '';
+  command = '';
+  targets: string[] = [];
 }
 
 @Controller('/api/v1/tasks')
@@ -13,7 +13,7 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post('exec')
-  async exec(@Body() body: ExecDto): Promise<OperationLog> {
+  async exec(@Body() body: ExecDto): Promise<OperationLog | null> {
     return this.tasksService.exec(body);
   }
 }

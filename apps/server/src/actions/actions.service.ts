@@ -92,8 +92,9 @@ export class ActionsService {
           throw new Error(`Unknown action type: ${action.taskType}`);
       }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       console.error(`[ActionRunner] Error executing action ${action.id} (Op: ${opId}):`, err);
-      await this.operationLogService.addLogEntry(opId, { stream: 'error', content: err.message });
+      await this.operationLogService.log(opId, 'error', errorMessage);
       await this.operationLogService.updateStatus(opId, 'ERROR');
     }
   }

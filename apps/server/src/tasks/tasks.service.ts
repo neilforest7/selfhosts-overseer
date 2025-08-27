@@ -29,19 +29,17 @@ export class TasksService {
     private readonly containersService: ContainersService,
   ) {}
 
-  async exec(req: ExecRequest): Promise<OperationLog> {
+  async exec(req: ExecRequest): Promise<OperationLog | null> {
     const { opId, command, targets } = req;
     console.log(`🎯 Starting task for opId: ${opId}, command: ${command}`);
 
     await this.operationLogService.updateStatus(opId, 'RUNNING');
 
     // Fire-and-forget execution
-    void this.runTask(opId, command, targets).catch(async (err) => {
-      console.error(`Task ${opId} failed unexpectedly:`, err);
-      await this.operationLogService.addLogEntry(opId, {
-        stream: 'error',
-        content: `An unexpected error occurred: ${err.message}`,
-      });
+    void this.runTask(opId, command, targets).catch(async err => {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`Task ${opId} failed unexpectedly:`, errorMessage);
+      await this.operationLogService.log(opId, 'error', `An unexpected error occurred: ${errorMessage}`);
       await this.operationLogService.updateStatus(opId, 'ERROR');
     });
 
@@ -52,63 +50,62 @@ export class TasksService {
     await this.operationLogService.updateStatus(opId, 'RUNNING');
     const settings = await this.settingsService.get();
     const { items: allHosts } = await this.hostsService.list(undefined, 1000);
-    const targetHosts = targets.map((tid) => allHosts.find((h) => h.id === tid)).filter(Boolean) as any[];
+    const targetHosts = targets.map(tid => allHosts.find(h => h.id === tid)).filter(Boolean) as any[];
 
     let anyFailed = false;
-    const logsBuffer: { stream: string; content: string; hostId?: string; timestamp: Date }[] = [];
 
-    const addEntry = (stream: string, content: string, hostId?: string) => {
-      const entryData = { stream, content, hostId, timestamp: new Date() };
-      logsBuffer.push(entryData);
-      // For real-time UI, we add a temporary client-side ID
-      this.gateway.broadcast(opId, stream, { ...entryData, id: `temp_${Date.now()}_${Math.random()}` });
+    const log = (stream: 'system' | 'info' | 'error' | 'stdout' | 'stderr', content: string, hostId?: string) => {
+      this.operationLogService.log(opId, stream, content, hostId);
     };
 
-    addEntry('system', `>>> Task started: command "${command}" on ${targetHosts.length} targets.`);
+    log('system', `>>> Task started: command "${command}" on ${targetHosts.length} targets.`);
 
     const runOne = async (target: any) => {
       if (command === 'internal:discover_containers') {
         try {
-          await this.containersService.discoverOnHost(target, opId, (log) => {
-            addEntry('info', log, target.id);
-          });
+          // discoverOnHost now handles its own logging internally
+          await this.containersService.discoverOnHost(target, opId);
         } catch (err) {
           anyFailed = true;
-          addEntry('error', `[${target.name}] Discovery failed: ${err.message}`, target.id);
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log('error', `[${target.name}] Discovery failed: ${errorMessage}`, target.id);
         }
         return;
       }
 
       const prefix = `[${target.name}@${target.address}] `;
-      addEntry('system', `${prefix}>>> Starting execution...`, target.id);
+      log('system', `${prefix}>>> Starting execution...`, target.id);
 
       const hostDetail = await this.prisma.host.findUnique({ where: { id: target.id } });
       if (!hostDetail) {
         anyFailed = true;
-        addEntry('error', `${prefix}Host details not found.`, target.id);
+        log('error', `${prefix}Host details not found.`, target.id);
         return;
       }
-      
-      const decPassword = this.crypto.decryptString(hostDetail.sshPassword);
-      const decKey = this.crypto.decryptString(hostDetail.sshPrivateKey);
-      const decPassphrase = this.crypto.decryptString(hostDetail.sshPrivateKeyPassphrase);
 
-      const code = await this.sshService.execute({
-        host: target.address,
-        user: target.sshUser,
-        port: target.port,
-        password: decPassword,
-        privateKey: decKey,
-        privateKeyPassphrase: decPassphrase,
-        command: command,
-        connectTimeoutSeconds: 30,
-        killAfterSeconds: 100,
-        onStdout: (chunk) => addEntry('stdout', `${prefix}${chunk.toString()}`, target.id),
-        onStderr: (chunk) => addEntry('stderr', `${prefix}${chunk.toString()}`, target.id),
-      });
+      const decPassword = this.crypto.decryptString(hostDetail.sshPassword)?.toString();
+      const decKey = this.crypto.decryptString(hostDetail.sshPrivateKey)?.toString();
+      const decPassphrase = this.crypto.decryptString(hostDetail.sshPrivateKeyPassphrase)?.toString();
+
+      // The new execWithStreaming will log stdout/stderr in real-time
+      const { code } = await this.sshService.execWithStreaming(
+        {
+          host: target.address,
+          user: target.sshUser,
+          port: target.port ?? undefined,
+          password: decPassword,
+          privateKey: decKey,
+          privateKeyPassphrase: decPassphrase,
+          command: command,
+          connectTimeoutSeconds: 30,
+          killAfterSeconds: 100,
+        },
+        opId,
+        target.id,
+      );
 
       if (code !== 0) anyFailed = true;
-      addEntry('system', `${prefix}<<< Finished with exit code ${code}.`, target.id);
+      log('system', `${prefix}<<< Finished with exit code ${code}.`, target.id);
     };
 
     const concurrency = settings.sshConcurrency;
@@ -127,13 +124,8 @@ export class TasksService {
     }
     await Promise.all(workers);
 
-    addEntry('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
-    
-    if (logsBuffer.length > 0) {
-      await this.operationLogService.addLogEntries(opId, logsBuffer);
-    }
+    log('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
 
     await this.operationLogService.updateStatus(opId, anyFailed ? 'ERROR' : 'COMPLETED');
-    this.gateway.broadcast(opId, 'end', { status: anyFailed ? 'failed' : 'succeeded' });
   }
 }

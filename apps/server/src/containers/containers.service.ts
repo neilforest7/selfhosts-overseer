@@ -10,6 +10,7 @@ import { ExecGateway } from '../realtime/exec.gateway';
 import { LogsService } from '../logs/logs.service';
 import { UpdateManualPortDto } from './dto/manual-port.dto';
 import { TasksService } from '../tasks/tasks.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ContainersService {
@@ -59,19 +60,20 @@ export class ContainersService {
   async deleteManualPortMapping(containerId: string) {
     return this.prisma.container.update({
       where: { id: containerId },
-      data: { manualPortMapping: null },
+      data: { manualPortMapping: Prisma.DbNull },
     });
   }
 
   async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }, opId: string): Promise<void> {
     let isFailed = false;
     const log = async (stream: 'system' | 'info' | 'error', content: string) => {
-      this.operationLogService.addLogEntry(opId, { stream, content, hostId: host.id });
+      // Use the new log method that broadcasts
+      this.operationLogService.log(opId, stream, content, host.id);
     };
 
     try {
       await log('system', `Starting container discovery on host ${host.address}`);
-      
+
       const h = await this.prisma.host.findUnique({ where: { id: host.id } });
       if (!h) throw new Error('Host not found in database.');
 
@@ -80,12 +82,17 @@ export class ContainersService {
       const decPassphrase = this.crypto.decryptString(h.sshPrivateKeyPassphrase)?.toString();
       const hostCred = { ...host, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase } as any;
 
-      // Step 1: Fetch all online container details from the host
-      const { code, stdout, stderr } = await this.docker.exec(hostCred, ['ps', '-a', '--format', '{{.ID}}'], 60);
+      // Step 1: Fetch all online container details from the host using streaming
+      const { code, stdout, stderr } = await this.docker.execStreaming(
+        hostCred,
+        ['ps', '-a', '--format', '{{.ID}}'],
+        opId,
+        60,
+      );
       if (code !== 0) {
         throw new Error(`'docker ps -a' failed with exit code ${code}: ${stderr}`);
-      } 
-      
+      }
+
       const onlineContainerIds = stdout.split('\n').filter(Boolean);
       if (onlineContainerIds.length === 0) {
         await log('system', 'No containers found on the host. Marking all existing DB entries as exited.');
@@ -127,25 +134,27 @@ export class ContainersService {
           imageTag,
           repoDigest,
           startedAt: new Date(det.State.StartedAt),
-          ports: det.NetworkSettings.Ports,
-          mounts: det.Mounts,
-          networks: det.NetworkSettings.Networks,
-          labels,
+          ports: det.NetworkSettings.Ports as any,
+          mounts: det.Mounts as any,
+          networks: det.NetworkSettings.Networks as any,
+          labels: labels as any,
           isComposeManaged: isCompose,
           composeProject,
           composeService,
           composeWorkingDir,
           composeFolderName,
-          composeConfigFiles,
+          composeConfigFiles: composeConfigFiles as any,
           composeGroupKey: composeProject ? `${host.id}::compose::${composeProject}` : null,
           runCommand: !isCompose ? await this.generateRunCommand(det, containerName) : undefined,
         };
 
-        upsertOperations.push(this.prisma.container.upsert({
-          where: { hostId_containerId: { hostId: host.id, containerId: det.Id } },
-          update: commonData,
-          create: { hostId: host.id, containerId: det.Id, ...commonData },
-        }));
+        upsertOperations.push(
+          this.prisma.container.upsert({
+            where: { hostId_containerId: { hostId: host.id, containerId: det.Id } },
+            update: commonData,
+            create: { hostId: host.id, containerId: det.Id, ...commonData },
+          }),
+        );
       }
       await this.prisma.$transaction(upsertOperations);
       await log('info', `Synchronized ${onlineContainersDetails.length} online container records.`);
@@ -155,14 +164,12 @@ export class ContainersService {
       const logicalKeyToContainers = new Map<string, any[]>();
 
       for (const c of allHostContainersInDb) {
-        const logicalKey = c.isComposeManaged
-          ? `compose_${c.composeProject}_${c.composeService}`
-          : `cli_${c.name}`;
-        
+        const logicalKey = c.isComposeManaged ? `compose_${c.composeProject}_${c.composeService}` : `cli_${c.name}`;
+
         if (!logicalKeyToContainers.has(logicalKey)) {
           logicalKeyToContainers.set(logicalKey, []);
         }
-        logicalKeyToContainers.get(logicalKey).push(c);
+        logicalKeyToContainers.get(logicalKey)?.push(c);
       }
 
       const idsToDelete = [];
@@ -183,9 +190,13 @@ export class ContainersService {
       }
 
       // Step 4: Mark containers that are no longer online as 'exited'
-      const finalDbContainerIds = new Set((await this.prisma.container.findMany({ where: { hostId: host.id }, select: { containerId: true } })).map(c => c.containerId));
+      const finalDbContainerIds = new Set(
+        (await this.prisma.container.findMany({ where: { hostId: host.id }, select: { containerId: true } })).map(
+          c => c.containerId,
+        ),
+      );
       const containersToMarkExited = [...finalDbContainerIds].filter(id => !onlineContainerIdsSet.has(id));
-      
+
       if (containersToMarkExited.length > 0) {
         await this.prisma.container.updateMany({
           where: { hostId: host.id, containerId: { in: containersToMarkExited } },
@@ -199,7 +210,6 @@ export class ContainersService {
       await this.reverseProxyService.syncRoutesFromHost(host.id, opId);
 
       await log('system', 'Container discovery finished successfully.');
-
     } catch (err) {
       isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -259,8 +269,9 @@ export class ContainersService {
       }
       // ... (rest of the implementation is preserved)
     } catch (error) {
-      this.logger.error(`检查单个容器更新失败: ${error.message}`);
-      return { updated: 0, error: error.message };
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`检查单个容器更新失败: ${errorMessage}`);
+      return { updated: 0, error: errorMessage };
     }
     return { updated: 0 };
   }

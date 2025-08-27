@@ -4,7 +4,7 @@ import { TriggerType } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 class CreateOperationLogDto {
-  title: string;
+  title = '';
   triggerType?: TriggerType;
   triggerContext?: Prisma.JsonValue;
   context?: Prisma.JsonValue;

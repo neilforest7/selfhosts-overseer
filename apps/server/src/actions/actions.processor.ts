@@ -27,7 +27,7 @@ export class ActionsProcessor {
 
     try {
       const triggers = await this.prisma.trigger.findMany({
-        where: { 
+        where: {
           isEnabled: true,
           type: TriggerType.SCHEDULE,
         },
@@ -43,15 +43,18 @@ export class ActionsProcessor {
           // We need a way to track the next run time on the trigger itself.
           // This is a simplified check. A robust implementation would store nextRunAt on the Trigger model.
           const interval = CronExpressionParser.parse(cron, { currentDate: now });
-          const prevRun = interval.previous().toDate();
-          
-          // If the last expected run time was within the last minute, run it.
+          const prevRun = interval.prev().toDate();
+
           if (now.getTime() - prevRun.getTime() < 60000) {
             this.logger.log(`Executing action for trigger ${trigger.id}`);
             await this.actionsService.runManually(trigger.actionId, 'SCHEDULE');
           }
         } catch (err) {
-          this.logger.error(`Failed to process trigger ${trigger.id}: ${err.message}`);
+          if (err instanceof Error) {
+            this.logger.error(`Failed to process trigger ${trigger.id}: ${err.message}`);
+          } else {
+            this.logger.error(`Failed to process trigger ${trigger.id}: ${String(err)}`);
+          }
         }
       }
     } catch (error) {

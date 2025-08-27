@@ -9,7 +9,7 @@ export class DockerService {
   constructor(
     private readonly ssh: SshService,
     private readonly settings: SettingsService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -17,36 +17,41 @@ export class DockerService {
    */
   private needsNetworkAccess(args: string[]): boolean {
     if (!args.length) return false;
-    
+
     const command = args[0];
-    const networkCommands = [
-      'pull',           // 拉取镜像
-      'push',           // 推送镜像
-      'search',         // 搜索镜像
-      'login',          // 登录 registry
-      'logout'          // 登出 registry
-    ];
-    
+    const networkCommands = ['pull', 'push', 'search', 'login', 'logout'];
+
     // manifest inspect 和 buildx imagetools 也需要网络
     if (command === 'manifest' && args[1] === 'inspect') {
       return true;
     }
-    
+
     if (command === 'buildx' && args[1] === 'imagetools' && args[2] === 'inspect') {
       return true;
     }
-    
+
     return networkCommands.includes(command);
   }
 
   /**
    * 确保 Docker 已登录（如果配置了凭证）
    */
-  private async ensureDockerLogin(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }): Promise<boolean> {
+  private async ensureDockerLogin(host: {
+    address: string;
+    sshUser: string;
+    port?: number;
+    password?: string;
+    privateKey?: string;
+    privateKeyPassphrase?: string;
+  }): Promise<boolean> {
     try {
       const appSettings = await this.settings.get();
-      
-      if (!appSettings.dockerCredentialsEnabled || !appSettings.dockerCredentialsUsername || !appSettings.dockerCredentialsPersonalAccessToken) {
+
+      if (
+        !appSettings.dockerCredentialsEnabled ||
+        !appSettings.dockerCredentialsUsername ||
+        !appSettings.dockerCredentialsPersonalAccessToken
+      ) {
         return false;
       }
 
@@ -59,8 +64,10 @@ export class DockerService {
 
       // 尝试登录 Docker Hub
       const loginCmd = `echo "${appSettings.dockerCredentialsPersonalAccessToken}" | docker login --username "${appSettings.dockerCredentialsUsername}" --password-stdin`;
-      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, { timeoutSec: 60 });
-      
+      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, {
+        killAfterSeconds: 60,
+      } as any);
+
       if (loginCode === 0) {
         console.log(`[Docker凭证] 登录成功: ${host.address}`);
         return true;
@@ -69,7 +76,9 @@ export class DockerService {
         return false;
       }
     } catch (error) {
-      console.warn(`[Docker凭证] 登录过程出错: ${host.address} - ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(
+        `[Docker凭证] 登录过程出错: ${host.address} - ${error instanceof Error ? error.message : String(error)}`,
+      );
       return false;
     }
   }
@@ -80,7 +89,7 @@ export class DockerService {
   private async buildProxyEnv(hostAddress?: string, dockerArgs?: string[]): Promise<string> {
     try {
       const appSettings = await this.settings.get();
-      
+
       if (!appSettings.dockerProxyEnabled || !appSettings.dockerProxyHost) {
         return '';
       }
@@ -100,9 +109,9 @@ export class DockerService {
       if (appSettings.dockerProxyLocalOnly && hostAddress) {
         try {
           const host = await this.prisma.host.findFirst({
-            where: { address: hostAddress }
+            where: { address: hostAddress },
           });
-          
+
           // 如果找不到主机信息或主机标签不包含 "local"，则不应用代理
           if (!host || !host.tags || !host.tags.some((tag: string) => tag.toLowerCase().includes('local'))) {
             return '';
@@ -128,11 +137,11 @@ export class DockerService {
 
       // 构建环境变量字符串
       const envVars = [
-        `HTTP_PROXY="${proxyUrl}"`,
-        `HTTPS_PROXY="${proxyUrl}"`,
-        `http_proxy="${proxyUrl}"`,
-        `https_proxy="${proxyUrl}"`,
-        `NO_PROXY="localhost,127.0.0.1,::1"`
+        `HTTP_PROXY="${proxyUrl}"`, 
+        `HTTPS_PROXY="${proxyUrl}"`, 
+        `http_proxy="${proxyUrl}"`, 
+        `https_proxy="${proxyUrl}"`, 
+        `NO_PROXY="localhost,127.0.0.1,::1"`,
       ];
 
       return envVars.join(' ');
@@ -142,31 +151,53 @@ export class DockerService {
     }
   }
 
-  async execShell(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, shellCommand: string, options: SshExecOptions = {}): Promise<{ code: number; stdout: string | Buffer; stderr: string | Buffer; cmd: string }> {
+  async execShell(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    shellCommand: string,
+    options: SshExecOptions = {} as any,
+  ): Promise<{ code: number; stdout: string | Buffer; stderr: string | Buffer; cmd: string }> {
     const isLocal = host.address === '127.0.0.1' || host.address === 'localhost';
-    const timeoutSec = options.timeoutSec || 60;
+    const timeoutSec = (options as any).timeoutSec || 60;
     const encoding = options.encoding || 'utf8';
 
     if (isLocal) {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const p = spawn('sh', ['-c', shellCommand]);
         const stdoutChunks: Buffer[] = [];
         const stderrChunks: Buffer[] = [];
-        const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} }, timeoutSec * 1000);
-        
-        p.stdout.on('data', (d) => stdoutChunks.push(d));
-        p.stderr.on('data', (d) => stderrChunks.push(d));
+        const timer = setTimeout(() => {
+          try {
+            p.kill('SIGKILL');
+          } catch {}
+        }, timeoutSec * 1000);
 
-        p.on('exit', (code) => { 
+        p.stdout.on('data', d => stdoutChunks.push(d));
+        p.stderr.on('data', d => stderrChunks.push(d));
+
+        p.on('exit', code => {
           clearTimeout(timer);
-          const stdout = encoding === 'utf8' ? Buffer.concat(stdoutChunks).toString('utf8') : Buffer.concat(stdoutChunks);
-          const stderr = encoding === 'utf8' ? Buffer.concat(stderrChunks).toString('utf8') : Buffer.concat(stderrChunks);
-          resolve({ code: code ?? 1, stdout, stderr, cmd: shellCommand }); 
+          const stdout =
+            encoding === 'utf8' ? Buffer.concat(stdoutChunks).toString('utf8') : Buffer.concat(stdoutChunks);
+          const stderr =
+            encoding === 'utf8' ? Buffer.concat(stderrChunks).toString('utf8') : Buffer.concat(stderrChunks);
+          resolve({ code: code ?? 1, stdout, stderr, cmd: shellCommand });
         });
-        p.on('error', (err) => { 
+        p.on('error', err => {
           clearTimeout(timer);
           const stderr = Buffer.from(err.message);
-          resolve({ code: 1, stdout: Buffer.alloc(0), stderr: encoding === 'utf8' ? stderr.toString('utf8') : stderr, cmd: shellCommand }); 
+          resolve({
+            code: 1,
+            stdout: Buffer.alloc(0),
+            stderr: encoding === 'utf8' ? stderr.toString('utf8') : stderr,
+            cmd: shellCommand,
+          });
         });
       });
     }
@@ -188,34 +219,109 @@ export class DockerService {
     return { code: res.code, stdout: res.stdout, stderr: res.stderr, cmd };
   }
 
-  async exec(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, args: string[], timeoutSec = 60): Promise<{ code: number; stdout: string; stderr: string; cmd: string }> {
+  async execStreaming(
+    host: {
+      id: string;
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    args: string[],
+    taskId: string,
+    timeoutSec = 60,
+  ): Promise<{ code: number; stdout: string; stderr: string; cmd: string }> {
     const isLocal = host.address === '127.0.0.1' || host.address === 'localhost';
-    
+
+    if (this.needsNetworkAccess(args)) {
+      await this.ensureDockerLogin(host);
+    }
+
+    const proxyEnv = await this.buildProxyEnv(host.address, args);
+    const envPrefix = proxyEnv ? `${proxyEnv} ` : '';
+
+    const dockerCmd = `${envPrefix}docker ${args.join(' ')}`;
+    const escaped = dockerCmd.replace(/'/g, "'\"'\"'");
+    const wrapped = `sh -lc '${escaped}'`;
+
+    if (isLocal) {
+      // 本机也走统一的 shell 包裹，避免 format/转义差异
+      // TODO: Implement local streaming execution
+      throw new Error('Local streaming execution is not implemented yet.');
+    }
+
+    const res = await this.ssh.execWithStreaming(
+      {
+        host: host.address,
+        user: host.sshUser,
+        port: host.port,
+        command: wrapped,
+        connectTimeoutSeconds: Math.min(30, Math.max(5, Math.floor(timeoutSec / 2))),
+        killAfterSeconds: timeoutSec,
+        hostKeyCheckingMode: 'yes',
+        password: host.password,
+        privateKey: host.privateKey,
+        privateKeyPassphrase: host.privateKeyPassphrase,
+      },
+      taskId,
+      host.id,
+    );
+
+    const cmd = `ssh -o StrictHostKeyChecking=yes ${host.sshUser}@${host.address} -- ${wrapped}`;
+    return { code: res.code, stdout: res.stdout.toString(), stderr: res.stderr.toString(), cmd };
+  }
+
+  async exec(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    args: string[],
+    timeoutSec = 60,
+  ): Promise<{ code: number; stdout: string; stderr: string; cmd: string }> {
+    const isLocal = host.address === '127.0.0.1' || host.address === 'localhost';
+
     // 对于需要网络访问的命令，优先使用 Docker 凭证
     if (this.needsNetworkAccess(args)) {
       await this.ensureDockerLogin(host);
     }
-    
+
     // 构建代理环境变量
     const proxyEnv = await this.buildProxyEnv(host.address, args);
     const envPrefix = proxyEnv ? `${proxyEnv} ` : '';
-    
+
     const dockerCmd = `${envPrefix}docker ${args.join(' ')}`;
     const escaped = dockerCmd.replace(/'/g, "'\"'\"'");
     const wrapped = `sh -lc '${escaped}'`;
     if (isLocal) {
       // 本机也走统一的 shell 包裹，避免 format/转义差异
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         const p = spawn('sh', ['-lc', dockerCmd]);
         let stdout = '';
         let stderr = '';
-        const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} }, timeoutSec * 1000);
+        const timer = setTimeout(() => {
+          try {
+            p.kill('SIGKILL');
+          } catch {}
+        }, timeoutSec * 1000);
         p.stdout.setEncoding('utf8');
         p.stderr.setEncoding('utf8');
-        p.stdout.on('data', (d) => (stdout += d));
-        p.stderr.on('data', (d) => (stderr += d));
-        p.on('exit', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, stdout, stderr, cmd: `sh -lc '${escaped}'` }); });
-        p.on('error', () => { clearTimeout(timer); resolve({ code: 1, stdout, stderr, cmd: `sh -lc '${escaped}'` }); });
+        p.stdout.on('data', d => (stdout += d));
+        p.stderr.on('data', d => (stderr += d));
+        p.on('exit', code => {
+          clearTimeout(timer);
+          resolve({ code: code ?? 1, stdout, stderr, cmd: `sh -lc '${escaped}'` });
+        });
+        p.on('error', () => {
+          clearTimeout(timer);
+          resolve({ code: 1, stdout, stderr, cmd: `sh -lc '${escaped}'` });
+        });
       });
     }
     const res = await this.ssh.executeCapture({
@@ -228,25 +334,37 @@ export class DockerService {
       hostKeyCheckingMode: 'yes',
       password: host.password,
       privateKey: host.privateKey,
-      privateKeyPassphrase: host.privateKeyPassphrase
+      privateKeyPassphrase: host.privateKeyPassphrase,
     });
     const cmd = `ssh -o StrictHostKeyChecking=yes ${host.sshUser}@${host.address} -- ${wrapped}`;
     return { code: res.code, stdout: res.stdout.toString(), stderr: res.stderr.toString(), cmd };
   }
 
   // 带重试机制的执行方法，用于处理网络连接错误
-  async execWithRetry(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, args: string[], timeoutSec = 60, maxRetries = 3): Promise<{ code: number; stdout: string; stderr: string; cmd: string }> {
+  async execWithRetry(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    args: string[],
+    timeoutSec = 60,
+    maxRetries = 3,
+  ): Promise<{ code: number; stdout: string; stderr: string; cmd: string }> {
     let lastError: any = null;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const result = await this.exec(host, args, timeoutSec);
-        
+
         // 如果成功或者是非网络错误，直接返回
         if (result.code === 0 || !this.isNetworkError(result.stderr)) {
           return result;
         }
-        
+
         // 如果是网络错误且还有重试次数，记录错误并继续重试
         lastError = result;
         if (attempt < maxRetries) {
@@ -255,7 +373,6 @@ export class DockerService {
           await new Promise(resolve => setTimeout(resolve, delayMs));
           continue;
         }
-        
       } catch (error) {
         lastError = error;
         if (attempt < maxRetries) {
@@ -265,12 +382,12 @@ export class DockerService {
         }
       }
     }
-    
+
     // 如果所有重试都失败，返回最后一次的错误
     if (lastError && typeof lastError === 'object' && 'code' in lastError) {
       return lastError;
     }
-    
+
     return { code: 1, stdout: '', stderr: `重试 ${maxRetries} 次后仍然失败`, cmd: `docker ${args.join(' ')}` };
   }
 
@@ -284,14 +401,17 @@ export class DockerService {
       'network is unreachable',
       'no route to host',
       'temporary failure in name resolution',
-      'unable to reach registry'
+      'unable to reach registry',
     ];
-    
+
     const lowerStderr = stderr.toLowerCase();
     return networkErrorPatterns.some(pattern => lowerStderr.includes(pattern));
   }
 
-  async inspectImageRepoDigests(host: { address: string; sshUser: string; port?: number }, imageRef: string): Promise<string[]> {
+  async inspectImageRepoDigests(
+    host: { address: string; sshUser: string; port?: number },
+    imageRef: string,
+  ): Promise<string[]> {
     const { code, stdout } = await this.exec(host, ['inspect', '--format', '{{json .RepoDigests}}', imageRef], 60);
     if (code !== 0) return [];
     try {
@@ -302,7 +422,10 @@ export class DockerService {
     }
   }
 
-  async inspectImageRepoTags(host: { address: string; sshUser: string; port?: number }, imageRef: string): Promise<string[]> {
+  async inspectImageRepoTags(
+    host: { address: string; sshUser: string; port?: number },
+    imageRef: string,
+  ): Promise<string[]> {
     const { code, stdout } = await this.exec(host, ['inspect', '--format', '{{json .RepoTags}}', imageRef], 60);
     if (code !== 0) return [];
     try {
@@ -313,7 +436,10 @@ export class DockerService {
     }
   }
 
-  async resolveImageNameTag(host: { address: string; sshUser: string; port?: number }, imageRef: string): Promise<{ imageName?: string; imageTag?: string }> {
+  async resolveImageNameTag(
+    host: { address: string; sshUser: string; port?: number },
+    imageRef: string,
+  ): Promise<{ imageName?: string; imageTag?: string }> {
     if (!imageRef) return {};
     // Prefer human-friendly RepoTags
     const tags = await this.inspectImageRepoTags(host, imageRef);
@@ -329,8 +455,23 @@ export class DockerService {
     return { imageName: cleanRef, imageTag: undefined };
   }
 
-  async psByComposeProject(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, project: string, timeoutSec = 60): Promise<any[]> {
-    const { code, stdout } = await this.exec(host, ['ps', '-a', '--filter', `label=com.docker.compose.project=${project}`, `--format='{{json .}}'`], timeoutSec);
+  async psByComposeProject(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    project: string,
+    timeoutSec = 60,
+  ): Promise<any[]> {
+    const { code, stdout } = await this.exec(
+      host,
+      ['ps', '-a', '--filter', `label=com.docker.compose.project=${project}`, `--format='{{json .}}'`],
+      timeoutSec,
+    );
     if (code !== 0) return [];
     const lines = stdout.split('\n').filter(Boolean);
     const items: any[] = [];
@@ -340,7 +481,17 @@ export class DockerService {
     return items;
   }
 
-  async composeLs(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, timeoutSec = 60): Promise<Array<{ Name?: string; Status?: string; Running?: number; Stopped?: number; WorkingDir?: string }>> {
+  async composeLs(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    timeoutSec = 60,
+  ): Promise<Array<{ Name?: string; Status?: string; Running?: number; Stopped?: number; WorkingDir?: string }>> {
     const { code, stdout } = await this.exec(host, ['compose', 'ls', '--format', 'json'], timeoutSec);
     if (code !== 0) return [];
     const text = stdout.trim();
@@ -364,7 +515,18 @@ export class DockerService {
     }
   }
 
-  async inspectContainers(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, containerIds: string[], timeoutSec = 120): Promise<any[]> {
+  async inspectContainers(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    containerIds: string[],
+    timeoutSec = 120,
+  ): Promise<any[]> {
     if (!containerIds.length) return [];
     const results: any[] = [];
     for (const id of containerIds) {
@@ -387,10 +549,21 @@ export class DockerService {
   }
 
   // 获取远程镜像的 manifest 信息，用于检查更新而不实际拉取镜像
-  async inspectRemoteManifest(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, imageRef: string, platform?: { architecture?: string; os?: string }): Promise<{ digest?: string; manifestDigest?: string; error?: string; rateLimited?: boolean }> {
+  async inspectRemoteManifest(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    imageRef: string,
+    platform?: { architecture?: string; os?: string },
+  ): Promise<{ digest?: string; manifestDigest?: string; error?: string; rateLimited?: boolean }> {
     // 检查是否需要 Docker Hub 认证
     const needsAuth = this.isDockerHubImage(imageRef);
-    
+
     // 如果是 Docker Hub 镜像且可能遇到速率限制，尝试使用认证
     if (needsAuth) {
       const authResult = await this.ensureDockerAuth(host);
@@ -399,70 +572,72 @@ export class DockerService {
         console.warn(`Docker Hub 认证失败: ${authResult.error}`);
       }
     }
-    
+
     // 尝试使用 docker manifest inspect 获取远程镜像信息，带重试机制
     const { code, stdout, stderr } = await this.execWithRetry(host, ['manifest', 'inspect', imageRef], 90, 3);
-    
+
     if (code === 0) {
       try {
         const manifest = JSON.parse(stdout.trim());
-        
+
         // 对于 manifest list (multi-arch)
         if (manifest.manifests && Array.isArray(manifest.manifests) && manifest.manifests.length > 0) {
           // 如果提供了平台信息，尝试匹配对应平台的 manifest
           if (platform && (platform.architecture || platform.os)) {
             const targetArch = platform.architecture || 'amd64';
             const targetOS = platform.os || 'linux';
-            
+
             // 查找匹配的平台
             const matchedManifest = manifest.manifests.find((m: any) => {
               const p = m.platform || {};
-              return (p.architecture === targetArch || (!p.architecture && targetArch === 'amd64')) &&
-                     (p.os === targetOS || (!p.os && targetOS === 'linux'));
+              return (
+                (p.architecture === targetArch || (!p.architecture && targetArch === 'amd64')) &&
+                (p.os === targetOS || (!p.os && targetOS === 'linux'))
+              );
             });
-            
+
             if (matchedManifest) {
-    return {
+              return {
                 digest: matchedManifest.digest,
-                manifestDigest: matchedManifest.digest 
+                manifestDigest: matchedManifest.digest,
               };
             }
-            
+
             // 如果没有找到精确匹配，记录警告并使用第一个已知平台的 manifest
             const knownPlatformManifest = manifest.manifests.find((m: any) => {
               const p = m.platform || {};
               return p.architecture && p.architecture !== 'unknown' && p.os && p.os !== 'unknown';
             });
-            
+
             if (knownPlatformManifest) {
-              return { 
+              return {
                 digest: knownPlatformManifest.digest,
-                manifestDigest: knownPlatformManifest.digest 
+                manifestDigest: knownPlatformManifest.digest,
               };
             }
           }
-          
+
           // 默认使用第一个 manifest
-          return { 
+          return {
             digest: manifest.manifests[0].digest,
-            manifestDigest: manifest.manifests[0].digest 
+            manifestDigest: manifest.manifests[0].digest,
           };
         }
-        
+
         // 对于单个 manifest
         if (manifest.config && manifest.config.digest) {
-          return { 
+          return {
             digest: manifest.config.digest,
-            manifestDigest: manifest.config.digest 
+            manifestDigest: manifest.config.digest,
           };
         }
-        
+
         // 如果有 mediaType 和 config，这是一个有效的 manifest
         if (manifest.mediaType && manifest.config) {
           if (manifest.config.digest) {
-            return { 
+            return {
               digest: manifest.config.digest,
-              manifestDigest: manifest.config.digest 
+              manifestDigest: manifest.config.digest,
             };
           }
         }
@@ -473,7 +648,7 @@ export class DockerService {
 
     // 检查是否是速率限制错误
     const isRateLimited = stderr.includes('toomanyrequests') || stderr.includes('Too Many Requests');
-    
+
     // 如果遇到速率限制且是 Docker Hub 镜像，尝试使用镜像加速器
     if (isRateLimited && this.isDockerHubImage(imageRef)) {
       const mirrorResult = await this.tryMirrorRegistries(host, imageRef, platform);
@@ -484,8 +659,13 @@ export class DockerService {
 
     // 如果 manifest inspect 失败，回退到使用 buildx imagetools inspect
     // 先尝试带 --raw 标志（新版本Docker支持），使用重试机制
-    let { code: code2, stdout: stdout2, stderr: stderr2 } = await this.execWithRetry(host, ['buildx', 'imagetools', 'inspect', imageRef, '--raw'], 90, 2);
-    
+    let { code: code2, stdout: stdout2, stderr: stderr2 } = await this.execWithRetry(
+      host,
+      ['buildx', 'imagetools', 'inspect', imageRef, '--raw'],
+      90,
+      2,
+    );
+
     // 如果 --raw 标志不被支持，尝试不带 --raw 标志
     if (code2 !== 0 && stderr2.includes('unknown flag: --raw')) {
       const result = await this.execWithRetry(host, ['buildx', 'imagetools', 'inspect', imageRef], 90, 2);
@@ -493,7 +673,7 @@ export class DockerService {
       stdout2 = result.stdout;
       stderr2 = result.stderr;
     }
-    
+
     if (code2 === 0) {
       try {
         const manifest = JSON.parse(stdout2.trim());
@@ -524,8 +704,12 @@ export class DockerService {
     }
 
     // 最后回退：使用 skopeo（如果可用）
-    const { code: code3, stdout: stdout3 } = await this.exec(host, ['run', '--rm', 'quay.io/skopeo/stable', 'inspect', `docker://${imageRef}`], 120);
-    
+    const { code: code3, stdout: stdout3 } = await this.exec(
+      host,
+      ['run', '--rm', 'quay.io/skopeo/stable', 'inspect', `docker://${imageRef}`],
+      120,
+    );
+
     if (code3 === 0) {
       try {
         const info = JSON.parse(stdout3.trim());
@@ -537,9 +721,9 @@ export class DockerService {
       }
     }
 
-    return { 
+    return {
       error: `无法获取远程镜像信息: manifest inspect 失败 (${stderr.trim()}), buildx imagetools 失败 (${stderr2.trim()}), skopeo 失败`,
-      rateLimited: isRateLimited || isRateLimited2
+      rateLimited: isRateLimited || isRateLimited2,
     };
   }
 
@@ -552,23 +736,32 @@ export class DockerService {
     if (imageRef.includes('docker.io') || imageRef.includes('registry-1.docker.io')) {
       return true;
     }
-    
+
     // 如果没有斜杠，通常是官方镜像（如 nginx:latest）
     if (!imageRef.includes('/')) {
       return true;
     }
-    
+
     // 如果只有一个斜杠且没有域名，通常是 Docker Hub 用户镜像（如 user/image）
     const parts = imageRef.split('/');
     if (parts.length === 2 && !parts[0].includes('.')) {
       return true;
     }
-    
+
     return false;
   }
 
   // 确保 Docker Hub 认证
-  private async ensureDockerAuth(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }): Promise<{ success: boolean; error?: string }> {
+  private async ensureDockerAuth(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       // 检查是否已经登录
       const { code: loginCheckCode } = await this.exec(host, ['info'], 30);
@@ -578,12 +771,16 @@ export class DockerService {
 
       // 使用配置的 Docker 凭证进行登录
       const appSettings = await this.settings.get();
-      
-      if (appSettings.dockerCredentialsEnabled && appSettings.dockerCredentialsUsername && appSettings.dockerCredentialsPersonalAccessToken) {
+
+      if (
+        appSettings.dockerCredentialsEnabled &&
+        appSettings.dockerCredentialsUsername &&
+        appSettings.dockerCredentialsPersonalAccessToken
+      ) {
         // 尝试使用配置的凭证登录
         const loginCmd = `echo "${appSettings.dockerCredentialsPersonalAccessToken}" | docker login --username "${appSettings.dockerCredentialsUsername}" --password-stdin`;
-        const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, 30);
-        
+        const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, 30 as any);
+
         if (loginCode === 0) {
           return { success: true };
         } else {
@@ -593,20 +790,30 @@ export class DockerService {
 
       // 如果没有配置凭据，返回失败但不是错误
       return { success: false, error: '未配置 Docker Hub 凭据' };
-
     } catch (error) {
       return { success: false, error: `Docker 认证过程出错: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
   // 使用镜像加速器（中国镜像源）
-  private async tryMirrorRegistries(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, imageRef: string, platform?: { architecture?: string; os?: string }): Promise<{ digest?: string; manifestDigest?: string; error?: string }> {
+  private async tryMirrorRegistries(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    imageRef: string,
+    platform?: { architecture?: string; os?: string },
+  ): Promise<{ digest?: string; manifestDigest?: string; error?: string }> {
     // 常用的 Docker 镜像加速器
     const mirrors = [
-      'docker.m.daocloud.io',           // DaoCloud
-      'dockerproxy.com',                // Docker Proxy
-      'docker.nju.edu.cn',              // 南京大学
-      'docker.mirrors.ustc.edu.cn',     // 中科大
+      'docker.m.daocloud.io', // DaoCloud
+      'dockerproxy.com', // Docker Proxy
+      'docker.nju.edu.cn', // 南京大学
+      'docker.mirrors.ustc.edu.cn', // 中科大
     ];
 
     for (const mirror of mirrors) {
@@ -627,42 +834,44 @@ export class DockerService {
         }
 
         const { code, stdout, stderr } = await this.exec(host, ['manifest', 'inspect', mirrorImageRef], 30);
-        
+
         if (code === 0) {
           try {
             const manifest = JSON.parse(stdout.trim());
-            
+
             // 处理多架构镜像
             if (manifest.manifests && Array.isArray(manifest.manifests) && manifest.manifests.length > 0) {
               if (platform && (platform.architecture || platform.os)) {
                 const targetArch = platform.architecture || 'amd64';
                 const targetOS = platform.os || 'linux';
-                
+
                 const matchedManifest = manifest.manifests.find((m: any) => {
                   const p = m.platform || {};
-                  return (p.architecture === targetArch || (!p.architecture && targetArch === 'amd64')) &&
-                         (p.os === targetOS || (!p.os && targetOS === 'linux'));
+                  return (
+                    (p.architecture === targetArch || (!p.architecture && targetArch === 'amd64')) &&
+                    (p.os === targetOS || (!p.os && targetOS === 'linux'))
+                  );
                 });
-                
+
                 if (matchedManifest) {
-                  return { 
+                  return {
                     digest: matchedManifest.digest,
-                    manifestDigest: matchedManifest.digest 
+                    manifestDigest: matchedManifest.digest,
                   };
                 }
               }
-              
-              return { 
+
+              return {
                 digest: manifest.manifests[0].digest,
-                manifestDigest: manifest.manifests[0].digest 
+                manifestDigest: manifest.manifests[0].digest,
               };
             }
-            
+
             // 单架构镜像
             if (manifest.config && manifest.config.digest) {
-              return { 
+              return {
                 digest: manifest.config.digest,
-                manifestDigest: manifest.config.digest 
+                manifestDigest: manifest.config.digest,
               };
             }
           } catch (parseError) {
@@ -678,27 +887,41 @@ export class DockerService {
   }
 
   // 获取容器的平台信息
-  async getContainerPlatform(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, containerId: string): Promise<{ architecture?: string; os?: string; error?: string }> {
+  async getContainerPlatform(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    containerId: string,
+  ): Promise<{ architecture?: string; os?: string; error?: string }> {
     try {
       // 首先尝试从容器inspect中获取镜像ID，然后检查镜像平台
       const { code, stdout } = await this.exec(host, ['inspect', '--format', '{{.Image}}', containerId], 30);
       if (code !== 0) {
         return { error: '无法获取容器镜像ID' };
       }
-      
+
       const imageId = stdout.trim();
       if (!imageId) {
         return { error: '容器镜像ID为空' };
       }
 
       // 检查镜像的平台信息
-      const { code: code2, stdout: stdout2 } = await this.exec(host, ['inspect', '--format', '{{.Architecture}} {{.Os}}', imageId], 30);
+      const { code: code2, stdout: stdout2 } = await this.exec(
+        host,
+        ['inspect', '--format', '{{.Architecture}} {{.Os}}', imageId],
+        30,
+      );
       if (code2 === 0 && stdout2.trim()) {
         const parts = stdout2.trim().split(' ');
         if (parts.length >= 2) {
           return {
             architecture: parts[0] || 'amd64',
-            os: parts[1] || 'linux'
+            os: parts[1] || 'linux',
           };
         }
       }
@@ -708,23 +931,32 @@ export class DockerService {
       if (code3 === 0 && stdout3.trim()) {
         return {
           architecture: stdout3.trim(),
-          os: 'linux' // Docker 主要运行在 Linux 上
+          os: 'linux', // Docker 主要运行在 Linux 上
         };
       }
 
       // 默认假设为最常见的平台
       return {
         architecture: 'amd64',
-        os: 'linux'
+        os: 'linux',
       };
-
     } catch (error) {
       return { error: `获取平台信息失败: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
   // 获取容器实际运行的镜像 digest（从 docker inspect 的 Image 字段）
-  async getContainerImageDigest(host: { address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string }, containerId: string): Promise<string | null> {
+  async getContainerImageDigest(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    containerId: string,
+  ): Promise<string | null> {
     try {
       const { code, stdout } = await this.exec(host, ['inspect', '--format', '{{.Image}}', containerId], 30);
       if (code === 0 && stdout.trim()) {
@@ -733,9 +965,13 @@ export class DockerService {
         if (imageId.startsWith('sha256:')) {
           return imageId;
         }
-        
+
         // 如果是短ID，尝试获取完整的digest
-        const { code: code2, stdout: stdout2 } = await this.exec(host, ['inspect', '--format', '{{index .RepoDigests 0}}', imageId], 30);
+        const { code: code2, stdout: stdout2 } = await this.exec(
+          host,
+          ['inspect', '--format', '{{index .RepoDigests 0}}', imageId],
+          30,
+        );
         if (code2 === 0 && stdout2.trim()) {
           // 提取 digest 部分（格式通常是 "registry/image@sha256:..."）
           const repoDigest = stdout2.trim();
@@ -744,7 +980,7 @@ export class DockerService {
             return digestMatch[1];
           }
         }
-        
+
         // 如果还是无法获取，返回 Image ID（可能是 sha256:xxx 格式）
         return imageId;
       }

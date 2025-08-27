@@ -36,7 +36,7 @@ export class FrpService {
     }
 
     const log = async (stream: 'system' | 'info' | 'error', content: string) => {
-      await this.operationLogService.addLogEntry(effectiveOpId, { stream, content, hostId });
+      await this.operationLogService.log(effectiveOpId!, stream, content, hostId);
     };
 
     try {
@@ -64,7 +64,7 @@ export class FrpService {
       await log('error', `FRP sync failed: ${errorMessage}`);
     } finally {
       if (isStandaloneAction) {
-        await this.operationLogService.updateStatus(effectiveOpId, isFailed ? 'ERROR' : 'COMPLETED');
+        await this.operationLogService.updateStatus(effectiveOpId!, isFailed ? 'ERROR' : 'COMPLETED');
       }
     }
   }
@@ -240,7 +240,7 @@ export class FrpService {
 
     const alreadyExists = existingPorts.some(p =>
       p.bindings && Array.isArray(p.bindings) &&
-      p.bindings.some(b => b.HostPort === String(webPort))
+      p.bindings.some((b: any) => b.HostPort === String(webPort))
     );
 
     if (!alreadyExists) {
@@ -291,7 +291,7 @@ export class FrpService {
         await log('error', `Could not find container with db id ${containerDbId}`);
         return null;
     }
-    const inspectResult = await this.docker.inspectContainers({...host, port: host.port ?? undefined}, [dbContainer.containerId]);
+    const inspectResult = await this.docker.inspectContainers({...host, port: host.port ?? undefined}, [dbContainer.containerId || '']);
     if (!inspectResult || inspectResult.length === 0) {
         await log('error', `docker.inspectContainers returned no data for container ${dbContainer.containerId}`);
         return null;

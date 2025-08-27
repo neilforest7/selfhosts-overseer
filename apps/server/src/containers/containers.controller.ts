@@ -123,7 +123,7 @@ export class ContainersController {
       
       // 尝试登录 Docker Hub
       const loginCmd = `echo "${body.personalAccessToken}" | docker login --username "${body.username}" --password-stdin`;
-      const { code, stderr } = await this.docker.execShell(testHost, loginCmd, 60);
+      const { code, stderr } = await this.docker.execShell(testHost, loginCmd, { timeoutSec: 60 } as any);
       
       if (code === 0) {
         return { success: true, message: 'Docker Hub 登录成功' };

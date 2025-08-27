@@ -1,11 +1,10 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { SshService } from './ssh.service';
+import { ExecGateway } from './exec.gateway';
 import { OperationLogModule } from '../operation-log/operation-log.module';
 
 @Module({
   imports: [forwardRef(() => OperationLogModule)],
-  providers: [SshService],
-  exports: [SshService],
+  providers: [ExecGateway],
+  exports: [ExecGateway],
 })
-export class SshModule {}
-
+export class RealtimeModule {}

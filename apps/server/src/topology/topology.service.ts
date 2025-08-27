@@ -255,7 +255,7 @@ export class TopologyService {
       } else {
         // Handle Direct Proxy Route
         const searchScope = containers.filter(c => c.hostId === npmContainer.hostId);
-        const targetContainer = this.findContainerByIpAndPort(route.forwardHost, route.forwardPort, searchScope);
+        const targetContainer = this.findContainerByIpAndPort(route.forwardHost || '', route.forwardPort ?? 0, searchScope);
         if (!targetContainer) continue;
         
         const targetHost = hostsMap.get(targetContainer.hostId);

@@ -21,3 +21,10 @@ example_frps.toml
 example_frpc_with_xtcp.toml
 example_npm_compose_with_mariadb.yml
 onetime.log
+
+.gemini/
+gha-creds-*.json
+
+# GitHub App credentials
+gha-creds-*.json
+.vscode/settings.json

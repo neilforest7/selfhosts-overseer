@@ -31,7 +31,7 @@ function formatDuration(startTime: string, endTime: string | null) {
 export function TaskDrawer() {
   const { isOpen, isMinimized, currentTaskId, tasks, taskOrder, actions } = useTaskDrawerStore();
   const socketRef = useRef<Socket | null>(null);
-  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLPreElement>(null);
 
   const currentTask = currentTaskId ? tasks[currentTaskId] : null;
 

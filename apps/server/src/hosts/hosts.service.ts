@@ -218,7 +218,7 @@ export class HostsService {
       this.logger.warn(`❌ 主机连接测试失败: ${h.name} (退出码: ${res.code})`);
     }
     
-    return { ok: res.code === 0, code: res.code, stdout: res.stdout, stderr: res.stderr };
+    return { ok: res.code === 0, code: res.code, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
   }
 }
 

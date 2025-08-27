@@ -45,7 +45,7 @@ export class ReverseProxyService {
     }
 
     const log = async (stream: 'system' | 'info' | 'error', content: string) => {
-      await this.operationLogService.addLogEntry(effectiveOpId, { stream, content, hostId });
+      await this.operationLogService.log(effectiveOpId!, stream, content, hostId);
     };
 
     try {
@@ -63,16 +63,19 @@ export class ReverseProxyService {
         // This is not an error, so we don't throw. The action can complete successfully.
         return;
       }
-      
+
       await log('info', `Found NPM container: ${npmContainer.name} (${npmContainer.containerId})`);
 
-      const inspectData = await this.docker.inspectContainers({ ...host, port: host.port ?? undefined }, [npmContainer.containerId]);
+      const inspectData = await this.docker.inspectContainers(
+        { ...host, port: host.port ?? undefined },
+        [npmContainer.containerId || ''],
+      );
       if (!inspectData || inspectData.length === 0) {
         throw new Error(`Could not inspect NPM container ${npmContainer.name}`);
       }
 
       const envVars = this.parseEnvArray(inspectData[0].Config.Env);
-      let routes = [];
+      let routes: any[] | null = [];
 
       if (envVars['DB_MYSQL_HOST']) {
         await log('info', 'Detected MySQL/MariaDB configuration.');
@@ -95,10 +98,10 @@ export class ReverseProxyService {
           try {
             domainNames = JSON.parse(domainsRaw);
           } catch (e) {
-            domainNames = domainsRaw.replace(/[[\\\]\\"]/g, '').split(',').map(d => d.trim());
+            domainNames = domainsRaw.replace(/[[\\\\]\\\"]/g, '').split(',').map((d: any) => d.trim());
           }
         } else if (domainsRaw) {
-          domainNames = domainsRaw.split(',').map(d => d.trim());
+          domainNames = domainsRaw.split(',').map((d: any) => d.trim());
         }
 
         for (const domain of domainNames) {
@@ -138,7 +141,7 @@ export class ReverseProxyService {
       await log('error', `NPM sync failed: ${errorMessage}`);
     } finally {
       if (isStandaloneAction) {
-        await this.operationLogService.updateStatus(effectiveOpId, isFailed ? 'ERROR' : 'COMPLETED');
+        await this.operationLogService.updateStatus(effectiveOpId!, isFailed ? 'ERROR' : 'COMPLETED');
       }
     }
   }
@@ -286,7 +289,7 @@ export class ReverseProxyService {
   private async getHostWithCreds(hostId: string): Promise<HostWithCreds | null> {
     const host = await this.prisma.host.findUnique({ where: { id: hostId } });
     if (!host) return null;
-    
+
     const decPassword = this.crypto.decryptString(host.sshPassword)?.toString();
     const decKey = this.crypto.decryptString(host.sshPrivateKey)?.toString();
     const decPassphrase = this.crypto.decryptString(host.sshPrivateKeyPassphrase)?.toString();
@@ -299,9 +302,15 @@ export class ReverseProxyService {
     };
   }
 
-  private async readRemoteFile(host: HostWithCreds, filePath: string, encoding: 'utf8' | 'binary' = 'utf8'): Promise<string | Buffer | null> {
+  private async readRemoteFile(
+    host: HostWithCreds,
+    filePath: string,
+    encoding: 'utf8' | 'binary' = 'utf8',
+  ): Promise<string | Buffer | null> {
     try {
-      const { stdout } = await this.docker.execShell({...host, port: host.port ?? undefined}, `cat "${filePath}"`, { encoding });
+      const { stdout } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, `cat "${filePath}"`, {
+        encoding,
+      } as any);
       return stdout;
     } catch (e: any) {
       this.logger.warn(`[NPM Sync] Failed to read remote file ${filePath} on host ${host.name}. Error: ${e.message}`);

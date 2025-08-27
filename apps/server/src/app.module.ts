@@ -13,6 +13,7 @@ import { TopologyModule } from './topology/topology.module';
 import { OperationLogModule } from './operation-log/operation-log.module';
 import { ActionsModule } from './actions/actions.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     TopologyModule,
     OperationLogModule,
     ActionsModule,
+    RealtimeModule,
   ],
   controllers: [AppController],
   providers: [],
