@@ -301,6 +301,25 @@ export class TopologyService {
     port: number,
     containers: Container[],
   ): Container | undefined {
+    // Helper to check if a container exposes a given port on the host
+    const containerExposesPort = (c: Container, portToFind: number): boolean => {
+      const ports = c.ports as any; // e.g., {"3000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "12121"}, ...]}
+      if (!ports || typeof ports !== 'object') {
+        return false;
+      }
+
+      // Iterate over the keys, e.g., "3000/tcp"
+      for (const privatePortProto in ports) {
+        const bindings = ports[privatePortProto];
+        // Check if any binding for this internal port has a matching HostPort
+        if (Array.isArray(bindings) && bindings.some(b => b.HostPort && parseInt(b.HostPort, 10) === portToFind)) {
+          return true; // Found a match on the exposed host port
+        }
+      }
+      return false; // No match found
+    };
+
+    // 1. Check by manual port mapping (user-defined override)
     const foundByManualPort = containers.find(c => {
       if (!c.manualPortMapping || typeof c.manualPortMapping !== 'object') return false;
       const mapping = c.manualPortMapping as any;
@@ -308,42 +327,28 @@ export class TopologyService {
     });
     if (foundByManualPort) return foundByManualPort;
 
+    // 2. Check by container network IP and exposed port
     const foundByNet = containers.find((c) => {
-      if (!c.networks || typeof c.networks !== 'object') return false;
       const networks = c.networks as any;
+      if (!networks || typeof networks !== 'object') return false;
       for (const netName in networks) {
         if (networks[netName]?.IPAddress === ip) {
-          if (!c.ports || typeof c.ports !== 'object') return false;
-          const ports = c.ports as any[];
-          return ports.some(p => p.PrivatePort === port || p.PublicPort === port);
+          return containerExposesPort(c, port);
         }
       }
       return false;
     });
     if (foundByNet) return foundByNet;
 
-    const foundByName = containers.find((c) => c.name === ip || c.containerId === ip);
-    if (foundByName) {
-      if (!foundByName.ports || typeof foundByName.ports !== 'object') return false;
-      const ports = foundByName.ports as any[];
-      if (ports.some(p => p.PrivatePort === port || p.PublicPort === port)) {
-        return foundByName;
-      }
+    // 3. Check by container name/ID (if used as hostname) and exposed port
+    const foundByName = containers.find((c) => c.name === ip || c.containerId.startsWith(ip));
+    if (foundByName && containerExposesPort(foundByName, port)) {
+      return foundByName;
     }
 
-    const foundByHostPort = containers.find(c => {
-      if (!c.ports || !Array.isArray(c.ports)) return false;
-      try {
-        const portsInfo = c.ports as any[];
-        return portsInfo.some(portInfo => 
-          portInfo.bindings && Array.isArray(portInfo.bindings) &&
-          portInfo.bindings.some(binding => binding.HostPort === String(port))
-        );
-      } catch (e) {
-        this.logger.error(`Error parsing ports for container ${c.name}`, e);
-        return false;
-      }
-    });
+    // 4. Fallback: Check any container on the same host that exposes the target host port
+    // This is the most common case for routes forwarding to 'localhost', '127.0.0.1', etc.
+    const foundByHostPort = containers.find(c => containerExposesPort(c, port));
     if (foundByHostPort) return foundByHostPort;
 
     return undefined;
