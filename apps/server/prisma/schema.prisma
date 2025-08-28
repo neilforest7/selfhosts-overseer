@@ -179,17 +179,19 @@ model FrpcProxy {
 }
 
 model OperationLog {
-  id             String              @id @default(cuid())
-  title          String
-  status         OperationStatus     @default(PENDING)
-  triggerType    TriggerType         @default(USER)
-  triggerContext Json?
-  context        Json?
-  startTime      DateTime            @default(now())
-  endTime        DateTime?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  entries        OperationLogEntry[]
+  id               String          @id @default(cuid())
+  title            String
+  status           OperationStatus @default(PENDING)
+  triggerType      TriggerType     @default(MANUAL)
+  triggerContext   Json?
+  context          Json?
+  startTime        DateTime        @default(now())
+  endTime          DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  entries          OperationLogEntry[]
+  automationRuleId String?
+  automationRule   AutomationRule? @relation(fields: [automationRuleId], references: [id], onDelete: SetNull)
 }
 
 model OperationLogEntry {
@@ -203,6 +205,17 @@ model OperationLogEntry {
   hostId         String?
 }
 
+model AutomationRule {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  description String?
+  isEnabled   Boolean        @default(true)
+  ruleJson    Json
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  operations  OperationLog[]
+}
+
 enum OperationStatus {
   PENDING
   RUNNING
@@ -212,53 +225,8 @@ enum OperationStatus {
 }
 
 enum TriggerType {
-  USER
-  SCHEDULE
+  MANUAL
+  CRON
   WEBHOOK
-  SYSTEM
   EVENT
-}
-
-// --- Automation Center Models ---
-
-model Action {
-  id            String         @id @default(cuid())
-  name          String         @unique
-  description   String?
-  taskType      String
-  taskPayload   Json?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  triggers      Trigger[]
-  notifications Notification[]
-}
-
-model Trigger {
-  id        String      @id @default(cuid())
-  actionId  String
-  type      TriggerType
-  config    Json
-  isEnabled Boolean     @default(true)
-  action    Action      @relation(fields: [actionId], references: [id], onDelete: Cascade)
-}
-
-model Notification {
-  id          String            @id @default(cuid())
-  actionId    String
-  channelType NotificationChannel
-  config      Json
-  notifyOn    NotifyCondition   @default(ALWAYS)
-  action      Action            @relation(fields: [actionId], references: [id], onDelete: Cascade)
-}
-
-enum NotificationChannel {
-  EMAIL
-  SLACK
-  WEBHOOK
-}
-
-enum NotifyCondition {
-  SUCCESS
-  FAILURE
-  ALWAYS
 }

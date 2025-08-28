@@ -1,3 +1,4 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { SettingsModule } from './settings/settings.module';
@@ -11,13 +12,19 @@ import { LogsModule } from './logs/logs.module';
 import { FrpModule } from './frp/frp.module';
 import { TopologyModule } from './topology/topology.module';
 import { OperationLogModule } from './operation-log/operation-log.module';
-import { ActionsModule } from './actions/actions.module';
+import { AutomationsModule } from './automations/automations.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    BullModule.forRoot({
+      connection: {
+        host: 'localhost',
+        port: 6379,
+      },
+    }),
     PrismaModule,
     SettingsModule,
     HostsModule,
@@ -29,7 +36,7 @@ import { RealtimeModule } from './realtime/realtime.module';
     FrpModule,
     TopologyModule,
     OperationLogModule,
-    ActionsModule,
+    AutomationsModule,
     RealtimeModule,
   ],
   controllers: [AppController],

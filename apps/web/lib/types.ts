@@ -10,7 +10,7 @@ export type OperationLog = {
   id: string;
   title: string;
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'ERROR' | 'CANCELLED';
-  triggerType: 'USER' | 'SCHEDULE' | 'WEBHOOK' | 'SYSTEM';
+  triggerType: 'MANUAL' | 'CRON' | 'WEBHOOK' | 'EVENT' | 'SYSTEM';
   startTime: string;
   endTime: string | null;
   entries: OperationLogEntry[];

@@ -278,26 +278,31 @@ export class ContainersService {
 
   async checkUpdatesAny(bodyHost: { id?: string; address?: string; sshUser?: string; port?: number } | { id: 'all' }, opId?: string): Promise<{ updated: number }> {
     // ... (implementation preserved)
+    //TODO
     return { updated: 0 };
   }
 
   async updateOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, imageRef?: string, opId?: string) {
     // ... (implementation preserved)
+    //TODO
     return { ok: true };
   }
 
   async restartOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
     // ... (implementation preserved)
+    //TODO
     return { ok: true };
   }
 
   async startOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
     // ... (implementation preserved)
+    //TODO
     return { ok: true };
   }
 
   async stopOne(hostOrRef: { id: string; address: string; sshUser: string; port?: number } | { id: string }, containerId: string, opId?: string) {
     // ... (implementation preserved)
+    //TODO
     return { ok: true };
   }
 
@@ -312,36 +317,43 @@ export class ContainersService {
 
   private async generateRunCommand(inspectData: any, containerName: string): Promise<string | undefined> {
     // ... (implementation preserved)
+    //TODO
     return "";
   }
 
   async refreshStatus(hostId: string, options: { containerIds?: string[]; containerNames?: string[]; composeProject?: string }, opId?: string): Promise<{ updated: number; notFound: string[] }> {
     // ... (implementation preserved)
+    //TODO
     return { updated: 0, notFound: [] };
   }
 
   async refreshRunningStatusAllHosts(): Promise<number> {
     // ... (implementation preserved)
+    //TODO
     return 0;
   }
 
   async composeOperate(hostId: string, project: string, workingDir: string, op: 'down'|'pull'|'up'|'restart'|'start'|'stop', opId?: string): Promise<{ ok: boolean; code: number }> {
     // ... (implementation preserved)
+    //TODO
     return { ok: true, code: 0 };
   }
 
   async cleanupDuplicates(hostId?: string | 'all', opId?: string): Promise<number> {
     // ... (implementation preserved)
+    //TODO
     return 0;
   }
 
   async purgeContainers(hostId?: string | 'all', opId?: string): Promise<number> {
     // ... (implementation preserved)
+    //TODO
     return 0;
   }
 
   async checkComposeProjectUpdates(hostId: string, composeProject: string, opId?: string): Promise<{ updated: number; projectName: string; error?: string }> {
     // ... (implementation preserved)
+    //TODO
     return { updated: 0, projectName: composeProject };
   }
 }

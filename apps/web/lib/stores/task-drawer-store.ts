@@ -9,7 +9,7 @@ type TaskDrawerState = {
   isOpen: boolean;
   isMinimized: boolean;
   actions: {
-    startOperation: (title: string, context?: object, triggerType?: 'USER' | 'SYSTEM') => Promise<string>;
+    startOperation: (title: string, context?: object, triggerType?: 'MANUAL' | 'SYSTEM') => Promise<string>;
     addTask: (task: OperationLog) => void;
     setLogHistory: (taskId: string, entries: OperationLogEntry[]) => void;
     addLogEntry: (taskId: string, entry: OperationLogEntry) => void;
@@ -30,7 +30,7 @@ export const useTaskDrawerStore = create<TaskDrawerState>()(
     isOpen: false,
     isMinimized: false,
     actions: {
-      startOperation: async (title, context = {}, triggerType = 'USER') => {
+      startOperation: async (title, context = {}, triggerType = 'MANUAL') => {
         const res = await fetch('/api/v1/operations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

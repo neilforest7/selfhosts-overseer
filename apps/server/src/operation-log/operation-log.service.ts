@@ -12,21 +12,25 @@ export class OperationLogService {
     private readonly execGateway: ExecGateway,
   ) {}
 
-  create(data: {
+  async create(data: {
     title: string;
     triggerType?: TriggerType;
     triggerContext?: Prisma.JsonValue;
     context?: Prisma.JsonValue;
-  }) {
+    automationRuleId?: string;
+  }): Promise<OperationLog> {
     console.log(`[OperationLogService] create called with title: "${data.title}"`);
-    return this.prisma.operationLog.create({
+    const newLog = await this.prisma.operationLog.create({
       data: {
-        ...data,
+        title: data.title,
+        triggerType: data.triggerType ?? TriggerType.MANUAL,
         status: 'PENDING',
         triggerContext: data.triggerContext ?? Prisma.DbNull,
         context: data.context ?? Prisma.DbNull,
+        automationRuleId: data.automationRuleId,
       },
     });
+    return newLog;
   }
 
   async log(

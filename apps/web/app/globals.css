@@ -49,4 +49,11 @@
 
 html, body { height: 100%; }
 
+/* Custom styles for popover/select content background */
+[data-radix-popper-content-wrapper] {
+  background-color: hsl(var(--popover));
+  /* border: 1px solid hsl(var(--border)); */
+  /* border-radius: var(--radius); */
+}
+
 

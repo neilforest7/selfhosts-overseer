@@ -244,7 +244,7 @@
     -   指向内部 IP (`192.168.x.x`, `172.16-31.x.x`, `10.x.x.x`) 的路由，其目标容器的搜索范围被严格限制在 NPM 所在的主机。
     -   NPM 指向自身的路由会被自动过滤。
 
-### 十五、FRP 配置发现与同步（规划）
+### 十五、FRP 配置发现与同步
 
 #### 1. 目标
 自动发现并解析所有主机上的 `frps` 和 `frpc` 容器的配置文件，提取其监听端口和代理规则，并将这些关系存储到数据库中，为网络拓扑图提供数据支持。
@@ -275,7 +275,92 @@
     -   此同步过程应在每次容器发现 (`discoverOnHost`) 成功后自动触发。
     -   同时，创建一个新的 API 端点 `POST /api/v1/frp/sync/:hostId`，允许用户手动触发对单个主机的 `frp` 配置同步。
 
-### 十六、非功能与未来规划
+### 十六、自动化中心 (Automation Center) - **核心设计**
+
+为了实现强大而灵活的自动化能力，我们摒弃了传统的、分离的“动作”和“触发器”模型，采用了一种更先进、更符合逻辑直觉的**“自动化规则 (Automation Rule)”**模型。其核心技术选型为 **`json-rules-engine`**，一个强大且轻量级的规则引擎。
+
+#### 1. 核心理念
+
+系统的核心是 `AutomationRule`。每一条规则都完整地定义了一个自动化流程，它将**“条件”**和**“事件”**封装在一个单一、原子化的实体中，清晰地回答了两个基本问题：
+
+1.  **“在什么条件下？” (Conditions)**: 一组用逻辑（AND/OR）组合的条件，当满足时触发。
+2.  **“做什么事？” (Event)**: 条件满足后，应该执行什么动作。
+
+这种设计使得自动化流程的创建、管理和理解都变得极其简单和直观。
+
+#### 2. 技术实现: `json-rules-engine`
+
+我们将使用 `json-rules-engine` 作为核心的规则评估引擎。
+
+-   **规则定义**: 所有自动化规则都将以 `json-rules-engine` 所要求的特定 JSON 格式存储在数据库中。这种格式天然地表达了“条件”与“事件”的逻辑关系。
+-   **后台执行器**: 在 NestJS 的 `automations.processor.ts` 中，一个基于 BullMQ 的周期性任务（例如每分钟执行一次）会：
+    1.  从数据库加载所有已启用的 `AutomationRule`。
+    2.  从各个服务（`HostsService`, `ContainersService` 等）收集系统当前的实时状态，作为规则引擎的**“事实 (Facts)”**。例如：`{ "cpuUsage": 85, "containerStatus": "stopped" }`。
+    3.  将规则和事实送入 `json-rules-engine` 实例进行评估。
+    4.  当规则的 `conditions` 被满足时，引擎会返回一个 `event`。
+-   **动作分发**: 执行器捕获到 `event` 后，会根据 `event.type` 和 `event.params` 调用相应的服务来执行具体操作（例如，调用 `ContainersService` 重启一个容器）。
+
+#### 3. 数据模型 (`AutomationRule`)
+
+为了与 `json-rules-engine` 无缝集成，`AutomationRule` 模型被设计得非常简洁：
+
+```prisma
+model AutomationRule {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isEnabled   Boolean  @default(true)
+
+  // 存储 json-rules-engine 的完整规则定义
+  // 包含 "conditions" (条件) 和 "event" (事件) 两部分
+  ruleJson    Json
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+```
+
+-   **`ruleJson`**: 这是模型的关键字段，直接存储了规则的 JSON 对象。一个示例可能如下：
+    ```json
+    {
+      "conditions": {
+        "all": [{
+          "fact": "containerStatus",
+          "operator": "equal",
+          "value": "exited",
+          "params": { "containerName": "my-app-db" }
+        }]
+      },
+      "event": {
+        "type": "restart-container",
+        "params": {
+          "containerId": "container-abc-123"
+        }
+      }
+    }
+    ```
+
+#### 4. 执行与日志
+
+-   **事实提供者 (Fact Providers)**: 后端服务会负责提供动态的、可供规则引擎使用的事实。例如，可以定义一个 `fact` 叫做 `containerStatus`，它接受 `containerName` 作为参数，并能实时查询该容器的状态。
+-   **操作日志 (`OperationLog`)**: 每当一条自动化规则被成功触发并执行时，系统都会创建一个 `OperationLog` 记录。这个记录会捕获该次执行的所有细节，包括触发时满足条件的“事实”、执行的事件详情、以及最终的成功或失败状态，为审计和调试提供了完整的追溯能力。
+
+#### 5. API 概览
+- **自动化**:
+  - `GET /api/v1/automations`: 获取所有自动化规则。
+  - `POST /api/v1/automations`: 创建一条新的自动化规则。
+  - `PATCH /api/v1/automations/:id`: 更新指定的自动化规则。
+  - `DELETE /api/v1/automations/:id`: 删除指定的自动化规则。
+
+#### 6. 前端 UI/UX
+- **自动化页面**: 一个专门的页面，用于集中展示和管理所有的 `AutomationRule`。
+- **规则构建器**: 一个线性的、从上到下的表单，用于创建和编辑自动化规则。该表单是**上下文感知**的：
+  - 用户可以从一个预设的“条件”列表中选择（例如，“CPU 使用率”、“容器状态”）。
+  - 根据所选的条件，表单会动态渲染出相应的操作符（大于、等于、包含等）和值输入框。
+  - 用户同样可以从一个预设的“动作”列表中选择（例如，“执行命令”、“重启容器”），并填写所需参数。
+- 这种设计将完全屏蔽底层 `json-rules-engine` 的 JSON 结构，使用户能够通过直观的点击和输入，轻松地编排复杂的自动化流程。
+
+### 十七、非功能与未来规划
 - 未来可选：
   - 危险命令防护开关（黑白名单/提示）
   - 私有镜像仓库凭证（GHCR/Harbor）
