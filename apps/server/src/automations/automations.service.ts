@@ -1,13 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { AUTOMATION_QUEUE_NAME } from './automations.processor';
 
 @Injectable()
 export class AutomationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @InjectQueue(AUTOMATION_QUEUE_NAME) private readonly automationsQueue: Queue,
+  ) {}
 
   async create(data: Prisma.AutomationRuleCreateInput) {
-    return this.prisma.automationRule.create({ data });
+    const rule = await this.prisma.automationRule.create({ data });
+    // Note: CRON scheduling is now handled through the rule engine's time fact
+    // No need to create separate BullMQ jobs for CRON-based rules
+    return rule;
   }
 
   async findAll() {
@@ -48,10 +57,21 @@ export class AutomationsService {
   }
 
   async update(id: string, data: Prisma.AutomationRuleUpdateInput) {
-    return this.prisma.automationRule.update({ where: { id }, data });
+    const rule = await this.prisma.automationRule.update({ where: { id }, data });
+    // Note: CRON scheduling is now handled through the rule engine's time fact
+    // Clean up any old BullMQ jobs that might exist from previous implementation
+    const job = await this.automationsQueue.getJob(id);
+    if (job) {
+      await job.remove();
+    }
+    return rule;
   }
 
   async remove(id: string) {
+    const job = await this.automationsQueue.getJob(id);
+    if (job) {
+      await job.remove();
+    }
     return this.prisma.automationRule.delete({ where: { id } });
   }
 

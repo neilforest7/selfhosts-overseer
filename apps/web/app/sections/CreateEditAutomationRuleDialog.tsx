@@ -14,6 +14,8 @@ import { AutomationRule } from './AutomationsSection';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useQuery } from '@tanstack/react-query';
 import { Combobox, ComboboxOption } from '@/components/ui/combobox';
+import { MultiSelectHosts } from './MultiSelectHosts';
+import cronstrue from 'cronstrue';
 
 // --- API Fetchers ---
 async function fetchHosts(): Promise<{ id: string; name: string }[]> {
@@ -43,20 +45,57 @@ const FACTS_DEFINITIONS = {
     param: { name: 'containerId', label: 'Container', type: 'combobox', optionsKey: 'containers' },
     factPath: '$.state',
   },
+  'time-schedule': {
+    label: 'Time Schedule (CRON)',
+    operators: ['matchesCron'],
+    valueType: 'text',
+    valueOptions: [],
+    param: null, // No parameter needed for time fact
+    factPath: null, // No path needed, we use the whole time object
+    placeholder: '0 9 * * 1-5 (9 AM on weekdays)',
+    description: 'Use CRON expression format: minute hour day month day-of-week',
+  },
   // Add more fact definitions here e.g. 'cpu-usage', 'host-status'
 };
 
 const EVENTS_DEFINITIONS = {
+  'log-message': {
+    label: 'Log a Message',
+    params: [{ name: 'message', label: 'Message', type: 'text' }],
+  },
   'restart-container': {
     label: 'Restart Container',
     params: [{ name: 'containerId', label: 'Container', type: 'combobox', optionsKey: 'containers' }],
   },
   'discover-containers': {
-    label: 'Rediscover Containers on Host',
-    params: [{ name: 'hostId', label: 'Host', type: 'select', optionsKey: 'hosts' }],
+    label: 'Rediscover Containers on Hosts',
+    params: [{ name: 'hostIds', label: 'Hosts', type: 'multiselect', optionsKey: 'hosts' }],
   },
   // Add more event definitions here
 };
+
+const OPERATOR_LABELS: Record<string, string> = {
+  'equal': 'equals',
+  'notEqual': 'does not equal',
+  'matchesCron': 'matches schedule',
+};
+
+// --- CRON Helper Functions ---
+const getCronDescription = (cronExpression: string): string => {
+  if (!cronExpression || cronExpression.trim() === '') {
+    return '';
+  }
+
+  try {
+    // Use English for better compatibility
+    return cronstrue.toString(cronExpression, {
+      use24HourTimeFormat: true
+    });
+  } catch (error) {
+    return '无效的 CRON 表达式';
+  }
+};
+
 // --- End Configuration ---
 
 const conditionSchema = z.object({
@@ -203,7 +242,13 @@ export function CreateEditAutomationRuleDialog({ isOpen, onOpenChange, rule, onS
                           <FormField name={`conditions.${index}.fact`} control={form.control} render={({ field }) => (
                             <FormItem>
                               <FormLabel>Fact</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <Select onValueChange={(value) => {
+                                field.onChange(value);
+                                // Auto-set operator for time-schedule
+                                if (value === 'time-schedule') {
+                                  form.setValue(`conditions.${index}.operator`, 'matchesCron');
+                                }
+                              }} defaultValue={field.value}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Select a fact..." /></SelectTrigger></FormControl>
                                 <SelectContent>{Object.entries(FACTS_DEFINITIONS).map(([key, { label }]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent>
                               </Select>
@@ -230,14 +275,45 @@ export function CreateEditAutomationRuleDialog({ isOpen, onOpenChange, rule, onS
                               <FormMessage /></FormItem>
                             )} />
                           )}
-                          <FormField name={`conditions.${index}.operator`} control={form.control} render={({ field }) => (
-                            <FormItem><FormLabel>Operator</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value} disabled={!factDef}><FormControl><SelectTrigger><SelectValue placeholder="Select operator..." /></SelectTrigger></FormControl><SelectContent>{factDef?.operators.map(op => <SelectItem key={op} value={op}>{op}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem>
-                          )} />
+                          {/* Hide operator for time-schedule fact */}
+                          {selectedFactKey !== 'time-schedule' && (
+                            <FormField name={`conditions.${index}.operator`} control={form.control} render={({ field }) => (
+                              <FormItem><FormLabel>Operator</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value} disabled={!factDef}><FormControl><SelectTrigger><SelectValue placeholder="Select operator..." /></SelectTrigger></FormControl><SelectContent>{factDef?.operators.map(op => <SelectItem key={op} value={op}>{OPERATOR_LABELS[op] || op}</SelectItem>)}</SelectContent></Select><FormMessage /></FormItem>
+                            )} />
+                          )}
                           <FormField name={`conditions.${index}.value`} control={form.control} render={({ field }) => (
-                            <FormItem><FormLabel>Value</FormLabel>
+                            <FormItem>
+                              <FormLabel>
+                                {selectedFactKey === 'time-schedule' ? 'CRON Expression' : 'Value'}
+                              </FormLabel>
                               {factDef?.valueType === 'select' ? (
                                 <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!factDef}><FormControl><SelectTrigger><SelectValue placeholder="Select value..." /></SelectTrigger></FormControl><SelectContent>{factDef.valueOptions.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}</SelectContent></Select>
-                              ) : ( <FormControl><Input {...field} value={field.value ?? ''} disabled={!factDef} /></FormControl> )}
+                              ) : (
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    value={field.value ?? ''}
+                                    disabled={!factDef}
+                                    placeholder={(factDef as any)?.placeholder || "Enter value..."}
+                                  />
+                                </FormControl>
+                              )}
+                              {/* Show CRON description for time-schedule */}
+                              {selectedFactKey === 'time-schedule' && field.value && (
+                                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                  <p className="text-sm text-blue-700 font-medium">
+                                    📅 {getCronDescription(field.value)}
+                                  </p>
+                                </div>
+                              )}
+                              {(factDef as any)?.description && selectedFactKey !== 'time-schedule' && (
+                                <p className="text-sm text-muted-foreground">{(factDef as any).description}</p>
+                              )}
+                              {selectedFactKey === 'time-schedule' && (
+                                <p className="text-sm text-muted-foreground">
+                                  格式: 分钟 小时 日 月 星期 (例如: "0 9 * * 1-5" 表示工作日上午9点)
+                                </p>
+                              )}
                             <FormMessage /></FormItem>
                           )} />
                         </div>
@@ -264,15 +340,23 @@ export function CreateEditAutomationRuleDialog({ isOpen, onOpenChange, rule, onS
                                 <SelectTrigger><SelectValue placeholder={`Select a ${param.label.toLowerCase()}...`} /></SelectTrigger>
                                 <SelectContent>
                                   {isLoadingHosts ? <SelectItem value="loading" disabled>Loading...</SelectItem> :
-                                    (dynamicOptions[param.optionsKey as keyof typeof dynamicOptions] || []).map((option: ComboboxOption) => (
+                                    (dynamicOptions[(param as any).optionsKey as keyof typeof dynamicOptions] || []).map((option: ComboboxOption) => (
                                       <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                                     ))
                                   }
                                 </SelectContent>
                               </Select>
+                            ) : param.type === 'multiselect' ? (
+                              <MultiSelectHosts
+                                options={dynamicOptions[(param as any).optionsKey as keyof typeof dynamicOptions] || []}
+                                value={field.value || []}
+                                onChange={field.onChange}
+                                placeholder={`Select ${param.label.toLowerCase()}...`}
+                                isLoading={isLoadingHosts}
+                              />
                             ) : param.type === 'combobox' ? (
                                 <Combobox
-                                  options={dynamicOptions[param.optionsKey as keyof typeof dynamicOptions] || []}
+                                  options={dynamicOptions[(param as any).optionsKey as keyof typeof dynamicOptions] || []}
                                   value={field.value}
                                   onChange={field.onChange}
                                   placeholder={`Select a ${param.label.toLowerCase()}...`}

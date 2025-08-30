@@ -217,9 +217,14 @@ export class ContainersService {
 
   async discover(bodyHost?: { id?: string; address?: string; sshUser?: string; port?: number } | { id: 'all' }): Promise<{ taskId: string }> {
     console.log('--- DISCOVER METHOD CALLED ---');
-    const opLog = await this.operationLogService.create({ title: `Discover Containers` });
-    
-    return this.contextService.run(opLog.id, async () => {
+
+    // Check if we're already running in an OperationLog context (e.g., from automation)
+    const existingOpId = this.contextService.getOpId();
+
+    if (existingOpId) {
+      // We're already in a context, don't create a new OperationLog
+      console.log(`Using existing OperationLog context: ${existingOpId}`);
+
       let targetHostIds: string[];
 
       if (bodyHost && (bodyHost as any).address && (bodyHost as any).sshUser && (bodyHost as any).id) {
@@ -233,14 +238,76 @@ export class ContainersService {
           targetHostIds = [hostId];
         }
       }
-      
+
       await this.tasksService.exec({
         command: 'internal:discover_containers',
         targets: targetHostIds,
       });
 
-      return { taskId: opLog.id };
-    });
+      return { taskId: existingOpId };
+    } else {
+      // No existing context, create a new OperationLog
+      const opLog = await this.operationLogService.create({ title: `Discover Containers` });
+
+      return this.contextService.run(opLog.id, async () => {
+        let targetHostIds: string[];
+
+        if (bodyHost && (bodyHost as any).address && (bodyHost as any).sshUser && (bodyHost as any).id) {
+          targetHostIds = [(bodyHost as any).id];
+        } else {
+          const hostId = bodyHost ? ((bodyHost as any).id as string | undefined) : undefined;
+          if (!hostId || hostId === 'all') {
+            const hosts = await this.prisma.host.findMany({ select: { id: true }, take: 1000 });
+            targetHostIds = hosts.map(h => h.id);
+          } else {
+            targetHostIds = [hostId];
+          }
+        }
+
+        await this.tasksService.exec({
+          command: 'internal:discover_containers',
+          targets: targetHostIds,
+        });
+
+        return { taskId: opLog.id };
+      });
+    }
+  }
+
+  async discoverMultiple(hostIds: string[]): Promise<{ taskId: string }> {
+    console.log('--- DISCOVER MULTIPLE METHOD CALLED ---', hostIds);
+
+    // Check if we're already running in an OperationLog context (e.g., from automation)
+    const existingOpId = this.contextService.getOpId();
+
+    if (existingOpId) {
+      // We're already in a context, don't create a new OperationLog
+      console.log(`Using existing OperationLog context: ${existingOpId}`);
+
+      await this.tasksService.exec({
+        command: 'internal:discover_containers',
+        targets: hostIds,
+      });
+
+      return { taskId: existingOpId };
+    } else {
+      // No existing context, create a new OperationLog
+      const hostNames = await this.prisma.host.findMany({
+        where: { id: { in: hostIds } },
+        select: { name: true }
+      });
+      const title = `Discover Containers (${hostNames.map(h => h.name).join(', ')})`;
+      const opLog = await this.operationLogService.create({ title });
+
+      return this.contextService.run(opLog.id, async () => {
+        await this.tasksService.exec({
+          command: 'internal:discover_containers',
+          targets: hostIds,
+        });
+
+        return { taskId: opLog.id };
+      });
+    }
   }
 
   async checkUpdates(host: { id: string; address: string; sshUser: string; port?: number }): Promise<{ updated: number }> {

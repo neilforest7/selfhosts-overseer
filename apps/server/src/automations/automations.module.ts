@@ -10,6 +10,7 @@ import {
 import { HostsModule } from '../hosts/hosts.module';
 import { ContainersModule } from '../containers/containers.module';
 import { OperationLogModule } from '../operation-log/operation-log.module';
+import { ContextModule } from '../context/context.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { OperationLogModule } from '../operation-log/operation-log.module';
     HostsModule,
     ContainersModule,
     OperationLogModule,
+    ContextModule,
   ],
   controllers: [AutomationsController],
   providers: [AutomationsService, AutomationsProcessor],

@@ -1,3 +1,5 @@
+export * from '@prisma/client';
+
 export interface AppSettings {
   sshConcurrency: number; // 并发 10–100，默认 30
   commandTimeoutSeconds: number; // 超时 10–900s，默认 100s
@@ -25,4 +27,3 @@ export interface TaskRunSummary {
   startedAt?: string;
   finishedAt?: string;
 }
-

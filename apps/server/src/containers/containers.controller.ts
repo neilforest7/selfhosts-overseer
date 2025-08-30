@@ -49,7 +49,14 @@ export class ContainersController {
   }
 
   @Post('discover')
-  async discover(@Body() body: { host?: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
+  async discover(@Body() body: {
+    host?: { id?: string; address?: string; sshUser?: string; port?: number };
+    hostIds?: string[];
+  }) {
+    // Support both single host and multiple hosts
+    if (body.hostIds && body.hostIds.length > 0) {
+      return this.containers.discoverMultiple(body.hostIds);
+    }
     const hostArg = (body && body.host) ? (body.host as any) : ({ id: 'all' } as any);
     return this.containers.discover(hostArg);
   }

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { ManualPortDialog } from './ManualPortDialog';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
+import { DiscoverHostsDialog } from './DiscoverHostsDialog';
 import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 
 
@@ -50,6 +51,7 @@ export default function ContainersSection() {
   const [hostFilter, setHostFilter] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'compose' | 'cli'>('all');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [discoverDialogOpen, setDiscoverDialogOpen] = useState(false);
   const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
 
   const listQuery = useQuery<{ items: ContainerItem[] }>({ 
@@ -132,8 +134,20 @@ export default function ContainersSection() {
   };
 
   const discover = useMutation({
-    mutationFn: async (hostTarget: string | 'all') => {
-      const body = hostTarget === 'all' ? {} : { host: { id: hostTarget } };
+    mutationFn: async (hostTarget: string | 'all' | string[]) => {
+      let body: any;
+
+      if (Array.isArray(hostTarget)) {
+        // Multiple hosts
+        body = { hostIds: hostTarget };
+      } else if (hostTarget === 'all') {
+        // All hosts
+        body = {};
+      } else {
+        // Single host
+        body = { host: { id: hostTarget } };
+      }
+
       const r = await fetch('http://localhost:3001/api/v1/containers/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -143,7 +157,19 @@ export default function ContainersSection() {
       return r.json();
     },
     onMutate: (hostTarget) => {
-      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
+      let hostName: string;
+
+      if (Array.isArray(hostTarget)) {
+        const hostNames = hostTarget.map(id =>
+          hostsQuery.data?.items?.find(h => h.id === id)?.name || id
+        );
+        hostName = `${hostNames.slice(0, 2).join(', ')}${hostNames.length > 2 ? ` 等 ${hostNames.length} 台主机` : ''}`;
+      } else if (hostTarget === 'all') {
+        hostName = '全部主机';
+      } else {
+        hostName = hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget;
+      }
+
       toast.info(`开始容器发现：${hostName}`);
     },
     onSuccess: async (data: any, variables) => {
@@ -152,7 +178,19 @@ export default function ContainersSection() {
         selectTask(data.taskId);
         setOpen(true);
       }
-      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
+
+      let hostName: string;
+      if (Array.isArray(variables)) {
+        const hostNames = variables.map(id =>
+          hostsQuery.data?.items?.find(h => h.id === id)?.name || id
+        );
+        hostName = `${hostNames.slice(0, 2).join(', ')}${hostNames.length > 2 ? ` 等 ${hostNames.length} 台主机` : ''}`;
+      } else if (variables === 'all') {
+        hostName = '全部主机';
+      } else {
+        hostName = hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables;
+      }
+
       if (typeof data?.upserted === 'number') {
         toast.success(`发现完成（${hostName}）：新增/更新 ${data.upserted} 个`);
       } else {
@@ -163,7 +201,17 @@ export default function ContainersSection() {
       setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 800);
     },
     onError: (err: any, variables) => {
-      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
+      let hostName: string;
+      if (Array.isArray(variables)) {
+        const hostNames = variables.map(id =>
+          hostsQuery.data?.items?.find(h => h.id === id)?.name || id
+        );
+        hostName = `${hostNames.slice(0, 2).join(', ')}${hostNames.length > 2 ? ` 等 ${hostNames.length} 台主机` : ''}`;
+      } else if (variables === 'all') {
+        hostName = '全部主机';
+      } else {
+        hostName = hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables;
+      }
       toast.error(`发现失败（${hostName}）：${err?.message || '未知错误'}`);
     }
   });
@@ -288,21 +336,9 @@ export default function ContainersSection() {
     <Card>
       <CardHeader className='flex-row align-middle items-center gap-2 '>
         <CardTitle className='flex-1'>容器</CardTitle>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm">发现容器</Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => { console.log('Discover all clicked'); discover.mutate('all'); }}>
-              全部主机
-            </DropdownMenuItem>
-            {hostsQuery.data?.items?.map(host => (
-              <DropdownMenuItem key={host.id} onClick={() => { console.log(`Discover ${host.name} clicked`); discover.mutate(host.id); }}>
-                {host.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button size="sm" onClick={() => setDiscoverDialogOpen(true)}>
+          发现容器
+        </Button>
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -767,7 +803,15 @@ export default function ContainersSection() {
           </TableBody>
         </Table>
       </CardContent>
-      
+
+      {/* 多选主机发现对话框 */}
+      <DiscoverHostsDialog
+        open={discoverDialogOpen}
+        onOpenChange={setDiscoverDialogOpen}
+        hosts={hostsQuery.data?.items || []}
+        onConfirm={(hostIds) => discover.mutate(hostIds)}
+        isLoading={discover.isPending}
+      />
     </Card>
   );
 }

@@ -10,7 +10,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { AutomationsService } from './automations.service';
-import { Prisma } from '@prisma/client';
+import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
+import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
 
 @Controller('/api/v1/automations')
 export class AutomationsController {
@@ -18,7 +19,7 @@ export class AutomationsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() data: Prisma.AutomationRuleCreateInput) {
+  create(@Body() data: CreateAutomationRuleDto) {
     return this.automationsService.create(data);
   }
 
@@ -33,7 +34,7 @@ export class AutomationsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() data: Prisma.AutomationRuleUpdateInput) {
+  update(@Param('id') id: string, @Body() data: UpdateAutomationRuleDto) {
     return this.automationsService.update(id, data);
   }
 

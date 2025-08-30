@@ -229,4 +229,5 @@ enum TriggerType {
   CRON
   WEBHOOK
   EVENT
+  SCHEDULE
 }
