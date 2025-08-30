@@ -20,14 +20,16 @@ async function fetchHosts(): Promise<{ id: string; name: string }[]> {
   const r = await fetch('/api/v1/hosts');
   if (!r.ok) throw new Error('Failed to fetch hosts');
   const data = await r.json();
-  return data.items || data;
+  const result = data.items || data;
+  return Array.isArray(result) ? result : [];
 }
 
 async function fetchContainers(): Promise<{ id: string; name: string; host: { name: string } }[]> {
   const r = await fetch('/api/v1/containers');
   if (!r.ok) throw new Error('Failed to fetch containers');
   const data = await r.json();
-  return data.items || data;
+  const result = data.items || data;
+  return Array.isArray(result) ? result : [];
 }
 
 
@@ -97,10 +99,15 @@ export function CreateEditAutomationRuleDialog({ isOpen, onOpenChange, rule, onS
     enabled: isOpen,
   });
 
-  const containerOptions: ComboboxOption[] = containers.map(c => ({
+  const containerOptions: ComboboxOption[] = (!isLoadingContainers && Array.isArray(containers) ? containers : []).map(c => ({
     value: c.id,
     label: c.name,
     group: c.host.name,
+  }));
+
+  const hostOptions: ComboboxOption[] = (!isLoadingHosts && Array.isArray(hosts) ? hosts : []).map(h => ({
+    value: h.id,
+    label: h.name,
   }));
 
   const form = useForm<FormData>({
@@ -164,7 +171,7 @@ export function CreateEditAutomationRuleDialog({ isOpen, onOpenChange, rule, onS
   const eventParams = EVENTS_DEFINITIONS[selectedEventType as keyof typeof EVENTS_DEFINITIONS]?.params;
 
   const dynamicOptions = {
-    hosts: hosts,
+    hosts: hostOptions,
     containers: containerOptions,
   };
 
@@ -257,14 +264,14 @@ export function CreateEditAutomationRuleDialog({ isOpen, onOpenChange, rule, onS
                                 <SelectTrigger><SelectValue placeholder={`Select a ${param.label.toLowerCase()}...`} /></SelectTrigger>
                                 <SelectContent>
                                   {isLoadingHosts ? <SelectItem value="loading" disabled>Loading...</SelectItem> :
-                                    (dynamicOptions[param.optionsKey as keyof typeof dynamicOptions] || []).map((option: any) => (
-                                      <SelectItem key={option.id || option.value} value={option.id || option.value}>{option.name || option.label}</SelectItem>
+                                    (dynamicOptions[param.optionsKey as keyof typeof dynamicOptions] || []).map((option: ComboboxOption) => (
+                                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                                     ))
                                   }
                                 </SelectContent>
                               </Select>
                             ) : param.type === 'combobox' ? (
-                               <Combobox
+                                <Combobox
                                   options={dynamicOptions[param.optionsKey as keyof typeof dynamicOptions] || []}
                                   value={field.value}
                                   onChange={field.onChange}

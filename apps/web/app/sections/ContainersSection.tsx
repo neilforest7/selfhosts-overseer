@@ -50,9 +50,9 @@ export default function ContainersSection() {
   const [hostFilter, setHostFilter] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'compose' | 'cli'>('all');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const { startOperation } = useTaskDrawerStore((s) => s.actions);
+  const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
 
-  const listQuery = useQuery<{ items: ContainerItem[] }>({
+  const listQuery = useQuery<{ items: ContainerItem[] }>({ 
     queryKey: ['containers', q, updateOnly, hostFilter, filterMode],
     queryFn: async () => {
       const url = new URL('http://localhost:3001/api/v1/containers');
@@ -133,10 +133,7 @@ export default function ContainersSection() {
 
   const discover = useMutation({
     mutationFn: async (hostTarget: string | 'all') => {
-      const hostName = hostTarget === 'all' ? '全部主机' : hostsQuery.data?.items?.find((h) => h.id === hostTarget)?.name || hostTarget;
-      const title = `容器发现（${hostName}）`;
-      const opId = await startOperation(title);
-      const body = hostTarget === 'all' ? { opId } : { host: { id: hostTarget }, opId };
+      const body = hostTarget === 'all' ? {} : { host: { id: hostTarget } };
       const r = await fetch('http://localhost:3001/api/v1/containers/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,6 +147,11 @@ export default function ContainersSection() {
       toast.info(`开始容器发现：${hostName}`);
     },
     onSuccess: async (data: any, variables) => {
+      if (data.taskId) {
+        await fetchTasks();
+        selectTask(data.taskId);
+        setOpen(true);
+      }
       const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
       if (typeof data?.upserted === 'number') {
         toast.success(`发现完成（${hostName}）：新增/更新 ${data.upserted} 个`);
@@ -168,10 +170,7 @@ export default function ContainersSection() {
 
   const checkUpdates = useMutation({
     mutationFn: async (hostTarget: string | 'all') => {
-      const hostName = hostTarget === 'all' ? '全部主机' : hostsQuery.data?.items?.find((h) => h.id === hostTarget)?.name || hostTarget;
-      const title = `检查镜像更新（${hostName}）`;
-      const opId = await startOperation(title);
-      const body = hostTarget === 'all' ? { opId } : { host: { id: hostTarget }, opId };
+      const body = hostTarget === 'all' ? {} : { host: { id: hostTarget } };
       const r = await fetch('http://localhost:3001/api/v1/containers/check-updates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -185,6 +184,11 @@ export default function ContainersSection() {
       toast.info(`开始检查镜像更新：${hostName}`);
     },
     onSuccess: async (data: any, variables) => {
+      if (data.taskId) {
+        await fetchTasks();
+        selectTask(data.taskId);
+        setOpen(true);
+      }
       const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
       if (typeof data?.updated === 'number') {
         toast.success(`检查完成（${hostName}）：可更新 ${data.updated} 个`);
@@ -203,11 +207,10 @@ export default function ContainersSection() {
   // Compose 操作（改为直接调用后端 compose/operate 接口）
   const composeOperation = useMutation({
     mutationFn: async ({ hostId, project, workingDir, operation }: { hostId: string; project: string; workingDir: string; operation: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop' }) => {
-      const opId = await startOperation(`Compose ${operation}: ${project}`);
       const r = await fetch('http://localhost:3001/api/v1/containers/compose/operate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hostId, project, workingDir, op: operation, opId })
+        body: JSON.stringify({ hostId, project, workingDir, op: operation })
       });
       if (!r.ok) throw new Error(`${operation} 操作失败`);
       return r.json();
@@ -216,6 +219,11 @@ export default function ContainersSection() {
       toast.info(`Compose ${operation} 已触发：${project}`);
     },
     onSuccess: async (data: any, { project }) => {
+      if (data.taskId) {
+        await fetchTasks();
+        selectTask(data.taskId);
+        setOpen(true);
+      }
       if (typeof data?.code === 'number') {
         toast.success(`Compose 操作完成：${project}（退出码 ${data.code}）`);
       } else {
@@ -285,11 +293,11 @@ export default function ContainersSection() {
             <Button size="sm">发现容器</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => discover.mutate('all')}>
+            <DropdownMenuItem onClick={() => { console.log('Discover all clicked'); discover.mutate('all'); }}>
               全部主机
             </DropdownMenuItem>
             {hostsQuery.data?.items?.map(host => (
-              <DropdownMenuItem key={host.id} onClick={() => discover.mutate(host.id)}>
+              <DropdownMenuItem key={host.id} onClick={() => { console.log(`Discover ${host.name} clicked`); discover.mutate(host.id); }}>
                 {host.name}
               </DropdownMenuItem>
             ))}
@@ -301,7 +309,7 @@ export default function ContainersSection() {
             <Button size="sm">检查更新</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => checkUpdates.mutate('all')}>
+            <DropdownMenuItem onClick={() => checkUpdates.mutate('all')}> 
               全部主机
             </DropdownMenuItem>
             {hostsQuery.data?.items?.map(host => (
@@ -449,7 +457,7 @@ export default function ContainersSection() {
                 : getContainerStatusBadge(groupStatus.state, groupStatus.status);
               
               return (
-                <Fragment key={key}>
+                <Fragment key={key}> 
                   <TableRow>
                     <TableCell>
                       <Badge className={getHostBadgeColor(first.hostId)}>
@@ -738,7 +746,7 @@ export default function ContainersSection() {
                                       ) : null}
                                     </TableCell>
                                     <TableCell className="text-right">
-                                      <ManualPortDialog containerId={i.id} existingMapping={i.manualPortMapping}>
+                                      <ManualPortDialog containerId={i.id} existingMapping={i.manualPortMapping}> 
                                         <Button variant="outline" size="sm">
                                           标记端口
                                         </Button>

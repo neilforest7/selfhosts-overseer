@@ -64,9 +64,7 @@ export class DockerService {
 
       // 尝试登录 Docker Hub
       const loginCmd = `echo "${appSettings.dockerCredentialsPersonalAccessToken}" | docker login --username "${appSettings.dockerCredentialsUsername}" --password-stdin`;
-      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, {
-        killAfterSeconds: 60,
-      } as any);
+      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd);
 
       if (loginCode === 0) {
         console.log(`[Docker凭证] 登录成功: ${host.address}`);
@@ -175,7 +173,7 @@ export class DockerService {
         const timer = setTimeout(() => {
           try {
             p.kill('SIGKILL');
-          } catch {}
+          } catch {} 
         }, timeoutSec * 1000);
 
         p.stdout.on('data', d => stdoutChunks.push(d));
@@ -230,7 +228,6 @@ export class DockerService {
       privateKeyPassphrase?: string;
     },
     args: string[],
-    taskId: string,
     timeoutSec = 60,
   ): Promise<{ code: number; stdout: string; stderr: string; cmd: string }> {
     const isLocal = host.address === '127.0.0.1' || host.address === 'localhost';
@@ -242,9 +239,18 @@ export class DockerService {
     const proxyEnv = await this.buildProxyEnv(host.address, args);
     const envPrefix = proxyEnv ? `${proxyEnv} ` : '';
 
-    const dockerCmd = `${envPrefix}docker ${args.join(' ')}`;
-    const escaped = dockerCmd.replace(/'/g, "'\"'\"'");
-    const wrapped = `sh -lc '${escaped}'`;
+    // Properly escape arguments for shell execution
+    const escapedArgs = args.map(arg => {
+      // If argument contains special characters, quote it properly
+      if (arg.includes('{{') || arg.includes('}}') || arg.includes(' ') || arg.includes('|') || arg.includes('"')) {
+        // Escape single quotes within the argument and wrap in single quotes
+        return `'${arg.replace(/'/g, "'\"'\"'")}'`;
+      }
+      return arg;
+    });
+
+    const dockerCmd = `${envPrefix}docker ${escapedArgs.join(' ')}`;
+    const wrapped = `sh -lc "${dockerCmd.replace(/"/g, '\\"')}"`;
 
     if (isLocal) {
       // 本机也走统一的 shell 包裹，避免 format/转义差异
@@ -265,7 +271,6 @@ export class DockerService {
         privateKey: host.privateKey,
         privateKeyPassphrase: host.privateKeyPassphrase,
       },
-      taskId,
       host.id,
     );
 
@@ -296,9 +301,18 @@ export class DockerService {
     const proxyEnv = await this.buildProxyEnv(host.address, args);
     const envPrefix = proxyEnv ? `${proxyEnv} ` : '';
 
-    const dockerCmd = `${envPrefix}docker ${args.join(' ')}`;
-    const escaped = dockerCmd.replace(/'/g, "'\"'\"'");
-    const wrapped = `sh -lc '${escaped}'`;
+    // Properly escape arguments for shell execution
+    const escapedArgs = args.map(arg => {
+      // If argument contains special characters, quote it properly
+      if (arg.includes('{{') || arg.includes('}}') || arg.includes(' ') || arg.includes('|') || arg.includes('"')) {
+        // Escape single quotes within the argument and wrap in single quotes
+        return `'${arg.replace(/'/g, "'\"'\"'")}'`;
+      }
+      return arg;
+    });
+
+    const dockerCmd = `${envPrefix}docker ${escapedArgs.join(' ')}`;
+    const wrapped = `sh -lc "${dockerCmd.replace(/"/g, '\\"')}"`;
     if (isLocal) {
       // 本机也走统一的 shell 包裹，避免 format/转义差异
       return new Promise(resolve => {
@@ -308,7 +322,7 @@ export class DockerService {
         const timer = setTimeout(() => {
           try {
             p.kill('SIGKILL');
-          } catch {}
+          } catch {} 
         }, timeoutSec * 1000);
         p.stdout.setEncoding('utf8');
         p.stderr.setEncoding('utf8');
@@ -316,11 +330,11 @@ export class DockerService {
         p.stderr.on('data', d => (stderr += d));
         p.on('exit', code => {
           clearTimeout(timer);
-          resolve({ code: code ?? 1, stdout, stderr, cmd: `sh -lc '${escaped}'` });
+          resolve({ code: code ?? 1, stdout, stderr, cmd: wrapped });
         });
         p.on('error', () => {
           clearTimeout(timer);
-          resolve({ code: 1, stdout, stderr, cmd: `sh -lc '${escaped}'` });
+          resolve({ code: 1, stdout, stderr, cmd: wrapped });
         });
       });
     }
@@ -412,8 +426,9 @@ export class DockerService {
     host: { address: string; sshUser: string; port?: number },
     imageRef: string,
   ): Promise<string[]> {
-    const { code, stdout } = await this.exec(host, ['inspect', '--format', '{{json .RepoDigests}}', imageRef], 60);
-    if (code !== 0) return [];
+    const { code, stdout, stderr } = await this.exec(host, ['inspect', '--format', '{{json .RepoDigests}}', imageRef], 60);
+    // Check for both exit code and template parsing errors
+    if (code !== 0 || stderr.includes('template parsing error')) return [];
     try {
       const arr = JSON.parse(stdout.trim());
       return Array.isArray(arr) ? arr : [];
@@ -426,8 +441,9 @@ export class DockerService {
     host: { address: string; sshUser: string; port?: number },
     imageRef: string,
   ): Promise<string[]> {
-    const { code, stdout } = await this.exec(host, ['inspect', '--format', '{{json .RepoTags}}', imageRef], 60);
-    if (code !== 0) return [];
+    const { code, stdout, stderr } = await this.exec(host, ['inspect', '--format', '{{json .RepoTags}}', imageRef], 60);
+    // Check for both exit code and template parsing errors
+    if (code !== 0 || stderr.includes('template parsing error')) return [];
     try {
       const arr = JSON.parse(stdout.trim());
       return Array.isArray(arr) ? arr : [];
@@ -469,15 +485,13 @@ export class DockerService {
   ): Promise<any[]> {
     const { code, stdout } = await this.exec(
       host,
-      ['ps', '-a', '--filter', `label=com.docker.compose.project=${project}`, `--format='{{json .}}'`],
+      ['ps', '-a', '--filter', `label=com.docker.compose.project=${project}`, '--format', '{{json .}}'],
       timeoutSec,
     );
     if (code !== 0) return [];
     const lines = stdout.split('\n').filter(Boolean);
     const items: any[] = [];
-    for (const line of lines) {
-      try { items.push(JSON.parse(line)); } catch {}
-    }
+    for (const line of lines) { try { items.push(JSON.parse(line)); } catch {} }
     return items;
   }
 
@@ -779,7 +793,7 @@ export class DockerService {
       ) {
         // 尝试使用配置的凭证登录
         const loginCmd = `echo "${appSettings.dockerCredentialsPersonalAccessToken}" | docker login --username "${appSettings.dockerCredentialsUsername}" --password-stdin`;
-        const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd, 30 as any);
+        const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd);
 
         if (loginCode === 0) {
           return { success: true };
@@ -911,12 +925,12 @@ export class DockerService {
       }
 
       // 检查镜像的平台信息
-      const { code: code2, stdout: stdout2 } = await this.exec(
+      const { code: code2, stdout: stdout2, stderr: stderr2 } = await this.exec(
         host,
         ['inspect', '--format', '{{.Architecture}} {{.Os}}', imageId],
         30,
       );
-      if (code2 === 0 && stdout2.trim()) {
+      if (code2 === 0 && stdout2.trim() && !stderr2.includes('template parsing error')) {
         const parts = stdout2.trim().split(' ');
         if (parts.length >= 2) {
           return {
@@ -927,8 +941,8 @@ export class DockerService {
       }
 
       // 如果上面的方法失败，尝试从系统信息推断（通常容器运行在宿主机同架构上）
-      const { code: code3, stdout: stdout3 } = await this.exec(host, ['version', '--format', '{{.Server.Arch}}'], 30);
-      if (code3 === 0 && stdout3.trim()) {
+      const { code: code3, stdout: stdout3, stderr: stderr3 } = await this.exec(host, ['version', '--format', '{{.Server.Arch}}'], 30);
+      if (code3 === 0 && stdout3.trim() && !stderr3.includes('template parsing error')) {
         return {
           architecture: stdout3.trim(),
           os: 'linux', // Docker 主要运行在 Linux 上
@@ -961,27 +975,36 @@ export class DockerService {
       const { code, stdout } = await this.exec(host, ['inspect', '--format', '{{.Image}}', containerId], 30);
       if (code === 0 && stdout.trim()) {
         const imageId = stdout.trim();
-        // 检查是否已经是 digest 格式 (sha256:...)
         if (imageId.startsWith('sha256:')) {
           return imageId;
         }
 
-        // 如果是短ID，尝试获取完整的digest
-        const { code: code2, stdout: stdout2 } = await this.exec(
+        // Try to get RepoDigests, but handle errors gracefully
+        // Some images might not have RepoDigests or the imageId might be invalid
+        const { code: code2, stdout: stdout2, stderr: stderr2 } = await this.exec(
           host,
-          ['inspect', '--format', '{{index .RepoDigests 0}}', imageId],
+          ['inspect', '--format', '{{json .RepoDigests}}', imageId],
           30,
         );
-        if (code2 === 0 && stdout2.trim()) {
-          // 提取 digest 部分（格式通常是 "registry/image@sha256:..."）
-          const repoDigest = stdout2.trim();
-          const digestMatch = repoDigest.match(/@(sha256:[a-f0-9]+)/);
-          if (digestMatch) {
-            return digestMatch[1];
+
+        // Only proceed if the command succeeded and didn't produce template errors
+        if (code2 === 0 && stdout2.trim() && !stderr2.includes('template parsing error')) {
+          try {
+            const repoDigests = JSON.parse(stdout2.trim());
+            if (Array.isArray(repoDigests) && repoDigests.length > 0) {
+              const repoDigest = repoDigests[0];
+              const digestMatch = repoDigest.match(/@(sha256:[a-f0-9]+)/);
+              if (digestMatch) {
+                return digestMatch[1];
+              }
+              return repoDigest; // Fallback to the full string if no @ is found
+            }
+          } catch (e) {
+            // JSON parsing failed, return the imageId as fallback
           }
         }
 
-        // 如果还是无法获取，返回 Image ID（可能是 sha256:xxx 格式）
+        // If RepoDigests inspection failed, return the imageId as is
         return imageId;
       }
       return null;
@@ -990,4 +1013,3 @@ export class DockerService {
     }
   }
 }
-

@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { SettingsService } from '../settings/settings.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
+import { ContextService } from '../context/context.service';
 
 type HostWithCreds = Host & {
   password?: string;
@@ -24,6 +25,7 @@ export class ReverseProxyService {
     private readonly crypto: CryptoService,
     private readonly settings: SettingsService,
     private readonly operationLogService: OperationLogService,
+    private readonly contextService: ContextService,
   ) {}
 
   async listRoutes(params: { hostId?: string }) {
@@ -34,114 +36,111 @@ export class ReverseProxyService {
     });
   }
 
-  async syncRoutesFromHost(hostId: string, opId?: string): Promise<void> {
-    const isStandaloneAction = !opId;
-    let effectiveOpId = opId;
-    let isFailed = false;
-
-    if (isStandaloneAction) {
+  async syncRoutesFromHost(hostId: string): Promise<void> {
+    const existingOpId = this.contextService.getOpId();
+    if (existingOpId) {
+      return this.runSyncLogic(hostId);
+    } else {
       const opLog = await this.operationLogService.create({ title: `Sync Reverse Proxy Routes from host ${hostId}` });
-      effectiveOpId = opLog.id;
+      return this.contextService.run(opLog.id, () => this.runSyncLogic(hostId, opLog.id));
     }
+  }
 
-    const log = async (stream: 'system' | 'info' | 'error', content: string) => {
-      await this.operationLogService.log(effectiveOpId!, stream, content, hostId);
-    };
-
+  private async runSyncLogic(hostId: string, opId?: string): Promise<void> {
+    let isFailed = false;
     try {
       const host = await this.getHostWithCreds(hostId);
       if (!host) throw new Error(`Host not found: ${hostId}`);
 
-      await log('system', `Starting NPM sync for host: ${host.name} (${host.address})`);
+      this.operationLogService.log('system', `Starting NPM sync for host: ${host.name} (${host.address})`, hostId);
 
       const npmContainer = await this.prisma.container.findFirst({
         where: { hostId, name: { contains: 'npm-app' } },
       });
 
       if (!npmContainer) {
-        await log('info', `No NPM container found on host ${host.name}, skipping sync.`);
-        // This is not an error, so we don't throw. The action can complete successfully.
+        this.operationLogService.log('info', `No NPM container found on host ${host.name}, skipping sync.`, hostId);
         return;
       }
 
-      await log('info', `Found NPM container: ${npmContainer.name} (${npmContainer.containerId})`);
+      this.operationLogService.log('info', `Found NPM container: ${npmContainer.name} (${npmContainer.containerId})`);
 
-      const inspectData = await this.docker.inspectContainers(
-        { ...host, port: host.port ?? undefined },
-        [npmContainer.containerId || ''],
-      );
-      if (!inspectData || inspectData.length === 0) {
-        throw new Error(`Could not inspect NPM container ${npmContainer.name}`);
-      }
+    const inspectData = await this.docker.inspectContainers(
+      { ...host, port: host.port ?? undefined },
+      [npmContainer.containerId || ''],
+    );
+    if (!inspectData || inspectData.length === 0) {
+      throw new Error(`Could not inspect NPM container ${npmContainer.name}`);
+    }
 
-      const envVars = this.parseEnvArray(inspectData[0].Config.Env);
-      let routes: any[] | null = [];
+    const envVars = this.parseEnvArray(inspectData[0].Config.Env);
+    let routes: any[] | null = [];
 
-      if (envVars['DB_MYSQL_HOST']) {
-        await log('info', 'Detected MySQL/MariaDB configuration.');
-        routes = await this.syncFromMysql(host, inspectData[0], envVars, log);
-      } else {
-        await log('info', 'Detected SQLite configuration.');
-        routes = await this.syncFromSqlite(host, inspectData[0], log);
-      }
+    if (envVars['DB_MYSQL_HOST']) {
+      this.operationLogService.log('info', 'Detected MySQL/MariaDB configuration.');
+      routes = await this.syncFromMysql(host, inspectData[0], envVars);
+    } else {
+      this.operationLogService.log('info', 'Detected SQLite configuration.');
+      routes = await this.syncFromSqlite(host, inspectData[0]);
+    }
 
-      if (!routes) throw new Error('Failed to retrieve routes from NPM.');
+    if (!routes) throw new Error('Failed to retrieve routes from NPM.');
 
-      await log('info', `Found ${routes.length} routes in the database.`);
-      const now = new Date();
-      let upsertedCount = 0;
+      this.operationLogService.log('info', `Found ${routes.length} routes in the database.`);
+    const now = new Date();
+    let upsertedCount = 0;
 
-      for (const route of routes) {
-        const domainsRaw = route.domain_names || '';
-        let domainNames: string[] = [];
-        if (domainsRaw.startsWith('[') && domainsRaw.endsWith(']')) {
-          try {
-            domainNames = JSON.parse(domainsRaw);
-          } catch (e) {
-            domainNames = domainsRaw.replace(/[[\\\\]\\\"]/g, '').split(',').map((d: any) => d.trim());
-          }
-        } else if (domainsRaw) {
-          domainNames = domainsRaw.split(',').map((d: any) => d.trim());
+    for (const route of routes) {
+      const domainsRaw = route.domain_names || '';
+      let domainNames: string[] = [];
+      if (domainsRaw.startsWith('[') && domainsRaw.endsWith(']')) {
+        try {
+          domainNames = JSON.parse(domainsRaw);
+        } catch (e) {
+          domainNames = domainsRaw.replace(/[[\]"]/g, '').split(',').map((d: any) => d.trim());
         }
-
-        for (const domain of domainNames) {
-          if (!domain) continue;
-          const data = {
-            hostId: host.id,
-            provider: 'npm',
-            type: 'http',
-            domain,
-            forwardHost: route.forward_host,
-            forwardPort: route.forward_port,
-            enabled: route.enabled === 1,
-            certificateId: route.certificate_id?.toString(),
-            sslForced: route.ssl_forced === 1,
-            hstsEnabled: route.hsts_enabled === 1,
-            hstsSubdomains: route.hsts_subdomains === 1,
-            http2Support: route.http2_support === 1,
-            allowWebsocketUpgrade: route.allow_websocket_upgrade === 1,
-            blockExploits: route.block_exploits === 1,
-            cachingEnabled: route.caching_enabled === 1,
-            certExpiresAt: route.expires_on ? new Date(route.expires_on) : null,
-            lastSyncedAt: now,
-          };
-
-          await this.prisma.reverseProxyRoute.upsert({
-            where: { hostId_domain: { hostId: host.id, domain } },
-            create: data,
-            update: data,
-          });
-          upsertedCount++;
-        }
+      } else if (domainsRaw) {
+        domainNames = domainsRaw.split(',').map((d: any) => d.trim());
       }
-      await log('system', `Finished processing all routes. Upserted ${upsertedCount} routes.`);
+
+      for (const domain of domainNames) {
+        if (!domain) continue;
+        const data = {
+          hostId: host.id,
+          provider: 'npm',
+          type: 'http',
+          domain,
+          forwardHost: route.forward_host,
+          forwardPort: route.forward_port,
+          enabled: route.enabled === 1,
+          certificateId: route.certificate_id?.toString(),
+          sslForced: route.ssl_forced === 1,
+          hstsEnabled: route.hsts_enabled === 1,
+          hstsSubdomains: route.hsts_subdomains === 1,
+          http2Support: route.http2_support === 1,
+          allowWebsocketUpgrade: route.allow_websocket_upgrade === 1,
+          blockExploits: route.block_exploits === 1,
+          cachingEnabled: route.caching_enabled === 1,
+          certExpiresAt: route.expires_on ? new Date(route.expires_on) : null,
+          lastSyncedAt: now,
+        };
+
+        await this.prisma.reverseProxyRoute.upsert({
+          where: { hostId_domain: { hostId: host.id, domain } },
+          create: data,
+          update: data,
+        });
+        upsertedCount++;
+      }
+    }
+      this.operationLogService.log('system', `Finished processing all routes. Upserted ${upsertedCount} routes.`);
     } catch (err) {
       isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
-      await log('error', `NPM sync failed: ${errorMessage}`);
+      this.operationLogService.log('error', `NPM sync failed: ${errorMessage}`, hostId);
     } finally {
-      if (isStandaloneAction) {
-        await this.operationLogService.updateStatus(effectiveOpId!, isFailed ? 'ERROR' : 'COMPLETED');
+      if (opId) {
+        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
       }
     }
   }
@@ -157,18 +156,18 @@ export class ReverseProxyService {
     return result;
   }
 
-  private async syncFromSqlite(host: HostWithCreds, npmContainerInspect: any, log: (stream: 'info' | 'error', content: string) => Promise<void>): Promise<any[] | null> {
+  private async syncFromSqlite(host: HostWithCreds, npmContainerInspect: any): Promise<any[] | null> {
     const dbPath = await this.findNpmDbPath(host, npmContainerInspect);
     if (!dbPath) {
-      await log('error', `Could not find NPM database path for container ${npmContainerInspect.Name}`);
+      this.operationLogService.log('error', `Could not find NPM database path for container ${npmContainerInspect.Name}`);
       return null;
     }
-    await log('info', `Found NPM database path: ${dbPath}`);
+    this.operationLogService.log('info', `Found NPM database path: ${dbPath}`);
 
     const tempDbPath = path.join('/tmp', `npm_${Date.now()}.sqlite`);
     const downloaded = await this.downloadDbFile(host, dbPath, tempDbPath);
     if (!downloaded) {
-      await log('error', `Failed to download NPM database from ${dbPath}`);
+      this.operationLogService.log('error', `Failed to download NPM database from ${dbPath}`);
       return null;
     }
 
@@ -177,7 +176,7 @@ export class ReverseProxyService {
     return routes;
   }
 
-  private async syncFromMysql(host: HostWithCreds, npmContainerInspect: any, envVars: { [key: string]: string }, log: (stream: 'info' | 'error', content: string) => Promise<void>): Promise<any[] | null> {
+  private async syncFromMysql(host: HostWithCreds, npmContainerInspect: any, envVars: { [key: string]: string }): Promise<any[] | null> {
     const dbHostService = envVars['DB_MYSQL_HOST'];
     const user = envVars['DB_MYSQL_USER'];
     const password = envVars['DB_MYSQL_PASSWORD'];
@@ -187,7 +186,7 @@ export class ReverseProxyService {
     const networks = npmContainerInspect.NetworkSettings?.Networks;
     const networkName = networks ? Object.keys(networks)[0] : null;
     if (!networkName) {
-      await log('error', `Could not determine the network for the NPM container.`);
+      this.operationLogService.log('error', `Could not determine the network for the NPM container.`);
       return null;
     }
 
@@ -197,7 +196,7 @@ export class ReverseProxyService {
     const { code, stdout, stderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, runCommand);
 
     if (code !== 0) {
-      await log('error', `Failed to execute mysql query in temporary container. Exit code: ${code}, Stderr: ${stderr.toString()}`);
+      this.operationLogService.log('error', `Failed to execute mysql query in temporary container. Exit code: ${code}, Stderr: ${stderr.toString()}`);
       return null;
     }
 

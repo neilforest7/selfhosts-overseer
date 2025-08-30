@@ -9,6 +9,9 @@ import { CryptoService } from '../security/crypto.service';
 import { OperationLogModule } from '../operation-log/operation-log.module';
 import { ContainersModule } from '../containers/containers.module';
 import { OperationLogService } from '../operation-log/operation-log.service';
+import { ContextModule } from '../context/context.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import { SecurityModule } from '../security/security.module';
 
 @Module({
   imports: [
@@ -17,9 +20,12 @@ import { OperationLogService } from '../operation-log/operation-log.service';
     SshModule,
     OperationLogModule,
     forwardRef(() => ContainersModule),
+    ContextModule,
+    RealtimeModule,
+    SecurityModule,
   ],
   controllers: [TasksController],
-  providers: [TasksService, ExecGateway, CryptoService, OperationLogService],
+  providers: [TasksService],
   exports: [TasksService],
 })
 export class TasksModule {}

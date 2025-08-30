@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as ini from 'ini';
 import * as toml from '@iarna/toml';
 import { OperationLogService } from '../operation-log/operation-log.service';
+import { ContextService } from '../context/context.service';
 
 type HostWithCreds = Host & {
   password?: string;
@@ -23,66 +24,65 @@ export class FrpService {
     private readonly docker: DockerService,
     private readonly crypto: CryptoService,
     private readonly operationLogService: OperationLogService,
+    private readonly contextService: ContextService,
   ) {}
 
-  async syncFrpFromHost(hostId: string, opId?: string): Promise<void> {
-    const isStandaloneAction = !opId;
-    let effectiveOpId = opId;
-    let isFailed = false;
-
-    if (isStandaloneAction) {
+  async syncFrpFromHost(hostId: string): Promise<void> {
+    const existingOpId = this.contextService.getOpId();
+    if (existingOpId) {
+      return this.runSyncLogic(hostId);
+    } else {
       const opLog = await this.operationLogService.create({ title: `Sync FRP Config from host ${hostId}` });
-      effectiveOpId = opLog.id;
+      return this.contextService.run(opLog.id, () => this.runSyncLogic(hostId, opLog.id));
     }
+  }
 
-    const log = async (stream: 'system' | 'info' | 'error', content: string) => {
-      await this.operationLogService.log(effectiveOpId!, stream, content, hostId);
-    };
-
+  private async runSyncLogic(hostId: string, opId?: string): Promise<void> {
+    let isFailed = false;
     try {
       const host = await this.getHostWithCreds(hostId);
       if (!host) throw new Error(`Host not found: ${hostId}`);
 
-      await log('system', `Starting FRP sync for host ${host.name}`);
+      this.operationLogService.log('system', `Starting FRP sync for host ${host.name}`, hostId);
       const containers = await this.prisma.container.findMany({ where: { hostId } });
       const frpsContainers = containers.filter((c: any) => c.imageName?.includes('frps') || c.name.includes('frps'));
       const frpcContainers = containers.filter((c: any) => c.imageName?.includes('frpc') || c.name.includes('frpc'));
 
-      await log('info', `Found ${frpsContainers.length} frps and ${frpcContainers.length} frpc containers.`);
+      this.operationLogService.log('info', `Found ${frpsContainers.length} frps and ${frpcContainers.length} frpc containers.`, hostId);
 
       for (const container of frpsContainers) {
-        await this.syncFrpsConfig(host, container.id, log);
+        await this.syncFrpsConfig(host, container.id);
       }
       for (const container of frpcContainers) {
-        await this.syncFrpcConfig(host, container.id, log);
+        await this.syncFrpcConfig(host, container.id);
       }
-      await log('system', 'FRP sync finished.');
+      this.operationLogService.log('system', 'FRP sync finished.', hostId);
 
     } catch (err) {
       isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
-      await log('error', `FRP sync failed: ${errorMessage}`);
+      this.operationLogService.log('error', `FRP sync failed: ${errorMessage}`, hostId);
     } finally {
-      if (isStandaloneAction) {
-        await this.operationLogService.updateStatus(effectiveOpId!, isFailed ? 'ERROR' : 'COMPLETED');
+      if (opId) { // Only update status if this is the top-level operation
+        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
       }
     }
   }
 
-  private async syncFrpsConfig(host: HostWithCreds, containerDbId: string, log: (stream: 'info' | 'error', content: string) => Promise<void>) {
-    await log('info', `Processing frps container: ${containerDbId}`);
-    const inspectData = await this.getInspectData(host, containerDbId, log);
+  private async syncFrpsConfig(host: HostWithCreds, containerDbId: string) {
+    this.operationLogService.log('info', `Processing frps container: ${containerDbId}`);
+    const inspectData = await this.getInspectData(host, containerDbId);
     if (!inspectData) return;
 
-    const configPath = await this.findConfigPath(host, inspectData, ['frps.ini', 'frps.toml'], log);
+    const configPath = await this.findConfigPath(host, inspectData, ['frps.ini', 'frps.toml']);
     if (!configPath) {
-      await log('error', `Could not find frps config for container ${inspectData.Id}`);
+      this.operationLogService.log('error', `Could not find frps config for container ${inspectData.Id}`);
       return;
     }
     
     const content = await this.readRemoteFile(host, configPath);
     if (!content) {
-      await log('error', `Could not read frps config at: ${configPath}`);
+      this.operationLogService.log('error', `Could not read frps config at: ${configPath}`);
       return;
     }
 
@@ -111,24 +111,24 @@ export class FrpService {
         lastSyncedAt: new Date(),
       },
     });
-    await log('info', `Upserted frps config for container ${inspectData.Id}`);
-    await this.updateContainerWithWebServerPort(containerDbId, config, log);
+    this.operationLogService.log('info', `Upserted frps config for container ${inspectData.Id}`);
+    await this.updateContainerWithWebServerPort(containerDbId, config);
   }
 
-  private async syncFrpcConfig(host: HostWithCreds, containerDbId: string, log: (stream: 'info' | 'error', content: string) => Promise<void>) {
-    await log('info', `Processing frpc container: ${containerDbId}`);
-    const inspectData = await this.getInspectData(host, containerDbId, log);
+  private async syncFrpcConfig(host: HostWithCreds, containerDbId: string) {
+    this.operationLogService.log('info', `Processing frpc container: ${containerDbId}`);
+    const inspectData = await this.getInspectData(host, containerDbId);
     if (!inspectData) return;
 
-    const configPath = await this.findConfigPath(host, inspectData, ['frpc.ini', 'frpc.toml'], log);
+    const configPath = await this.findConfigPath(host, inspectData, ['frpc.ini', 'frpc.toml']);
     if (!configPath) {
-      await log('error', `Could not find frpc config for container ${inspectData.Id}`);
+      this.operationLogService.log('error', `Could not find frpc config for container ${inspectData.Id}`);
       return;
     }
 
     const content = await this.readRemoteFile(host, configPath);
     if (!content) {
-      await log('error', `Could not read frpc config at: ${configPath}`);
+      this.operationLogService.log('error', `Could not read frpc config at: ${configPath}`);
       return;
     }
 
@@ -138,19 +138,19 @@ export class FrpService {
     const serverPort = common.server_port ? parseInt(common.server_port) : (common.serverPort ? parseInt(common.serverPort) : (config.server_port ? parseInt(config.server_port) : (config.serverPort ? parseInt(config.serverPort) : undefined)));
 
     if (!serverAddr || !serverPort) {
-      await log('error', `frpc config for ${inspectData.Id} is missing server address or port.`);
+      this.operationLogService.log('error', `frpc config for ${inspectData.Id} is missing server address or port.`);
       return;
     }
 
     const frpsHost = await this.prisma.host.findFirst({ where: { address: serverAddr } });
     if (!frpsHost) {
-      await log('error', `Could not find frps host with address: ${serverAddr}`);
+      this.operationLogService.log('error', `Could not find frps host with address: ${serverAddr}`);
       return;
     }
 
     const frpsConfig = await this.prisma.frpsConfig.findFirst({ where: { hostId: frpsHost.id, bindPort: serverPort } });
     if (!frpsConfig) {
-      await log('error', `Could not find frps config on host ${frpsHost.name} with bind_port ${serverPort}`);
+      this.operationLogService.log('error', `Could not find frps config on host ${frpsHost.name} with bind_port ${serverPort}`);
       return;
     }
 
@@ -165,7 +165,7 @@ export class FrpService {
 
     for (const proxyConfig of proxies) {
       if ((proxyConfig as any).type === 'xtcp') {
-        await log('info', `Skipping xtcp proxy ${proxyConfig.name} as it does not have a remote_port.`);
+        this.operationLogService.log('info', `Skipping xtcp proxy ${proxyConfig.name} as it does not have a remote_port.`);
         continue;
       }
 
@@ -173,7 +173,7 @@ export class FrpService {
       const remotePort = parseInt((proxyConfig as any).remote_port || (proxyConfig as any).remotePort);
 
       if (isNaN(localPort) || isNaN(remotePort)) {
-        await log('error', `Skipping proxy ${proxyConfig.name} due to missing or invalid local_port or remote_port.`);
+        this.operationLogService.log('error', `Skipping proxy ${proxyConfig.name} due to missing or invalid local_port or remote_port.`);
         continue;
       }
 
@@ -206,8 +206,8 @@ export class FrpService {
         },
       });
     }
-    await log('info', `Upserted ${proxies.length} frpc proxies for container ${inspectData.Id}`);
-    await this.updateContainerWithWebServerPort(containerDbId, config, log);
+    this.operationLogService.log('info', `Upserted ${proxies.length} frpc proxies for container ${inspectData.Id}`);
+    await this.updateContainerWithWebServerPort(containerDbId, config);
   }
 
   async getFrpConfigs() {
@@ -219,7 +219,7 @@ export class FrpService {
     };
   }
 
-  private async updateContainerWithWebServerPort(containerDbId: string, config: any, log: (stream: 'info' | 'error', content: string) => Promise<void>) {
+  private async updateContainerWithWebServerPort(containerDbId: string, config: any) {
     const webServerConfig = config.webServer || config.web_server;
     const webPort = webServerConfig?.port ? parseInt(webServerConfig.port) : undefined;
 
@@ -253,7 +253,7 @@ export class FrpService {
         where: { id: containerDbId },
         data: { ports: updatedPorts },
       });
-      await log('info', `Added web server port ${webPort} to container ${containerDbId}`);
+      this.operationLogService.log('info', `Added web server port ${webPort} to container ${containerDbId}`);
     }
   }
 
@@ -285,21 +285,21 @@ export class FrpService {
     };
   }
 
-  private async getInspectData(host: HostWithCreds, containerDbId: string, log: (stream: 'info' | 'error', content: string) => Promise<void>) {
+  private async getInspectData(host: HostWithCreds, containerDbId: string) {
     const dbContainer = await this.prisma.container.findFirst({where: {id: containerDbId}});
     if(!dbContainer) {
-        await log('error', `Could not find container with db id ${containerDbId}`);
+        this.operationLogService.log('error', `Could not find container with db id ${containerDbId}`);
         return null;
     }
     const inspectResult = await this.docker.inspectContainers({...host, port: host.port ?? undefined}, [dbContainer.containerId || '']);
     if (!inspectResult || inspectResult.length === 0) {
-        await log('error', `docker.inspectContainers returned no data for container ${dbContainer.containerId}`);
+        this.operationLogService.log('error', `docker.inspectContainers returned no data for container ${dbContainer.containerId}`);
         return null;
     }
     return inspectResult[0];
   }
 
-  private async findConfigPath(host: HostWithCreds, inspectData: any, fileNames: string[], log: (stream: 'info' | 'error', content: string) => Promise<void>): Promise<string | null> {
+  private async findConfigPath(host: HostWithCreds, inspectData: any, fileNames: string[]): Promise<string | null> {
     const mounts = inspectData?.Mounts as any[] || [];
     const triedPaths: string[] = [];
     for (const mount of mounts) {
@@ -307,7 +307,7 @@ export class FrpService {
             // First, check if the mount source itself is the config file
             for (const fileName of fileNames) {
                 if (mount.Source.endsWith(fileName)) {
-                    await log('info', `Found config file directly from mount source: ${mount.Source}`);
+                    this.operationLogService.log('info', `Found config file directly from mount source: ${mount.Source}`);
                     return mount.Source;
                 }
             }
@@ -316,7 +316,7 @@ export class FrpService {
             for (const fileName of fileNames) {
                 const potentialPath = path.join(mount.Source, fileName);
                 triedPaths.push(potentialPath);
-                await log('info', `Checking for config file at: ${potentialPath}`);
+                this.operationLogService.log('info', `Checking for config file at: ${potentialPath}`);
                 const { code } = await this.docker.execShell({...host, port: host.port ?? undefined}, `test -f "${potentialPath}"`);
                 if (code === 0) {
                     return potentialPath;
@@ -324,7 +324,7 @@ export class FrpService {
             }
         }
     }
-    await log('error', `Could not find config file for container ${inspectData.Id}. Tried paths: ${triedPaths.join(', ')}`);
+    this.operationLogService.log('error', `Could not find config file for container ${inspectData.Id}. Tried paths: ${triedPaths.join(', ')}`);
     return null;
   }
 

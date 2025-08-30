@@ -17,7 +17,6 @@ import { OperationLogModule } from '../operation-log/operation-log.module';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
     SshModule,
     LogsModule,
     SettingsModule,

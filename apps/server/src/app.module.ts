@@ -1,5 +1,5 @@
 import { BullModule } from '@nestjs/bullmq';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { SettingsModule } from './settings/settings.module';
 import { HostsModule } from './hosts/hosts.module';
@@ -15,9 +15,13 @@ import { OperationLogModule } from './operation-log/operation-log.module';
 import { AutomationsModule } from './automations/automations.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { RealtimeModule } from './realtime/realtime.module';
+import { ContextModule } from './context/context.module';
+import { ContextMiddleware } from './context/context.middleware';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 
 @Module({
   imports: [
+    EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     BullModule.forRoot({
       connection: {
@@ -26,6 +30,7 @@ import { RealtimeModule } from './realtime/realtime.module';
       },
     }),
     PrismaModule,
+    ContextModule, // Import the new ContextModule
     SettingsModule,
     HostsModule,
     TasksModule,
@@ -42,5 +47,9 @@ import { RealtimeModule } from './realtime/realtime.module';
   controllers: [AppController],
   providers: [],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(ContextMiddleware).forRoutes('*'); // Apply middleware to all routes
+  }
+}
 

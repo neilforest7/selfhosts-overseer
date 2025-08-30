@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { spawn } from 'node:child_process';
 import { OperationLogService } from '../operation-log/operation-log.service';
+import { ContextService } from '../context/context.service';
 
 export interface SshExecOptions {
   host: string;
@@ -21,7 +22,10 @@ export interface SshExecOptions {
 
 @Injectable()
 export class SshService {
-  constructor(private readonly operationLogService: OperationLogService) {}
+  constructor(
+    private readonly operationLogService: OperationLogService,
+    private readonly contextService: ContextService,
+  ) {}
 
   async execute(options: SshExecOptions): Promise<number> {
     const res = await this.executeCapture(options);
@@ -86,9 +90,9 @@ export class SshService {
 
   async execWithStreaming(
     options: SshExecOptions,
-    taskId: string,
     hostId?: string,
   ): Promise<{ code: number; stdout: string; stderr: string }> {
+    const opId = this.contextService.getOpId(); // Capture opId from the current context
     const { killAfterSeconds } = options;
     const { commandBin, commandArgs, cleanup } = await this.buildSshArgs(options);
 
@@ -108,9 +112,11 @@ export class SshService {
 
       const handleData = (stream: 'stdout' | 'stderr', chunks: Buffer[]) => (data: Buffer) => {
         chunks.push(data);
-        const lines = data.toString('utf8').split('\n').filter(line => line.length > 0);
+        // Convert buffer to string, replacing invalid UTF-8 sequences with replacement character
+        const text = data.toString('utf8').replace(/\uFFFD/g, '');
+        const lines = text.split('\n').filter(line => line.length > 0);
         for (const line of lines) {
-          this.operationLogService.log(taskId, stream, line, hostId);
+          this.operationLogService.log(stream, line, hostId, opId); // Explicitly pass opId
         }
       };
 
@@ -134,7 +140,9 @@ export class SshService {
 
   async executeCapture(
     options: SshExecOptions,
+    hostId?: string,
   ): Promise<{ code: number; stdout: string | Buffer; stderr: string | Buffer }> {
+    const opId = this.contextService.getOpId(); // Capture opId from the current context
     const { killAfterSeconds, onStdout, onStderr } = options;
     const encoding = options.encoding ?? 'utf8';
     const { commandBin, commandArgs, cleanup } = await this.buildSshArgs(options);
@@ -154,10 +162,16 @@ export class SshService {
       const stderrChunks: Buffer[] = [];
       child.stdout.on('data', (d: Buffer) => {
         stdoutChunks.push(d);
+        // Convert buffer to string safely, removing invalid UTF-8 sequences
+        const text = d.toString('utf8').replace(/\uFFFD/g, '');
+        this.operationLogService.log('stdout', text, hostId, opId); // Explicitly pass opId
         onStdout?.(d);
       });
       child.stderr.on('data', (d: Buffer) => {
         stderrChunks.push(d);
+        // Convert buffer to string safely, removing invalid UTF-8 sequences
+        const text = d.toString('utf8').replace(/\uFFFD/g, '');
+        this.operationLogService.log('stderr', text, hostId, opId); // Explicitly pass opId
         onStderr?.(d);
       });
 
@@ -176,4 +190,3 @@ export class SshService {
     });
   }
 }
-

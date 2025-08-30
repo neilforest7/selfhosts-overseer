@@ -26,10 +26,9 @@ export class ContainerCheckerProcessor {
   async cleanupDuplicatesJob(): Promise<void> {
     try {
       const removed = await this.containers.cleanupDuplicates('all');
-      if (removed > 0) this.logger.log(`Cleanup duplicates removed: ${removed}`);
+      if (removed && removed.taskId) this.logger.log(`Cleanup duplicates task started: ${removed.taskId}`);
     } catch (e) {
       this.logger.warn(`Cleanup duplicates failed: ${String(e)}`);
     }
   }
 }
-

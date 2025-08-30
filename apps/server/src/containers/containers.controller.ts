@@ -49,65 +49,65 @@ export class ContainersController {
   }
 
   @Post('discover')
-  async discover(@Body() body: { host?: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
+  async discover(@Body() body: { host?: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
     const hostArg = (body && body.host) ? (body.host as any) : ({ id: 'all' } as any);
-    return this.containers.discover(hostArg, body.opId);
+    return this.containers.discover(hostArg);
   }
 
   @Post('check-updates')
-  async checkUpdates(@Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
-    return this.containers.checkUpdatesAny(body.host as any, body.opId);
+  async checkUpdates(@Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
+    return this.containers.checkUpdatesAny(body.host as any);
   }
 
   @Post('check-compose-updates')
-  async checkComposeUpdates(@Body() body: { hostId: string; composeProject: string; opId?: string }) {
-    return this.containers.checkComposeProjectUpdates(body.hostId, body.composeProject, body.opId);
+  async checkComposeUpdates(@Body() body: { hostId: string; composeProject: string; }) {
+    return this.containers.checkComposeProjectUpdates(body.hostId, body.composeProject);
   }
 
   @Post(':id/check-update')
-  async checkSingleContainerUpdate(@Param('id') id: string, @Body() body: { opId?: string }) {
-    return this.containers.checkSingleContainerUpdate(id, body.opId);
+  async checkSingleContainerUpdate(@Param('id') id: string) {
+    return this.containers.checkSingleContainerUpdate(id);
   }
 
   @Post(':id/update')
-  async updateContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; imageRef?: string; opId?: string }) {
-    return this.containers.updateOne(body.host as any, id, body.imageRef, body.opId);
+  async updateContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; imageRef?: string; }) {
+    return this.containers.updateOne(body.host as any, id, body.imageRef);
   }
 
   @Post(':id/restart')
-  async restartContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
-    return this.containers.restartOne(body.host as any, id, body.opId);
+  async restartContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
+    return this.containers.restartOne(body.host as any, id);
   }
 
   @Post(':id/start')
-  async startContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
-    return this.containers.startOne(body.host as any, id, body.opId);
+  async startContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
+    return this.containers.startOne(body.host as any, id);
   }
 
   @Post(':id/stop')
-  async stopContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string }) {
-    return this.containers.stopOne(body.host as any, id, body.opId);
+  async stopContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
+    return this.containers.stopOne(body.host as any, id);
   }
 
   @Post('compose/operate')
-  async composeOperate(@Body() body: { hostId: string; project: string; workingDir: string; op: 'down'|'pull'|'up'|'restart'|'start'|'stop'; opId?: string }) {
-    return this.containers.composeOperate(body.hostId, body.project, body.workingDir, body.op, body.opId);
+  async composeOperate(@Body() body: { hostId: string; project: string; workingDir: string; op: 'down'|'pull'|'up'|'restart'|'start'|'stop'; }) {
+    return this.containers.composeOperate(body.hostId, body.project, body.workingDir, body.op);
   }
 
   @Post('refresh-status')
-  async refreshStatus(@Body() body: { hostId: string; containerIds?: string[]; containerNames?: string[]; composeProject?: string; opId?: string }) {
-    return this.containers.refreshStatus(body.hostId, { containerIds: body.containerIds, containerNames: body.containerNames, composeProject: body.composeProject }, body.opId);
+  async refreshStatus(@Body() body: { hostId: string; containerIds?: string[]; containerNames?: string[]; composeProject?: string; }) {
+    return this.containers.refreshStatus(body.hostId, { containerIds: body.containerIds, containerNames: body.containerNames, composeProject: body.composeProject });
   }
 
   @Post('cleanup-duplicates')
-  async cleanupDuplicates(@Body() body: { hostId?: string | 'all'; opId?: string }) {
-    const removed = await this.containers.cleanupDuplicates(body.hostId, body.opId);
+  async cleanupDuplicates(@Body() body: { hostId?: string | 'all'; }) {
+    const removed = await this.containers.cleanupDuplicates(body.hostId);
     return { removed };
   }
 
   @Post('purge')
-  async purge(@Body() body: { hostId?: string | 'all'; opId?: string }) {
-    const removed = await this.containers.purgeContainers(body.hostId, body.opId);
+  async purge(@Body() body: { hostId?: string | 'all'; }) {
+    const removed = await this.containers.purgeContainers(body.hostId);
     return { removed };
   }
 

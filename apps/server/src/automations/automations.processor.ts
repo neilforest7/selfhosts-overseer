@@ -9,7 +9,7 @@ import { HostsService } from '../hosts/hosts.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { TriggerType } from '@prisma/client';
 import { RuleJson } from './types';
-import { RuleJson } from './types';
+import { ContextService } from '../context/context.service';
 
 export const AUTOMATION_QUEUE_NAME = 'automation-queue';
 export const AUTOMATION_JOB_NAME = 'evaluate-rules';
@@ -25,6 +25,7 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
     private readonly containersService: ContainersService,
     private readonly hostsService: HostsService,
     private readonly operationLogService: OperationLogService,
+    private readonly contextService: ContextService,
   ) {
     super();
   }
@@ -63,7 +64,7 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
     const engine = this.createConfiguredEngine();
 
     rules.forEach((rule) => {
-      const ruleJson = rule.ruleJson as RuleJson;
+      const ruleJson = rule.ruleJson as unknown as RuleJson;
       // Attach the rule ID to the event for later reference
       const event = ruleJson.event;
       event.params = { ...event.params, __ruleId: rule.id, __ruleName: rule.name };
@@ -116,39 +117,42 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
     const ruleName = (params?.__ruleName as string) || 'Unknown Rule';
     this.logger.log(`Handling event "${type}" from rule "${ruleName}" (${ruleId})`);
 
-    const opId = await this.operationLogService.create({
+    const opLog = await this.operationLogService.create({
       title: `Automation: ${ruleName}`,
       triggerType: TriggerType.EVENT,
       automationRuleId: ruleId,
       triggerContext: event as unknown as any,
     });
 
-    try {
-      switch (type) {
-        case 'restart-container':
-          await this.handleRestartContainer(params, opId);
-          break;
+    return this.contextService.run(opLog.id, async () => {
+      let isFailed = false;
+      try {
+        switch (type) {
+          case 'restart-container':
+            await this.handleRestartContainer(params);
+            break;
 
-        case 'discover-containers':
-          await this.handleDiscoverContainers(params, opId);
-          break;
+          case 'discover-containers':
+            await this.handleDiscoverContainers(params);
+            break;
 
-        default:
-          this.logger.warn(`No handler found for event type "${type}".`);
-          await this.operationLogService.log(opId, 'error', `No handler found for event type "${type}".`);
-          await this.operationLogService.updateStatus(opId, 'ERROR');
-          return;
+          default:
+            this.logger.warn(`No handler found for event type "${type}".`);
+            this.operationLogService.log('error', `No handler found for event type "${type}".`);
+            isFailed = true;
+        }
+      } catch (error) {
+        isFailed = true;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Error handling event "${type}" for rule "${ruleName}": ${errorMessage}`, (error as Error).stack);
+        this.operationLogService.log('error', errorMessage);
+      } finally {
+        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
       }
-      await this.operationLogService.updateStatus(opId, 'COMPLETED');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Error handling event "${type}" for rule "${ruleName}": ${errorMessage}`, error.stack);
-      await this.operationLogService.log(opId, 'error', errorMessage);
-      await this.operationLogService.updateStatus(opId, 'ERROR');
-    }
+    });
   }
 
-  private async handleRestartContainer(params: Event['params'], opId: string): Promise<void> {
+  private async handleRestartContainer(params: Event['params']): Promise<void> {
     const { containerId } = params as { containerId?: string };
     if (!containerId) throw new Error('`containerId` is required for restart-container event.');
     
@@ -156,13 +160,12 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
     if (!containers || containers.length === 0) throw new Error(`Container with ID/Name "${containerId}" not found.`);
     
     const targetContainer = containers[0];
-    await this.containersService.restartOne({ id: targetContainer.hostId }, targetContainer.id, opId);
+    await this.containersService.restartOne({ id: targetContainer.hostId }, targetContainer.id);
   }
 
-  private async handleDiscoverContainers(params: Event['params'], opId: string): Promise<void> {
+  private async handleDiscoverContainers(params: Event['params']): Promise<void> {
     const { hostId } = params as { hostId?: string };
     if (!hostId) throw new Error('`hostId` is required for discover-containers event.');
-    await this.containersService.discover({ id: hostId }, opId);
+    await this.containersService.discover({ id: hostId });
   }
 }
-

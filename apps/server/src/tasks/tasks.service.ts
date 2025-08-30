@@ -8,9 +8,9 @@ import { CryptoService } from '../security/crypto.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContainersService } from '../containers/containers.service';
 import { OperationLog } from '@prisma/client';
+import { ContextService } from '../context/context.service';
 
 export interface ExecRequest {
-  opId: string;
   command: string;
   targets: string[];
 }
@@ -25,61 +25,65 @@ export class TasksService {
     private readonly gateway: ExecGateway,
     private readonly crypto: CryptoService,
     private readonly operationLogService: OperationLogService,
+    private readonly contextService: ContextService, // Injected
     @Inject(forwardRef(() => ContainersService))
     private readonly containersService: ContainersService,
   ) {}
 
   async exec(req: ExecRequest): Promise<OperationLog | null> {
-    const { opId, command, targets } = req;
+    const { command, targets } = req;
+    const opId = this.contextService.getOpId();
+    if (!opId) {
+      throw new Error('Cannot execute a task outside of an operation context.');
+    }
+    
     console.log(`🎯 Starting task for opId: ${opId}, command: ${command}`);
 
     await this.operationLogService.updateStatus(opId, 'RUNNING');
 
     // Fire-and-forget execution
-    void this.runTask(opId, command, targets).catch(async err => {
+    void this.runTask(command, targets).catch(async err => {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error(`Task ${opId} failed unexpectedly:`, errorMessage);
-      await this.operationLogService.log(opId, 'error', `An unexpected error occurred: ${errorMessage}`);
+      this.operationLogService.log('error', `An unexpected error occurred: ${errorMessage}`);
       await this.operationLogService.updateStatus(opId, 'ERROR');
     });
 
     return this.prisma.operationLog.findUnique({ where: { id: opId } });
   }
 
-  private async runTask(opId: string, command: string, targets: string[]): Promise<void> {
-    await this.operationLogService.updateStatus(opId, 'RUNNING');
+  private async runTask(command: string, targets: string[]): Promise<void> {
+    console.log('--- RUNTASK METHOD CALLED ---');
+    const opId = this.contextService.getOpId();
+    if (!opId) return; // Should not happen if called from exec
+
     const settings = await this.settingsService.get();
     const { items: allHosts } = await this.hostsService.list(undefined, 1000);
     const targetHosts = targets.map(tid => allHosts.find(h => h.id === tid)).filter(Boolean) as any[];
 
     let anyFailed = false;
 
-    const log = (stream: 'system' | 'info' | 'error' | 'stdout' | 'stderr', content: string, hostId?: string) => {
-      this.operationLogService.log(opId, stream, content, hostId);
-    };
-
-    log('system', `>>> Task started: command "${command}" on ${targetHosts.length} targets.`);
+    this.operationLogService.log('system', `>>> Task started: command "${command}" on ${targetHosts.length} targets.`);
 
     const runOne = async (target: any) => {
       if (command === 'internal:discover_containers') {
         try {
-          // discoverOnHost now handles its own logging internally
-          await this.containersService.discoverOnHost(target, opId);
+          await this.containersService.discoverOnHost(target);
         } catch (err) {
           anyFailed = true;
           const errorMessage = err instanceof Error ? err.message : String(err);
-          log('error', `[${target.name}] Discovery failed: ${errorMessage}`, target.id);
+          this.operationLogService.log('error', `[${target.name}] Discovery failed: ${errorMessage}`, target.id);
         }
         return;
       }
 
       const prefix = `[${target.name}@${target.address}] `;
-      log('system', `${prefix}>>> Starting execution...`, target.id);
+      this.operationLogService.log('system', `${prefix}>>> Starting execution...`, target.id);
 
       const hostDetail = await this.prisma.host.findUnique({ where: { id: target.id } });
       if (!hostDetail) {
         anyFailed = true;
-        log('error', `${prefix}Host details not found.`, target.id);
+        this.operationLogService.log('error', `${prefix}Host details not found.`, target.id);
         return;
       }
 
@@ -87,7 +91,6 @@ export class TasksService {
       const decKey = this.crypto.decryptString(hostDetail.sshPrivateKey)?.toString();
       const decPassphrase = this.crypto.decryptString(hostDetail.sshPrivateKeyPassphrase)?.toString();
 
-      // The new execWithStreaming will log stdout/stderr in real-time
       const { code } = await this.sshService.execWithStreaming(
         {
           host: target.address,
@@ -100,12 +103,11 @@ export class TasksService {
           connectTimeoutSeconds: 30,
           killAfterSeconds: 100,
         },
-        opId,
         target.id,
       );
 
       if (code !== 0) anyFailed = true;
-      log('system', `${prefix}<<< Finished with exit code ${code}.`, target.id);
+      this.operationLogService.log('system', `${prefix}<<< Finished with exit code ${code}.`, target.id);
     };
 
     const concurrency = settings.sshConcurrency;
@@ -124,7 +126,7 @@ export class TasksService {
     }
     await Promise.all(workers);
 
-    log('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
+    this.operationLogService.log('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
 
     await this.operationLogService.updateStatus(opId, anyFailed ? 'ERROR' : 'COMPLETED');
   }
