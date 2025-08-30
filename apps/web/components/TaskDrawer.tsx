@@ -134,7 +134,7 @@ export function TaskDrawer() {
               </Button>
             </div>
           </DrawerHeader>
-          <div className="px-4 pb-4 grid grid-cols-12 gap-4 flex-grow min-h-0">
+          <div data-vaul-no-drag className="px-4 pb-4 grid grid-cols-12 gap-4 flex-grow min-h-0">
             <div className="col-span-3">
               <ScrollArea className="h-[60vh] pr-4">
                 <div className="space-y-2">
@@ -192,7 +192,7 @@ export function TaskDrawer() {
                   <List className="h-8 w-8 mr-2" />
                   <p>请从左侧选择一个任务以查看详情</p>
                 </div>
-              )}
+              ) }
             </div>
           </div>
         </DrawerContent>
