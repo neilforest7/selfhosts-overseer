@@ -373,23 +373,24 @@ export class ContainersService {
   }
 
   async updateOne(hostOrRef: { id: string }, containerId: string, imageRef?: string) {
-    const opLog = await this.operationLogService.create({ title: `Update Container ${containerId}` });
-    return this.contextService.run(opLog.id, async () => {
+    const opLog = await this.operationLogService.create({
+      title: `Update Container ${containerId.substring(0, 12)}`,
+      metadata: { containerId },
+    });
+    this.contextService.run(opLog.id, async () => {
       let isFailed = false;
       try {
-        const hostCred = await this.getHostCredById(hostOrRef.id);
-        if (!hostCred) throw new Error(`Host with id ${hostOrRef.id} not found`);
-        const container = await this.prisma.container.findUnique({ where: { id: containerId } });
+        const container = await this.prisma.container.findUnique({
+          where: { id: containerId },
+          include: { host: true },
+        });
         if (!container) throw new Error(`Container with id ${containerId} not found`);
 
-        const finalImageRef = imageRef || container.imageName!;
-        this.operationLogService.log('info', `Pulling new image "${finalImageRef}"...`, hostCred.id);
-        const pullRes = await this.docker.exec(hostCred, ['pull', finalImageRef], 300);
-        if (pullRes.code !== 0) throw new Error(`Image pull failed: ${pullRes.stderr}`);
-
-        this.operationLogService.log('info', `Container "${container.name}" will be updated. This is a placeholder for the full update logic.`, hostCred.id);
-        // TODO: Implement the full update logic: stop, rename, run new, health check, cleanup/rollback
-        
+        if (container.isComposeManaged) {
+          await this._updateComposeService(container as any, imageRef);
+        } else {
+          await this._updateCliContainer(container, imageRef);
+        }
       } catch (err) {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -397,149 +398,484 @@ export class ContainersService {
       } finally {
         await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
       }
-      return { ok: !isFailed };
     });
+    return { taskId: opLog.id };
+  }
+
+  private async _updateComposeService(
+    container: {
+      composeProject?: string | null;
+      composeService?: string | null;
+      composeWorkingDir?: string | null;
+      hostId: string;
+    },
+    imageRef?: string, // Not used, but kept for signature consistency
+  ) {
+    const { composeProject, composeService, hostId, composeWorkingDir } = container;
+    if (!composeProject || !composeService) {
+      throw new Error('Compose project/service name is missing for this container.');
+    }
+    if (!composeWorkingDir) {
+      throw new Error('Compose working directory is missing for this container.');
+    }
+
+    // Pull the new image for the specific service
+    await this.composeOperate(hostId, composeProject, composeWorkingDir, 'pull', [composeService]);
+
+    this.operationLogService.log('info', `Recreating service "${composeService}" with "docker compose up"...`);
+
+    // Recreate the service, without touching dependencies
+    await this.composeOperate(hostId, composeProject, composeWorkingDir, 'up', ['--no-deps', composeService]);
+
+    this.operationLogService.log('info', `Compose service "${composeService}" updated successfully.`);
+  }
+
+  private async _updateCliContainer(
+    container: {
+      id: string;
+      name: string;
+      containerId: string;
+      hostId: string;
+      runCommand?: string | null;
+      imageName?: string | null;
+      imageTag?: string | null;
+    },
+    imageRef?: string,
+  ) {
+    const hostCred = await this.getHostCredById(container.hostId);
+    if (!hostCred) throw new Error(`Host with id ${container.hostId} not found`);
+
+    const finalImageRef = imageRef || `${container.imageName}:${container.imageTag}`;
+    this.operationLogService.log('info', `Pulling new image "${finalImageRef}"...`);
+    const pullRes = await this.docker.exec(hostCred, ['pull', finalImageRef], 300);
+    if (pullRes.code !== 0) throw new Error(`Image pull failed: ${pullRes.stderr}`);
+    this.operationLogService.log('info', `Image pulled successfully.`);
+
+    const backupName = `${container.name}_bk_${Date.now()}`;
+    this.operationLogService.log('info', `Stopping and renaming current container to "${backupName}"...`);
+    await this.docker.exec(hostCred, ['stop', container.containerId], 120);
+    const renameRes = await this.docker.exec(hostCred, ['rename', container.containerId, backupName], 30);
+    if (renameRes.code !== 0) {
+      await this.docker.exec(hostCred, ['start', container.containerId]); // try to recover
+      throw new Error(`Failed to rename container: ${renameRes.stderr}`);
+    }
+    this.operationLogService.log('info', `Container renamed to backup.`);
+
+    this.operationLogService.log('info', `Creating new container with updated image...`);
+    const runCommand = container.runCommand?.replace(/(\b--name\s+)(\S+)/, `$1${container.name}`);
+    if (!runCommand) {
+      throw new Error('Cannot update container: run command is not available.');
+    }
+
+    const { code: runCode, stdout: newContainerId, stderr: runStderr } = await this.docker.execShell(
+      hostCred,
+      runCommand,
+    );
+
+    if (runCode !== 0) {
+      this.operationLogService.log('error', `Failed to create new container. Attempting to roll back...`);
+      await this.docker.exec(hostCred, ['rename', backupName, container.name], 30);
+      await this.docker.exec(hostCred, ['start', container.name], 30);
+      throw new Error(`Failed to create new container: ${runStderr}`);
+    }
+
+    this.operationLogService.log('info', `New container created with ID: ${newContainerId.substring(0, 12)}.`);
+    this.operationLogService.log('info', `Performing health check...`);
+    await new Promise(resolve => setTimeout(resolve, 5000)); // wait 5s for container to stabilize
+
+    const { stdout: status } = await this.docker.exec(hostCred, [
+      'inspect',
+      '--format',
+      '{{.State.Status}}',
+      newContainerId.trim(),
+    ]);
+
+    if (status.trim() !== 'running') {
+      this.operationLogService.log('error', `Health check failed (status: ${status.trim()}). Rolling back...`);
+      await this.docker.exec(hostCred, ['rm', '-f', newContainerId.trim()]);
+      await this.docker.exec(hostCred, ['rename', backupName, container.name]);
+      await this.docker.exec(hostCred, ['start', container.name]);
+      throw new Error('Health check failed for the new container.');
+    }
+
+    this.operationLogService.log('info', `Health check passed. Removing backup container...`);
+    await this.docker.exec(hostCred, ['rm', '-f', backupName]);
+    this.operationLogService.log('info', `Update successful.`);
   }
 
   async restartOne(hostOrRef: { id: string }, containerId: string) {
-    const opLog = await this.operationLogService.create({ title: `Restart Container ${containerId}` });
-    return this.contextService.run(opLog.id, async () => {
-      const hostCred = await this.getHostCredById(hostOrRef.id);
-      if (!hostCred) throw new Error(`Host with id ${hostOrRef.id} not found`);
+    const opLog = await this.operationLogService.create({ title: `Restart Container ${containerId.substring(0, 12)}` });
+    this.contextService.run(opLog.id, async () => {
+      let isFailed = false;
+      try {
+        const container = await this.prisma.container.findUnique({
+          where: { id: containerId },
+          include: { host: true },
+        });
+        if (!container) throw new Error(`Container with id ${containerId} not found`);
 
-      const container = await this.prisma.container.findUnique({ where: { id: containerId } });
-      if (!container) throw new Error(`Container with id ${containerId} not found`);
-
-      this.operationLogService.log('info', `Attempting to restart container "${container.name}" on host "${hostCred.address}"...`, hostCred.id);
-
-      const { code, stderr } = await this.docker.exec(
-        hostCred,
-        ['restart', container.containerId],
-        120,
-      );
-
-      if (code === 0) {
-        this.operationLogService.log('info', `Container "${container.name}" restarted successfully.`, hostCred.id);
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
-      } else {
-        const errorMsg = `Failed to restart container "${container.name}". Exit code: ${code}, Error: ${stderr}`;
-        this.operationLogService.log('error', errorMsg, hostCred.id);
-        await this.operationLogService.updateStatus(opLog.id, 'ERROR');
-        throw new Error(errorMsg);
+        if (container.isComposeManaged) {
+          await this.composeOperate(
+            container.hostId,
+            container.composeProject!,
+            container.composeWorkingDir!,
+            'restart',
+          );
+        } else {
+          const hostCred = await this.getHostCredById(container.hostId);
+          if (!hostCred) throw new Error(`Host with id ${container.hostId} not found`);
+          this.operationLogService.log('info', `Attempting to restart container "${container.name}"...`);
+          const { code, stderr } = await this.docker.exec(hostCred, ['restart', container.containerId], 120);
+          if (code !== 0) {
+            throw new Error(`Failed to restart container: ${stderr}`);
+          }
+          this.operationLogService.log('info', `Container "${container.name}" restarted successfully.`);
+        }
+      } catch (err) {
+        isFailed = true;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.operationLogService.log('error', `Restart failed: ${errorMessage}`);
+      } finally {
+        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
       }
-
-      return { ok: true };
     });
+    return { taskId: opLog.id };
   }
 
   async startOne(hostOrRef: { id: string }, containerId: string) {
-    const opLog = await this.operationLogService.create({ title: `Start Container ${containerId}` });
-    return this.contextService.run(opLog.id, async () => {
-      const hostCred = await this.getHostCredById(hostOrRef.id);
-      if (!hostCred) throw new Error(`Host with id ${hostOrRef.id} not found`);
-      const container = await this.prisma.container.findUnique({ where: { id: containerId } });
-      if (!container) throw new Error(`Container with id ${containerId} not found`);
+    const opLog = await this.operationLogService.create({ title: `Start Container ${containerId.substring(0, 12)}` });
+    this.contextService.run(opLog.id, async () => {
+      let isFailed = false;
+      try {
+        const container = await this.prisma.container.findUnique({
+          where: { id: containerId },
+          include: { host: true },
+        });
+        if (!container) throw new Error(`Container with id ${containerId} not found`);
 
-      this.operationLogService.log('info', `Attempting to start container "${container.name}"...`, hostCred.id);
-      const { code, stderr } = await this.docker.exec(hostCred, ['start', container.containerId], 120);
-
-      if (code === 0) {
-        this.operationLogService.log('info', `Container "${container.name}" started successfully.`, hostCred.id);
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
-      } else {
-        const errorMsg = `Failed to start container "${container.name}". Exit code: ${code}, Error: ${stderr}`;
-        this.operationLogService.log('error', errorMsg, hostCred.id);
-        await this.operationLogService.updateStatus(opLog.id, 'ERROR');
-        throw new Error(errorMsg);
+        if (container.isComposeManaged) {
+          await this.composeOperate(
+            container.hostId,
+            container.composeProject!,
+            container.composeWorkingDir!,
+            'start',
+          );
+        } else {
+          const hostCred = await this.getHostCredById(container.hostId);
+          if (!hostCred) throw new Error(`Host with id ${container.hostId} not found`);
+          this.operationLogService.log('info', `Attempting to start container "${container.name}"...`);
+          const { code, stderr } = await this.docker.exec(hostCred, ['start', container.containerId], 120);
+          if (code !== 0) {
+            throw new Error(`Failed to start container: ${stderr}`);
+          }
+          this.operationLogService.log('info', `Container "${container.name}" started successfully.`);
+        }
+      } catch (err) {
+        isFailed = true;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.operationLogService.log('error', `Start failed: ${errorMessage}`);
+      } finally {
+        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
       }
-      return { ok: true };
     });
+    return { taskId: opLog.id };
   }
-  
+
   async stopOne(hostOrRef: { id: string }, containerId: string) {
-    const opLog = await this.operationLogService.create({ title: `Stop Container ${containerId}` });
-    return this.contextService.run(opLog.id, async () => {
-      const hostCred = await this.getHostCredById(hostOrRef.id);
-      if (!hostCred) throw new Error(`Host with id ${hostOrRef.id} not found`);
-      const container = await this.prisma.container.findUnique({ where: { id: containerId } });
-      if (!container) throw new Error(`Container with id ${containerId} not found`);
+    const opLog = await this.operationLogService.create({ title: `Stop Container ${containerId.substring(0, 12)}` });
+    this.contextService.run(opLog.id, async () => {
+      let isFailed = false;
+      try {
+        const container = await this.prisma.container.findUnique({
+          where: { id: containerId },
+          include: { host: true },
+        });
+        if (!container) throw new Error(`Container with id ${containerId} not found`);
 
-      this.operationLogService.log('info', `Attempting to stop container "${container.name}"...`, hostCred.id);
-      const { code, stderr } = await this.docker.exec(hostCred, ['stop', container.containerId], 120);
-
-      if (code === 0) {
-        this.operationLogService.log('info', `Container "${container.name}" stopped successfully.`, hostCred.id);
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
-      } else {
-        const errorMsg = `Failed to stop container "${container.name}". Exit code: ${code}, Error: ${stderr}`;
-        this.operationLogService.log('error', errorMsg, hostCred.id);
-        await this.operationLogService.updateStatus(opLog.id, 'ERROR');
-        throw new Error(errorMsg);
+        if (container.isComposeManaged) {
+          await this.composeOperate(
+            container.hostId,
+            container.composeProject!,
+            container.composeWorkingDir!,
+            'stop',
+          );
+        } else {
+          const hostCred = await this.getHostCredById(container.hostId);
+          if (!hostCred) throw new Error(`Host with id ${container.hostId} not found`);
+          this.operationLogService.log('info', `Attempting to stop container "${container.name}"...`);
+          const { code, stderr } = await this.docker.exec(hostCred, ['stop', container.containerId], 120);
+          if (code !== 0) {
+            throw new Error(`Failed to stop container: ${stderr}`);
+          }
+          this.operationLogService.log('info', `Container "${container.name}" stopped successfully.`);
+        }
+      } catch (err) {
+        isFailed = true;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.operationLogService.log('error', `Stop failed: ${errorMessage}`);
+      } finally {
+        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
       }
-      return { ok: true };
     });
+    return { taskId: opLog.id };
   }
 
-  async composeOperate(hostId: string, project: string, workingDir: string, op: 'down'|'pull'|'up'|'restart'|'start'|'stop') {
-    const opLog = await this.operationLogService.create({ title: `Compose Op: ${op} on ${project}` });
-    return this.contextService.run(opLog.id, async () => {
+  async composeOperate(
+    hostId: string,
+    project: string,
+    workingDir: string,
+    op: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop',
+    additionalArgs: string[] = [],
+  ) {
+    const opId =
+      this.contextService.getOpId() ||
+      (await this.operationLogService.create({ title: `Compose Op: ${op} on ${project}` })).id;
+
+    return this.contextService.run(opId, async () => {
       const hostCred = await this.getHostCredById(hostId);
       if (!hostCred) throw new Error(`Host with id ${hostId} not found`);
 
-      this.operationLogService.log('info', `Running docker compose ${op} for project "${project}"...`, hostId);
-      const { code, stderr } = await this.docker.exec(hostCred, ['compose', '-p', project, '-f', `${workingDir}/docker-compose.yml`, op, '-d'], 300);
+      if (!workingDir) {
+        throw new Error(`Working directory is not defined for compose project "${project}"`);
+      }
+
+      this.operationLogService.log('info', `Running docker compose ${op} for project "${project}"...`);
+
+      const args = ['-p', project, op];
+      if (op === 'up') {
+        args.push('-d');
+      }
+      args.push(...additionalArgs);
+      
+      // Escape arguments for shell safety
+      const escapedArgs = args.map(arg => `'${arg.replace(/'/g, "'''")}'`).join(' ');
+      const shellCommand = `cd '${workingDir.replace(/'/g, "'''")}' && docker compose ${escapedArgs}`;
+
+      const { code, stderr } = await this.docker.execShell(hostCred, shellCommand, { timeoutSec: 600 } as any);
 
       if (code === 0) {
-        this.operationLogService.log('info', `Compose operation "${op}" successful.`, hostId);
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
+        this.operationLogService.log('info', `Compose operation "${op}" successful.`);
       } else {
         const errorMsg = `Compose operation failed. Exit code: ${code}, Error: ${stderr}`;
-        this.operationLogService.log('error', errorMsg, hostId);
-        await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        this.operationLogService.log('error', errorMsg);
         throw new Error(errorMsg);
       }
       return { ok: true, code };
     });
   }
 
-  async refreshStatus(hostId: string, options: { containerIds?: string[]; containerNames?: string[]; composeProject?: string }): Promise<{ taskId: string }> {
-    const opLog = await this.operationLogService.create({ title: `Refresh status on host ${hostId}` });
-    return this.contextService.run(opLog.id, async () => {
-        this.operationLogService.log('system', 'Refreshing container status... This is a placeholder.');
-        // TODO: Implement the logic to inspect specific containers and update their status in the DB.
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
-        return { taskId: opLog.id };
+  async refreshStatus(
+    hostId: string,
+    options: { containerIds?: string[]; containerNames?: string[]; composeProject?: string },
+  ): Promise<{ taskId: string }> {
+    const opId =
+      this.contextService.getOpId() ||
+      (await this.operationLogService.create({ title: `Refresh status on host ${hostId}` })).id;
+    this.contextService.run(opId, async () => {
+      let isFailed = false;
+      try {
+        const hostCred = await this.getHostCredById(hostId);
+        if (!hostCred) throw new Error(`Host not found: ${hostId}`);
+
+        let targetContainerIds: string[] = options.containerIds || [];
+        if (options.containerNames?.length) {
+          const containers = await this.prisma.container.findMany({
+            where: { hostId, name: { in: options.containerNames } },
+            select: { containerId: true },
+          });
+          targetContainerIds.push(...containers.map(c => c.containerId));
+        }
+        if (options.composeProject) {
+          const containers = await this.prisma.container.findMany({
+            where: { hostId, composeProject: options.composeProject },
+            select: { containerId: true },
+          });
+          targetContainerIds.push(...containers.map(c => c.containerId));
+        }
+        targetContainerIds = [...new Set(targetContainerIds)];
+
+        if (!targetContainerIds.length) {
+          this.operationLogService.log('warn', 'No target containers specified for status refresh.');
+          return;
+        }
+
+        this.operationLogService.log('info', `Inspecting ${targetContainerIds.length} containers...`);
+        const inspects = await this.docker.inspectContainers(hostCred, targetContainerIds);
+
+        const updates = inspects.map(det => {
+          return this.prisma.container.update({
+            where: { hostId_containerId: { hostId, containerId: det.Id } },
+            data: {
+              state: det.State.Status,
+              status: det.State.Status,
+              restartCount: det.RestartCount,
+              startedAt: new Date(det.State.StartedAt),
+            },
+          });
+        });
+        await this.prisma.$transaction(updates);
+        this.operationLogService.log('info', `Updated status for ${updates.length} containers.`);
+      } catch (err) {
+        isFailed = true;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.operationLogService.log('error', `Status refresh failed: ${errorMessage}`);
+      } finally {
+        if (!this.contextService.getOpId()) {
+          // Only update status if we created the log
+          await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+        }
+      }
     });
+    return { taskId: opId };
+  }
+
+  async refreshRunningStatusAllHosts(): Promise<{ taskId: string }> {
+    const opLog = await this.operationLogService.create({ title: 'Refresh All Host Statuses' });
+    this.contextService.run(opLog.id, async () => {
+      const hosts = await this.prisma.host.findMany({ select: { id: true } });
+      this.operationLogService.log('info', `Refreshing status for ${hosts.length} hosts.`);
+      for (const host of hosts) {
+        const runningContainers = await this.prisma.container.findMany({
+          where: { hostId: host.id, state: 'running' },
+          select: { containerId: true },
+        });
+        if (runningContainers.length > 0) {
+          await this.refreshStatus(host.id, { containerIds: runningContainers.map(c => c.containerId) });
+        }
+      }
+      this.operationLogService.log('info', 'All hosts refreshed.');
+      await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
+    });
+    return { taskId: opLog.id };
   }
 
   async cleanupDuplicates(hostId?: string | 'all'): Promise<{ taskId: string }> {
     const opLog = await this.operationLogService.create({ title: `Cleanup Duplicate Containers` });
-    return this.contextService.run(opLog.id, async () => {
-        this.operationLogService.log('system', 'Cleaning up duplicate containers... This is a placeholder.');
-        // TODO: Implement the logic to find and remove duplicate container entries from the DB.
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
-        return { taskId: opLog.id };
+    this.contextService.run(opLog.id, async () => {
+      const where = hostId === 'all' ? {} : { id: hostId };
+      const hosts = await this.prisma.host.findMany({ where, select: { id: true, address: true } });
+      this.operationLogService.log('info', `Checking ${hosts.length} hosts for duplicates.`);
+      let totalDeleted = 0;
+
+      for (const host of hosts) {
+        const allHostContainers = await this.prisma.container.findMany({ where: { hostId: host.id } });
+        const logicalKeyToContainers = new Map<string, any[]>();
+
+        for (const c of allHostContainers) {
+          const logicalKey = c.isComposeManaged ? `compose_${c.composeProject}_${c.composeService}` : `cli_${c.name}`;
+          if (!logicalKeyToContainers.has(logicalKey)) {
+            logicalKeyToContainers.set(logicalKey, []);
+          }
+          logicalKeyToContainers.get(logicalKey)!.push(c);
+        }
+
+        const idsToDelete: string[] = [];
+        for (const containers of logicalKeyToContainers.values()) {
+          if (containers.length > 1) {
+            const sorted = containers.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            const latest = sorted[0];
+            const duplicates = sorted.slice(1);
+            this.operationLogService.log(
+              'info',
+              `[${host.address}] Found ${duplicates.length} duplicates for ${latest.name}. Keeping latest.`,
+            );
+            idsToDelete.push(...duplicates.map(d => d.id));
+          }
+        }
+
+        if (idsToDelete.length > 0) {
+          const { count } = await this.prisma.container.deleteMany({ where: { id: { in: idsToDelete } } });
+          totalDeleted += count;
+        }
+      }
+      this.operationLogService.log('info', `Cleanup complete. Deleted ${totalDeleted} duplicate entries.`);
+      await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
     });
+    return { taskId: opLog.id };
   }
 
   async purgeContainers(hostId?: string | 'all'): Promise<{ taskId: string }> {
-    const opLog = await this.operationLogService.create({ title: `Purge Containers` });
-    return this.contextService.run(opLog.id, async () => {
-        this.operationLogService.log('system', 'Purging containers... This is a placeholder.');
-        // TODO: Implement the logic to remove exited containers from the DB.
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
-        return { taskId: opLog.id };
+    const opLog = await this.operationLogService.create({ title: `Purge Exited Containers` });
+    this.contextService.run(opLog.id, async () => {
+      const where: Prisma.ContainerWhereInput = { state: 'exited' };
+      if (hostId && hostId !== 'all') {
+        where.hostId = hostId;
+      }
+      this.operationLogService.log('info', `Purging exited containers...`);
+      const { count } = await this.prisma.container.deleteMany({ where });
+      this.operationLogService.log('info', `Purged ${count} exited containers from the database.`);
+      await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
     });
+    return { taskId: opLog.id };
   }
 
   async checkComposeProjectUpdates(hostId: string, composeProject: string): Promise<{ taskId: string }> {
-    const opLog = await this.operationLogService.create({ title: `Check Compose Project Updates for ${composeProject}` });
-    return this.contextService.run(opLog.id, async () => {
-        this.operationLogService.log('system', `Checking for compose project updates... This is a placeholder.`);
-        // TODO: Implement the logic to check for updates for all images in a compose project.
-        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
-        return { taskId: opLog.id };
+    const opLog = await this.operationLogService.create({
+      title: `Check Compose Project Updates for ${composeProject}`,
     });
+    this.contextService.run(opLog.id, async () => {
+      let isFailed = false;
+      try {
+        const hostCred = await this.getHostCredById(hostId);
+        if (!hostCred) throw new Error(`Host not found: ${hostId}`);
+
+        const containers = await this.prisma.container.findMany({
+          where: { hostId, composeProject },
+        });
+        if (!containers.length) {
+          throw new Error(`No containers found for compose project "${composeProject}" on this host.`);
+        }
+
+        this.operationLogService.log(
+          'info',
+          `Checking for updates for ${containers.length} services in project "${composeProject}"...`,
+        );
+        let updatedCount = 0;
+
+        for (const container of containers) {
+          const imageRef = `${container.imageName}:${container.imageTag}`;
+          this.operationLogService.log('info', `Checking service ${container.composeService} (${imageRef})...`);
+
+          const platform = await this.docker.getContainerPlatform(hostCred, container.containerId);
+          const { updateAvailable, remoteDigest, error } = await this.docker.checkImageUpdate(
+            hostCred,
+            imageRef,
+            container.repoDigest,
+            platform,
+          );
+
+          if (error) {
+            this.operationLogService.log('warn', `Could not check for updates for ${imageRef}: ${error}`);
+            continue;
+          }
+
+          await this.prisma.container.update({
+            where: { id: container.id },
+            data: {
+              updateAvailable,
+              remoteDigest,
+              updateCheckedAt: new Date(),
+            },
+          });
+
+          if (updateAvailable) {
+            updatedCount++;
+            this.operationLogService.log('info', `Update available for ${imageRef}!`);
+          }
+        }
+        this.operationLogService.log(
+          'info',
+          `Check complete. Found ${updatedCount} available updates for project "${composeProject}".`,
+        );
+      } catch (err) {
+        isFailed = true;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.operationLogService.log('error', `Compose project update check failed: ${errorMessage}`);
+      } finally {
+        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+      }
+    });
+    return { taskId: opLog.id };
   }
 
   private async getHostCredById(hostId: string): Promise<{ id: string; address: string; sshUser: string; port?: number; password?: string; privateKey?: string; privateKeyPassphrase?: string } | null> {

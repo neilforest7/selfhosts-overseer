@@ -1012,4 +1012,43 @@ export class DockerService {
       return null;
     }
   }
+
+  async checkImageUpdate(
+    host: {
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    imageRef: string,
+    currentDigest?: string | null,
+    platform?: { architecture?: string; os?: string },
+  ): Promise<{ updateAvailable: boolean; remoteDigest?: string; error?: string }> {
+    const manifestResult = await this.inspectRemoteManifest(host, imageRef, platform);
+
+    if (manifestResult.error) {
+      return { updateAvailable: false, error: manifestResult.error };
+    }
+
+    const remoteDigest = manifestResult.digest;
+    if (!remoteDigest) {
+      return { updateAvailable: false, error: '无法获取远程镜像 digest' };
+    }
+
+    let localDigest = currentDigest;
+    if (!localDigest) {
+      const localDigests = await this.inspectImageRepoDigests(host, imageRef);
+      localDigest = localDigests[0] || null;
+    }
+
+    const updateAvailable = Boolean(localDigest && remoteDigest && localDigest !== remoteDigest);
+
+    return {
+      updateAvailable,
+      remoteDigest,
+      error: undefined,
+    };
+  }
 }
