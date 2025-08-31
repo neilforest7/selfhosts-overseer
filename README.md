@@ -62,6 +62,20 @@
 - Compose：GET `/api/v1/compose/projects?hostId=`；GET `/api/v1/compose/projects/{project}/services`；POST `/api/v1/compose/projects/{project}/services/{service}/update`
 - 更多细节见 `docs/PROJECT_SPEC.md` 与 `.cursor/rules/api-overview.mdc`
 
+## Docker 操作命令一览
+  ┌──────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────┐
+  │ 操作     │ CLI 容器 (Container)                                                                                                                                 │ Compose 项目 (Project/Service)                                                │
+  ├──────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────┤
+  │ 启动     │ docker start <容器名>                                                                                                                                │ docker compose start <服务名>                                                 │
+  │ 停止     │ docker stop <容器名>                                                                                                                                 │ docker compose stop <服务名>                                                  │
+  │ 重启     │ docker restart <容器名>                                                                                                                              │ docker compose restart <服务名>                                               │
+  │ 更新     │ 1. docker pull <镜像><br>2. docker stop <旧容器><br>3. docker rename <旧容器> <备份名><br>4. docker run <新镜像><br>5. 健康检查后 docker rm <备份名> │ 1. docker compose pull <服务名><br>2. docker compose up -d --no-deps <服务名> │
+  │ 查看状态 │ docker ps -a & docker inspect                                                                                                                        │ docker compose ps & docker inspect                                            │
+  │ 清理     │ docker rm <容器名>                                                                                                                                   │ docker compose down                                                           │
+  │ 查看日志 │ docker logs <容器名>                                                                                                                                 │ docker compose logs <服务名>                                                  │
+  └──────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────┘
+
+
 ## 路线图
 - M0：资产/连通性、并发执行、采集器安装、Grafana 预置、容器发现/重启/镜像拉取、运行参数/Compose 查看
 - M1：告警→n8n 回调执行；容器更新（Compose/CLI，默认备份+失败回滚）；定时更新检查

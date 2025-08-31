@@ -541,7 +541,7 @@ export default function ContainersSection() {
                         <DropdownMenuTrigger asChild>
                           <Button size="sm" variant="outline">操作</Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-32 bg-background">
+                        <DropdownMenuContent align="end" className="max-w-48 bg-background">
                         {isCompose ? (
                           <>
                             <DropdownMenuItem onClick={() => {
@@ -552,7 +552,7 @@ export default function ContainersSection() {
                                 workingDir,
                                 operation: 'restart' 
                               });
-                            }}>重启服务</DropdownMenuItem>
+                            }}>重启服务 (restart)</DropdownMenuItem>
                             {(() => {
                               const s = (groupStatus.state || '').toLowerCase();
                               const ss = (groupStatus.status || '').toLowerCase();
@@ -564,12 +564,12 @@ export default function ContainersSection() {
                                   {(!running || partial) && (
                                     <DropdownMenuItem onClick={() => {
                                       composeOperation.mutate({ hostId: first.hostId, project: first.composeProject || 'unknown', workingDir, operation: 'start' });
-                                    }}>启动服务(start)</DropdownMenuItem>
+                                    }}>启动服务 (start)</DropdownMenuItem>
                                   )}
                                   {(running || partial) && (
                                     <DropdownMenuItem onClick={() => {
                                       composeOperation.mutate({ hostId: first.hostId, project: first.composeProject || 'unknown', workingDir, operation: 'stop' });
-                                    }}>停止服务(stop)</DropdownMenuItem>
+                                    }}>停止服务 (stop)</DropdownMenuItem>
                                   )}
                                 </>
                               );
@@ -582,7 +582,7 @@ export default function ContainersSection() {
                                 workingDir,
                                 operation: 'down' 
                               });
-                            }}>下线（down）</DropdownMenuItem>
+                            }}>下线 (down)</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
                               composeOperation.mutate({
@@ -591,7 +591,7 @@ export default function ContainersSection() {
                                 workingDir,
                                 operation: 'up' 
                               });
-                            }}>重新部署</DropdownMenuItem>
+                            }}>上线 (up)</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
                               composeOperation.mutate({
@@ -600,7 +600,7 @@ export default function ContainersSection() {
                                 workingDir,
                                 operation: 'pull' 
                               });
-                            }}>拉取镜像</DropdownMenuItem>
+                            }}>拉取镜像 (pull)</DropdownMenuItem>
                           </>
                         ) : (
                           <>
