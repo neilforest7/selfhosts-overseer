@@ -230,18 +230,25 @@ export class ReverseProxyService {
   }
 
   private async findNpmDbPath(host: HostWithCreds, npmContainerInspect: any): Promise<string | null> {
-    const composeFiles = npmContainerInspect.Config?.Labels?.['com.docker.compose.project.config_files'];
-    if (composeFiles) {
-      const composePath = path.dirname(composeFiles.split(',')[0]);
-      const composeContent = await this.readRemoteFile(host, path.join(composePath, 'docker-compose.yml'));
+    const labels = npmContainerInspect.Config?.Labels || {};
+    const composeFiles = labels['com.docker.compose.project.config_files'];
+    const workingDir = labels['com.docker.compose.project.working_dir'];
+
+    if (composeFiles && workingDir) {
+      const composePath = composeFiles.split(',')[0];
+      const composeContent = await this.readRemoteFile(host, composePath);
       if (composeContent) {
-        const dbVolumeMatch = composeContent.toString().match(/-(.*):\/data/);
+        // Match volumes like: ./data:/data, ./data:/data:ro, data:/data
+        const dbVolumeMatch = composeContent.toString().match(/['"]?(\.?\.\/.*?)['"]?:['"]?\/data['"]?/);
         if (dbVolumeMatch && dbVolumeMatch[1]) {
-          return path.join(path.dirname(composePath), dbVolumeMatch[1].trim(), 'database.sqlite');
+          const relativePath = dbVolumeMatch[1].trim();
+          // The path is relative to the compose working directory
+          return path.join(workingDir, relativePath, 'database.sqlite');
         }
       }
     }
 
+    // Fallback to inspecting mounts if compose labels are not sufficient
     const mounts = npmContainerInspect.Mounts || [];
     for (const mount of mounts) {
       if (mount.Destination === '/data') {
