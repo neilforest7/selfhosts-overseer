@@ -541,20 +541,27 @@ export class DockerService {
     containerIds: string[],
     timeoutSec = 120,
   ): Promise<any[]> {
-    if (!containerIds.length) return [];
-    const results: any[] = [];
-    for (const id of containerIds) {
-      const res = await this.exec(host, ['inspect', id], timeoutSec);
-      if (res.code !== 0) continue;
-      try {
-        const parsed = JSON.parse(res.stdout.trim());
-        if (Array.isArray(parsed) && parsed[0]) results.push(parsed[0]);
-        else if (parsed) results.push(parsed);
-      } catch {
-        // ignore this id
-      }
+    if (!containerIds.length) {
+      return [];
     }
-    return results;
+
+    // Inspect all containers in a single command for efficiency
+    const { code, stdout, stderr } = await this.exec(host, ['inspect', ...containerIds], timeoutSec);
+
+    if (code !== 0) {
+      // Log the error but don't throw, as some containers might be gone
+      console.warn(`'docker inspect' failed for some containers on ${host.address}. Stderr: ${stderr}`);
+      return [];
+    }
+
+    try {
+      // When inspecting multiple containers, Docker returns a JSON array of objects.
+      const parsed = JSON.parse(stdout.trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error(`Failed to parse JSON from 'docker inspect' on ${host.address}:`, e);
+      return [];
+    }
   }
 
   async pullImage(host: { address: string; sshUser: string; port?: number }, imageRef: string): Promise<number> {
