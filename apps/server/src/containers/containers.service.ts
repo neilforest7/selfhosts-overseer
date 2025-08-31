@@ -90,15 +90,25 @@ export class ContainersService {
       const decPassphrase = this.crypto.decryptString(h.sshPrivateKeyPassphrase)?.toString();
       const hostCred = { ...host, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase } as any;
 
-      const { code, stdout, stderr } = await this.docker.execStreaming(
-        hostCred,
-        ['ps', '-a', '--format', '{{.ID}}'],
-      );
+      // 1. Get detailed status from `docker ps`
+      const { code, stdout, stderr } = await this.docker.execStreaming(hostCred, ['ps', '-a', '--format', '{{json .}}']);
       if (code !== 0) {
         throw new Error(`'docker ps -a' failed with exit code ${code}: ${stderr}`);
       }
 
-      const onlineContainerIds = stdout.split('\n').filter(Boolean);
+      const psOutputLines = stdout.split('\n').filter(Boolean);
+      const psStatusMap = new Map<string, string>();
+      const onlineContainerIds: string[] = [];
+      for (const line of psOutputLines) {
+        try {
+          const containerInfo = JSON.parse(line);
+          psStatusMap.set(containerInfo.ID, containerInfo.Status);
+          onlineContainerIds.push(containerInfo.ID);
+        } catch (e) {
+          this.operationLogService.log('warn', `Could not parse docker ps JSON line: ${line}`, host.id);
+        }
+      }
+
       if (onlineContainerIds.length === 0) {
         this.operationLogService.log('system', 'No containers found on the host. Marking all existing DB entries as exited.', host.id);
         await this.prisma.container.updateMany({ where: { hostId: host.id }, data: { state: 'exited', status: 'exited' } });
@@ -119,7 +129,7 @@ export class ContainersService {
         const composeWorkingDir = labels['com.docker.compose.project.working_dir'] || null;
         const composeFolderName = (() => {
           if (!composeWorkingDir) return composeProject;
-          const parts = composeWorkingDir.split(/[\/]+/).filter(Boolean);
+          const parts = composeWorkingDir.split(/[/]+/).filter(Boolean);
           return parts.length ? parts[parts.length - 1] : composeProject;
         })();
         const composeConfigFilesRaw = labels['com.docker.compose.project.config_files'];
@@ -130,8 +140,8 @@ export class ContainersService {
 
         const commonData = {
           name: containerName,
-          state: det.State.Status,
-          status: det.State.Status,
+          state: det.State.Status, // Raw status from inspect
+          status: psStatusMap.get(det.Id) || det.State.Status, // User-friendly status from ps
           imageName,
           imageTag,
           repoDigest,
