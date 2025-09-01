@@ -34,5 +34,10 @@ export class HostsController {
   async test(@Param('id') id: string) {
     return this.hostsService.testConnection(id);
   }
+
+  @Post('cleanup/orphaned-routes')
+  async cleanupOrphanedRoutes(): Promise<{ deletedCount: number }> {
+    return this.hostsService.cleanupOrphanedReverseProxyRoutes();
+  }
 }
 

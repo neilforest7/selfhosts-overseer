@@ -180,7 +180,44 @@ export class HostsService {
   }
 
   async remove(id: string): Promise<void> {
-    await this.prisma.host.delete({ where: { id } });
+    this.logger.log(`开始删除主机: ${id}`);
+
+    // 使用事务确保数据一致性
+    await this.prisma.$transaction(async (tx) => {
+      // 1. 删除与该主机关联的容器记录
+      const deletedContainers = await tx.container.deleteMany({
+        where: { hostId: id }
+      });
+      this.logger.log(`删除了 ${deletedContainers.count} 个容器记录`);
+
+      // 2. 删除与该主机关联的 FrpcProxy 记录
+      const deletedFrpcProxies = await tx.frpcProxy.deleteMany({
+        where: { hostId: id }
+      });
+      this.logger.log(`删除了 ${deletedFrpcProxies.count} 个 FrpcProxy 记录`);
+
+      // 3. 删除与该主机关联的 FrpsConfig 记录
+      const deletedFrpsConfigs = await tx.frpsConfig.deleteMany({
+        where: { hostId: id }
+      });
+      this.logger.log(`删除了 ${deletedFrpsConfigs.count} 个 FrpsConfig 记录`);
+
+      // 4. 删除与该主机关联的反向代理路由记录
+      const deletedReverseProxyRoutes = await tx.reverseProxyRoute.deleteMany({
+        where: { hostId: id }
+      });
+      this.logger.log(`删除了 ${deletedReverseProxyRoutes.count} 个反向代理路由记录`);
+
+      // 5. 删除与该主机关联的 HostNpmConfig 记录
+      const deletedHostNpmConfig = await tx.hostNpmConfig.deleteMany({
+        where: { hostId: id }
+      });
+      this.logger.log(`删除了 ${deletedHostNpmConfig.count} 个 HostNpmConfig 记录`);
+
+      // 6. 最后删除主机记录
+      await tx.host.delete({ where: { id } });
+      this.logger.log(`✅ 主机删除成功: ${id}`);
+    });
   }
 
   async testConnection(id: string): Promise<{ ok: boolean; code: number; stdout?: string; stderr?: string }> {
@@ -219,6 +256,53 @@ export class HostsService {
     }
     
     return { ok: res.code === 0, code: res.code, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
+  }
+
+  /**
+   * 清理孤立的反向代理路由记录
+   * 删除那些 hostId 字段引用的主机在系统中不存在的记录
+   */
+  async cleanupOrphanedReverseProxyRoutes(): Promise<{ deletedCount: number }> {
+    this.logger.log('开始清理孤立的反向代理路由记录');
+
+    try {
+      // 使用子查询找到所有孤立的路由记录
+      const orphanedRoutes = await this.prisma.$queryRaw<Array<{ id: string; hostId: string; domain: string }>>`
+        SELECT rpr.id, rpr."hostId", rpr.domain
+        FROM "ReverseProxyRoute" rpr
+        LEFT JOIN "Host" h ON rpr."hostId" = h.id
+        WHERE h.id IS NULL
+      `;
+
+      if (orphanedRoutes.length === 0) {
+        this.logger.log('没有发现孤立的反向代理路由记录');
+        return { deletedCount: 0 };
+      }
+
+      this.logger.log(`发现 ${orphanedRoutes.length} 个孤立的反向代理路由记录`);
+
+      // 删除孤立的记录
+      const deleteResult = await this.prisma.reverseProxyRoute.deleteMany({
+        where: {
+          id: {
+            in: orphanedRoutes.map(route => route.id)
+          }
+        }
+      });
+
+      this.logger.log(`✅ 成功清理了 ${deleteResult.count} 个孤立的反向代理路由记录`);
+
+      // 记录被删除的路由信息
+      orphanedRoutes.forEach(route => {
+        this.logger.log(`删除孤立路由: ${route.domain} (hostId: ${route.hostId})`);
+      });
+
+      return { deletedCount: deleteResult.count };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`清理孤立反向代理路由记录时发生错误: ${errorMessage}`);
+      throw error;
+    }
   }
 }
 

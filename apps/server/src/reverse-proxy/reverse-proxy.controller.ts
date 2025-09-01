@@ -21,4 +21,21 @@ export class ReverseProxyController {
     });
     return { message: `NPM route sync initiated for host ${hostId}.` };
   }
+
+  @Post('cleanup/orphaned-routes')
+  @HttpCode(200)
+  async cleanupOrphanedRoutes(): Promise<{ deletedCount: number }> {
+    this.logger.log(`[NPM Cleanup] Manual cleanup of orphaned routes triggered`);
+    return this.svc.cleanupOrphanedRoutes();
+  }
+
+  @Post('sync-and-cleanup/:hostId')
+  @HttpCode(202)
+  async syncAndCleanup(@Param('hostId') hostId: string) {
+    this.logger.log(`[NPM Sync+Cleanup] Manual sync and cleanup triggered for host: ${hostId}`);
+    this.svc.syncAndCleanup(hostId).catch(err => {
+      this.logger.error(`[NPM Sync+Cleanup] Failed for host ${hostId}`, err);
+    });
+    return { message: `NPM route sync and cleanup initiated for host ${hostId}.` };
+  }
 }

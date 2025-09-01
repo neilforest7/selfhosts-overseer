@@ -323,4 +323,67 @@ export class ReverseProxyService {
       return null;
     }
   }
+
+  /**
+   * 清理孤立的反向代理路由记录
+   * 这个方法可以作为维护任务定期执行
+   */
+  async cleanupOrphanedRoutes(): Promise<{ deletedCount: number }> {
+    this.logger.log('开始清理孤立的反向代理路由记录');
+
+    try {
+      // 使用子查询找到所有孤立的路由记录
+      const orphanedRoutes = await this.prisma.$queryRaw<Array<{ id: string; hostId: string; domain: string }>>`
+        SELECT rpr.id, rpr."hostId", rpr.domain
+        FROM "ReverseProxyRoute" rpr
+        LEFT JOIN "Host" h ON rpr."hostId" = h.id
+        WHERE h.id IS NULL
+      `;
+
+      if (orphanedRoutes.length === 0) {
+        this.logger.log('没有发现孤立的反向代理路由记录');
+        return { deletedCount: 0 };
+      }
+
+      this.logger.log(`发现 ${orphanedRoutes.length} 个孤立的反向代理路由记录`);
+
+      // 删除孤立的记录
+      const deleteResult = await this.prisma.reverseProxyRoute.deleteMany({
+        where: {
+          id: {
+            in: orphanedRoutes.map(route => route.id)
+          }
+        }
+      });
+
+      this.logger.log(`✅ 成功清理了 ${deleteResult.count} 个孤立的反向代理路由记录`);
+
+      // 记录被删除的路由信息
+      orphanedRoutes.forEach(route => {
+        this.logger.log(`删除孤立路由: ${route.domain} (hostId: ${route.hostId})`);
+      });
+
+      return { deletedCount: deleteResult.count };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`清理孤立反向代理路由记录时发生错误: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 同步路由时自动清理孤立记录
+   * 可以在同步完成后调用此方法
+   */
+  async syncAndCleanup(hostId?: string): Promise<void> {
+    if (hostId) {
+      await this.syncRoutesFromHost(hostId);
+    }
+
+    // 同步完成后清理孤立记录
+    const result = await this.cleanupOrphanedRoutes();
+    if (result.deletedCount > 0) {
+      this.logger.log(`同步后清理: 删除了 ${result.deletedCount} 个孤立的反向代理路由记录`);
+    }
+  }
 }
