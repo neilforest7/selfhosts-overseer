@@ -77,23 +77,23 @@ export class ContainersController {
   }
 
   @Post(':id/update')
-  async updateContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; imageRef?: string; }) {
-    return this.containers.updateOne(body.host as any, id, body.imageRef);
+  async updateContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; imageRef?: string; opId?: string; }) {
+    return this.containers.updateOne(body.host as any, id, body.imageRef, body.opId);
   }
 
   @Post(':id/restart')
-  async restartContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
-    return this.containers.restartOne(body.host as any, id);
+  async restartContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string; }) {
+    return this.containers.restartOne(body.host as any, id, body.opId);
   }
 
   @Post(':id/start')
-  async startContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
-    return this.containers.startOne(body.host as any, id);
+  async startContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string; }) {
+    return this.containers.startOne(body.host as any, id, body.opId);
   }
 
   @Post(':id/stop')
-  async stopContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; }) {
-    return this.containers.stopOne(body.host as any, id);
+  async stopContainer(@Param('id') id: string, @Body() body: { host: { id?: string; address?: string; sshUser?: string; port?: number }; opId?: string; }) {
+    return this.containers.stopOne(body.host as any, id, body.opId);
   }
 
   @Post('compose/operate')

@@ -370,10 +370,15 @@ export class ContainersService {
     });
   }
 
-  async updateOne(hostOrRef: { id: string }, containerId: string, imageRef?: string) {
-    const opLog = await this.operationLogService.create({
-      title: `Update Container ${containerId.substring(0, 12)}`,
-    });
+  async updateOne(hostOrRef: { id: string }, containerId: string, imageRef?: string, existingOpId?: string) {
+    const opLog = existingOpId ?
+      await this.prisma.operationLog.findUnique({ where: { id: existingOpId } }) :
+      await this.operationLogService.create({
+        title: `Update Container ${containerId.substring(0, 12)}`,
+      });
+
+    if (!opLog) throw new Error('Operation log not found');
+
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
       try {
@@ -506,8 +511,13 @@ export class ContainersService {
     await this.refreshStatus(container.hostId, { containerIds: [newContainerIdStr] });
   }
 
-  async restartOne(_hostOrRef: { id: string }, containerId: string) {
-    const opLog = await this.operationLogService.create({ title: `Restart Container ${containerId.substring(0, 12)}` });
+  async restartOne(_hostOrRef: { id: string }, containerId: string, existingOpId?: string) {
+    const opLog = existingOpId ?
+      await this.prisma.operationLog.findUnique({ where: { id: existingOpId } }) :
+      await this.operationLogService.create({ title: `Restart Container ${containerId.substring(0, 12)}` });
+
+    if (!opLog) throw new Error('Operation log not found');
+
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
       try {
@@ -548,8 +558,13 @@ export class ContainersService {
     return { taskId: opLog.id };
   }
 
-  async startOne(_hostOrRef: { id: string }, containerId: string) {
-    const opLog = await this.operationLogService.create({ title: `Start Container ${containerId.substring(0, 12)}` });
+  async startOne(_hostOrRef: { id: string }, containerId: string, existingOpId?: string) {
+    const opLog = existingOpId ?
+      await this.prisma.operationLog.findUnique({ where: { id: existingOpId } }) :
+      await this.operationLogService.create({ title: `Start Container ${containerId.substring(0, 12)}` });
+
+    if (!opLog) throw new Error('Operation log not found');
+
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
       try {
@@ -590,8 +605,13 @@ export class ContainersService {
     return { taskId: opLog.id };
   }
 
-  async stopOne(_hostOrRef: { id: string }, containerId: string) {
-    const opLog = await this.operationLogService.create({ title: `Stop Container ${containerId.substring(0, 12)}` });
+  async stopOne(_hostOrRef: { id: string }, containerId: string, existingOpId?: string) {
+    const opLog = existingOpId ?
+      await this.prisma.operationLog.findUnique({ where: { id: existingOpId } }) :
+      await this.operationLogService.create({ title: `Stop Container ${containerId.substring(0, 12)}` });
+
+    if (!opLog) throw new Error('Operation log not found');
+
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
       try {
