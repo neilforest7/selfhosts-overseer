@@ -97,8 +97,18 @@ export class ContainersController {
   }
 
   @Post('compose/operate')
-  async composeOperate(@Body() body: { hostId: string; project: string; workingDir: string; op: 'down'|'pull'|'up'|'restart'|'start'|'stop'; }) {
-    return this.containers.composeOperate(body.hostId, body.project, body.workingDir, body.op);
+  async composeOperate(@Body() body: { hostId: string; project: string; workingDir: string; op: 'down'|'pull'|'up'|'restart'|'stop'|'start'; }) {
+    return this.containers.composeOperate({ id: body.hostId }, body.op, body.project, body.workingDir);
+  }
+
+  @Post('compose/reactivate')
+  async reactivateComposeProject(@Body() body: { hostId: string; project: string; workingDir: string; }) {
+    return this.containers.reactivateComposeProject({ id: body.hostId }, body.project, body.workingDir);
+  }
+
+  @Get('compose/down-projects')
+  async getComposeDownProjects(@Query('hostId') hostId?: string) {
+    return this.containers.getComposeDownProjects(hostId);
   }
 
   @Post('refresh-status')
@@ -107,15 +117,15 @@ export class ContainersController {
   }
 
   @Post('cleanup-duplicates')
-  async cleanupDuplicates(@Body() body: { hostId?: string | 'all'; }) {
-    const removed = await this.containers.cleanupDuplicates(body.hostId);
-    return { removed };
+  async cleanupDuplicates(@Body() _body: { hostId?: string | 'all'; }) {
+    const result = await this.containers.cleanupDuplicates();
+    return result;
   }
 
   @Post('purge')
-  async purge(@Body() body: { hostId?: string | 'all'; }) {
-    const removed = await this.containers.purgeContainers(body.hostId);
-    return { removed };
+  async purge(@Body() body: { hostId: string; }) {
+    const result = await this.containers.purgeStoppedContainers({ id: body.hostId });
+    return result;
   }
 
   @Post('test-credentials')

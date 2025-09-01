@@ -25,7 +25,7 @@ export class ContainerCheckerProcessor {
   @Cron(CronExpression.EVERY_10_MINUTES)
   async cleanupDuplicatesJob(): Promise<void> {
     try {
-      const removed = await this.containers.cleanupDuplicates('all');
+      const removed = await this.containers.cleanupDuplicates();
       if (removed && removed.taskId) this.logger.log(`Cleanup duplicates task started: ${removed.taskId}`);
     } catch (e) {
       this.logger.warn(`Cleanup duplicates failed: ${String(e)}`);

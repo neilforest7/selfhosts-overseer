@@ -3,7 +3,7 @@ import { IsString, IsOptional, IsJSON, IsBoolean, IsNotEmpty } from 'class-valid
 export class CreateAutomationRuleDto {
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name!: string;
 
   @IsString()
   @IsOptional()
@@ -16,5 +16,5 @@ export class CreateAutomationRuleDto {
 
 
   @IsJSON()
-  ruleJson: string;
+  ruleJson!: string;
 }
