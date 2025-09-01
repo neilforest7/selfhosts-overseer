@@ -209,6 +209,23 @@ export class ContainerDiscoveryService {
     const composeConfigFiles = labels['com.docker.compose.project.config_files'];
     const isComposeManaged = Boolean(composeProject);
 
+    // Generate compose metadata fields
+    let composeGroupKey: string | null = null;
+    let composeFolderName: string | null = null;
+
+    if (isComposeManaged && composeProject) {
+      // Generate composeGroupKey: hostId::compose::projectName
+      composeGroupKey = `${hostId}::compose::${composeProject}`;
+
+      // Generate composeFolderName from working directory
+      if (composeWorkingDir) {
+        const parts = composeWorkingDir.split(/[/\\]+/).filter(Boolean);
+        composeFolderName = parts.length > 0 ? parts[parts.length - 1] : composeProject;
+      } else {
+        composeFolderName = composeProject;
+      }
+    }
+
     // Extract ports, mounts, networks
     const ports = this.extractPorts(containerData);
     const mounts = this.extractMounts(containerData);
@@ -232,6 +249,8 @@ export class ContainerDiscoveryService {
         composeProject,
         composeService,
         composeWorkingDir,
+        composeGroupKey,
+        composeFolderName,
         composeConfigFiles: composeConfigFiles ? { configFiles: composeConfigFiles.split(',') } : undefined,
         runCommand,
         ports,
@@ -255,6 +274,8 @@ export class ContainerDiscoveryService {
         composeProject,
         composeService,
         composeWorkingDir,
+        composeGroupKey,
+        composeFolderName,
         composeConfigFiles: composeConfigFiles ? { configFiles: composeConfigFiles.split(',') } : undefined,
         runCommand,
         ports,
