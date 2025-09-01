@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, Fragment } from 'react';
+import { useMemo, useState, Fragment, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -54,7 +54,7 @@ export default function ContainersSection() {
   const [discoverDialogOpen, setDiscoverDialogOpen] = useState(false);
   const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
 
-  const listQuery = useQuery<{ items: ContainerItem[] }>({ 
+  const listQuery = useQuery<{ items: ContainerItem[] }>({
     queryKey: ['containers', q, updateOnly, hostFilter, filterMode],
     queryFn: async () => {
       const url = new URL('http://localhost:3001/api/v1/containers');
@@ -69,7 +69,9 @@ export default function ContainersSection() {
       const r = await fetch(url);
       if (!r.ok) throw new Error('加载失败');
       return r.json();
-    }
+    },
+    refetchInterval: 10000, // 每10秒自动刷新
+    refetchIntervalInBackground: true, // 即使页面在后台也继续刷新
   });
 
   const hostsQuery = useQuery<{ items: HostItem[] }>({ 
@@ -196,9 +198,12 @@ export default function ContainersSection() {
       } else {
         toast.success(`发现完成（${hostName}）`);
       }
+      // 立即刷新容器状态
       await qc.invalidateQueries({ queryKey: ['containers'] });
-      // 额外延迟一次刷新，确保后端 discover 完成
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 800);
+      // 多次延迟刷新确保发现完成
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
     },
     onError: (err: any, variables) => {
       let hostName: string;
@@ -243,8 +248,11 @@ export default function ContainersSection() {
       } else {
         toast.success(`检查完成（${hostName}）`);
       }
+      // 立即刷新容器状态
       await qc.invalidateQueries({ queryKey: ['containers'] });
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 800);
+      // 多次延迟刷新确保检查完成
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
     },
     onError: (err: any, variables) => {
       const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
@@ -266,7 +274,7 @@ export default function ContainersSection() {
     onMutate: ({ project, operation }) => {
       toast.info(`Compose ${operation} 已触发：${project}`);
     },
-    onSuccess: async (data: any, { project }) => {
+    onSuccess: async (data: any, { project, operation }) => {
       if (data.taskId) {
         await fetchTasks();
         selectTask(data.taskId);
@@ -277,8 +285,22 @@ export default function ContainersSection() {
       } else {
         toast.success(`Compose 操作完成：${project}`);
       }
+      // 立即刷新容器状态
       await qc.invalidateQueries({ queryKey: ['containers'] });
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 800);
+
+      if (operation === 'down' || operation === 'up') {
+        // compose down/up 需要更频繁的刷新，因为容器被物理删除/创建
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 500);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1500);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 6000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 10000);
+      } else {
+        // 其他操作的正常刷新频率
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
+      }
     },
     onError: (err: any, { project, operation }) => {
       toast.error(`Compose ${operation} 失败：${project} - ${err?.message || '未知错误'}`);
@@ -297,7 +319,7 @@ export default function ContainersSection() {
       const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
       toast.info(`开始分析 ${hostName} 上的 NPM...`);
     },
-    onSuccess: (data, hostId) => {
+    onSuccess: (_data, hostId) => {
       const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
       toast.success(`NPM 分析完成：${hostName}`);
       qc.invalidateQueries({ queryKey: ['reverse-proxy-routes'] }); // Assuming this is the query key for routes
@@ -320,7 +342,7 @@ export default function ContainersSection() {
       const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
       toast.info(`开始分析 ${hostName} 上的 FRP...`);
     },
-    onSuccess: (data, hostId) => {
+    onSuccess: (_data, hostId) => {
       const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
       toast.success(`FRP 分析完成：${hostName}`);
     },
@@ -335,17 +357,35 @@ export default function ContainersSection() {
   return (
     <Card>
       <CardHeader className='flex-row align-middle items-center gap-2 '>
-        <CardTitle className='flex-1'>容器</CardTitle>
+        <CardTitle className='flex-1'>
+          容器
+          {/* {listQuery.isFetching && (
+            <span className="ml-2 text-sm text-muted-foreground">
+              (刷新中...)
+            </span>
+          )} */}
+        </CardTitle>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            qc.invalidateQueries({ queryKey: ['containers'] });
+            toast.info('正在刷新容器状态...');
+          }}
+          disabled={listQuery.isFetching}
+        >
+          {listQuery.isFetching ? '刷新中...' : '刷新'}
+        </Button>
         <Button size="sm" onClick={() => setDiscoverDialogOpen(true)}>
           发现容器
         </Button>
-        
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="sm">检查更新</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => checkUpdates.mutate('all')}> 
+            <DropdownMenuItem onClick={() => checkUpdates.mutate('all')}>
               全部主机
             </DropdownMenuItem>
             {hostsQuery.data?.items?.map(host => (
@@ -629,7 +669,10 @@ export default function ContainersSection() {
                                             const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                             if (!r.ok) throw new Error(await r.text());
                                             toast.success(`启动请求已受理：${first.name}`);
+                                            // 立即刷新并延迟刷新确保状态更新
                                             qc.invalidateQueries({ queryKey: ['containers'] });
+                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 2000);
+                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
                                           } catch (e: any) {
                                             toast.error(`启动触发失败：${first.name} - ${e?.message || '未知错误'}`);
                                           }
@@ -652,7 +695,10 @@ export default function ContainersSection() {
                                             const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                             if (!r.ok) throw new Error(await r.text());
                                             toast.success(`停止请求已受理：${first.name}`);
+                                            // 立即刷新并延迟刷新确保状态更新
                                             qc.invalidateQueries({ queryKey: ['containers'] });
+                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 2000);
+                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
                                           } catch (e: any) {
                                             toast.error(`停止触发失败：${first.name} - ${e?.message || '未知错误'}`);
                                           }
@@ -669,7 +715,10 @@ export default function ContainersSection() {
                                 const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId }) });
                                 if (!r.ok) throw new Error(await r.text());
                                 toast.success(`更新请求已受理：${i.name}`);
+                                // 立即刷新并延迟刷新确保状态更新
                                 qc.invalidateQueries({ queryKey: ['containers'] });
+                                setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 2000);
+                                setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
                               } catch (e: any) {
                                 toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
                               }
@@ -702,7 +751,9 @@ export default function ContainersSection() {
                               } else {
                                 toast.success(`${title} 组所有容器已是最新版本`);
                               }
+                              // 立即刷新容器状态
                               qc.invalidateQueries({ queryKey: ['containers'] });
+                              setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
                             } catch (e: any) {
                               toast.error(`检查 ${title} 组更新失败: ${e?.message || '未知错误'}`);
                             }
@@ -724,7 +775,9 @@ export default function ContainersSection() {
                               } else {
                                 toast.success(`${first.name} 已是最新版本`);
                               }
+                              // 立即刷新容器状态
                               qc.invalidateQueries({ queryKey: ['containers'] });
+                              setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
                             } catch (e: any) {
                               toast.error(`检查 ${first.name} 更新失败: ${e?.message || '未知错误'}`);
                             }

@@ -78,7 +78,6 @@ export class ContainersService {
   }
 
   async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }): Promise<void> {
-    let isFailed = false;
     try {
       this.operationLogService.log('system', `Starting container discovery on host ${host.address}`, host.id);
 
@@ -105,7 +104,7 @@ export class ContainersService {
           psStatusMap.set(containerInfo.ID, containerInfo.Status);
           onlineContainerIds.push(containerInfo.ID);
         } catch (e) {
-          this.operationLogService.log('warn', `Could not parse docker ps JSON line: ${line}`, host.id);
+          this.operationLogService.log('info', `Could not parse docker ps JSON line: ${line}`, host.id);
         }
       }
 
@@ -219,7 +218,6 @@ export class ContainersService {
 
       this.operationLogService.log('system', 'Container discovery finished successfully.', host.id);
     } catch (err) {
-      isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.operationLogService.log('error', `Discovery failed: ${errorMessage}`, host.id);
     }
@@ -375,7 +373,6 @@ export class ContainersService {
   async updateOne(hostOrRef: { id: string }, containerId: string, imageRef?: string) {
     const opLog = await this.operationLogService.create({
       title: `Update Container ${containerId.substring(0, 12)}`,
-      metadata: { containerId },
     });
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
@@ -409,7 +406,7 @@ export class ContainersService {
       composeWorkingDir?: string | null;
       hostId: string;
     },
-    imageRef?: string, // Not used, but kept for signature consistency
+    _imageRef?: string, // Not used, but kept for signature consistency
   ) {
     const { composeProject, composeService, hostId, composeWorkingDir } = container;
     if (!composeProject || !composeService) {
@@ -428,6 +425,8 @@ export class ContainersService {
     await this.composeOperate(hostId, composeProject, composeWorkingDir, 'up', ['--no-deps', composeService]);
 
     this.operationLogService.log('info', `Compose service "${composeService}" updated successfully.`);
+    this.operationLogService.log('info', `Refreshing status for project "${composeProject}"...`);
+    await this.refreshStatus(hostId, { composeProject });
   }
 
   private async _updateCliContainer(
@@ -479,7 +478,9 @@ export class ContainersService {
       throw new Error(`Failed to create new container: ${runStderr}`);
     }
 
-    this.operationLogService.log('info', `New container created with ID: ${newContainerId.substring(0, 12)}.`);
+    const newContainerIdStr = String(newContainerId).trim();
+    const newContainerShortId = newContainerIdStr.substring(0, 12);
+    this.operationLogService.log('info', `New container created with ID: ${newContainerShortId}.`);
     this.operationLogService.log('info', `Performing health check...`);
     await new Promise(resolve => setTimeout(resolve, 5000)); // wait 5s for container to stabilize
 
@@ -487,12 +488,13 @@ export class ContainersService {
       'inspect',
       '--format',
       '{{.State.Status}}',
-      newContainerId.trim(),
+      newContainerIdStr,
     ]);
 
-    if (status.trim() !== 'running') {
-      this.operationLogService.log('error', `Health check failed (status: ${status.trim()}). Rolling back...`);
-      await this.docker.exec(hostCred, ['rm', '-f', newContainerId.trim()]);
+    const statusStr = String(status).trim();
+    if (statusStr !== 'running') {
+      this.operationLogService.log('error', `Health check failed (status: ${statusStr}). Rolling back...`);
+      await this.docker.exec(hostCred, ['rm', '-f', newContainerIdStr]);
       await this.docker.exec(hostCred, ['rename', backupName, container.name]);
       await this.docker.exec(hostCred, ['start', container.name]);
       throw new Error('Health check failed for the new container.');
@@ -500,10 +502,11 @@ export class ContainersService {
 
     this.operationLogService.log('info', `Health check passed. Removing backup container...`);
     await this.docker.exec(hostCred, ['rm', '-f', backupName]);
-    this.operationLogService.log('info', `Update successful.`);
+    this.operationLogService.log('info', `Update successful. Refreshing status...`);
+    await this.refreshStatus(container.hostId, { containerIds: [newContainerIdStr] });
   }
 
-  async restartOne(hostOrRef: { id: string }, containerId: string) {
+  async restartOne(_hostOrRef: { id: string }, containerId: string) {
     const opLog = await this.operationLogService.create({ title: `Restart Container ${containerId.substring(0, 12)}` });
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
@@ -521,6 +524,8 @@ export class ContainersService {
             container.composeWorkingDir!,
             'restart',
           );
+          this.operationLogService.log('info', `Compose project "${container.composeProject}" restarted. Refreshing status...`);
+          await this.refreshStatus(container.hostId, { composeProject: container.composeProject! });
         } else {
           const hostCred = await this.getHostCredById(container.hostId);
           if (!hostCred) throw new Error(`Host with id ${container.hostId} not found`);
@@ -529,7 +534,8 @@ export class ContainersService {
           if (code !== 0) {
             throw new Error(`Failed to restart container: ${stderr}`);
           }
-          this.operationLogService.log('info', `Container "${container.name}" restarted successfully.`);
+          this.operationLogService.log('info', `Container "${container.name}" restarted successfully. Refreshing status...`);
+          await this.refreshStatus(container.hostId, { containerIds: [container.containerId] });
         }
       } catch (err) {
         isFailed = true;
@@ -542,7 +548,7 @@ export class ContainersService {
     return { taskId: opLog.id };
   }
 
-  async startOne(hostOrRef: { id: string }, containerId: string) {
+  async startOne(_hostOrRef: { id: string }, containerId: string) {
     const opLog = await this.operationLogService.create({ title: `Start Container ${containerId.substring(0, 12)}` });
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
@@ -560,6 +566,8 @@ export class ContainersService {
             container.composeWorkingDir!,
             'start',
           );
+          this.operationLogService.log('info', `Compose project "${container.composeProject}" started. Refreshing status...`);
+          await this.refreshStatus(container.hostId, { composeProject: container.composeProject! });
         } else {
           const hostCred = await this.getHostCredById(container.hostId);
           if (!hostCred) throw new Error(`Host with id ${container.hostId} not found`);
@@ -568,7 +576,8 @@ export class ContainersService {
           if (code !== 0) {
             throw new Error(`Failed to start container: ${stderr}`);
           }
-          this.operationLogService.log('info', `Container "${container.name}" started successfully.`);
+          this.operationLogService.log('info', `Container "${container.name}" started successfully. Refreshing status...`);
+          await this.refreshStatus(container.hostId, { containerIds: [container.containerId] });
         }
       } catch (err) {
         isFailed = true;
@@ -581,7 +590,7 @@ export class ContainersService {
     return { taskId: opLog.id };
   }
 
-  async stopOne(hostOrRef: { id: string }, containerId: string) {
+  async stopOne(_hostOrRef: { id: string }, containerId: string) {
     const opLog = await this.operationLogService.create({ title: `Stop Container ${containerId.substring(0, 12)}` });
     this.contextService.run(opLog.id, async () => {
       let isFailed = false;
@@ -599,6 +608,8 @@ export class ContainersService {
             container.composeWorkingDir!,
             'stop',
           );
+          this.operationLogService.log('info', `Compose project "${container.composeProject}" stopped. Refreshing status...`);
+          await this.refreshStatus(container.hostId, { composeProject: container.composeProject! });
         } else {
           const hostCred = await this.getHostCredById(container.hostId);
           if (!hostCred) throw new Error(`Host with id ${container.hostId} not found`);
@@ -607,7 +618,8 @@ export class ContainersService {
           if (code !== 0) {
             throw new Error(`Failed to stop container: ${stderr}`);
           }
-          this.operationLogService.log('info', `Container "${container.name}" stopped successfully.`);
+          this.operationLogService.log('info', `Container "${container.name}" stopped successfully. Refreshing status...`);
+          await this.refreshStatus(container.hostId, { containerIds: [container.containerId] });
         }
       } catch (err) {
         isFailed = true;
@@ -627,40 +639,67 @@ export class ContainersService {
     op: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop',
     additionalArgs: string[] = [],
   ) {
-    const opId =
-      this.contextService.getOpId() ||
-      (await this.operationLogService.create({ title: `Compose Op: ${op} on ${project}` })).id;
+    const existingOpId = this.contextService.getOpId();
+    const opId = existingOpId || (await this.operationLogService.create({ title: `Compose Op: ${op} on ${project}` })).id;
+    const isNewOperation = !existingOpId;
 
     return this.contextService.run(opId, async () => {
-      const hostCred = await this.getHostCredById(hostId);
-      if (!hostCred) throw new Error(`Host with id ${hostId} not found`);
+      let isFailed = false;
+      try {
+        const hostCred = await this.getHostCredById(hostId);
+        if (!hostCred) throw new Error(`Host with id ${hostId} not found`);
 
-      if (!workingDir) {
-        throw new Error(`Working directory is not defined for compose project "${project}"`);
+        if (!workingDir) {
+          throw new Error(`Working directory is not defined for compose project "${project}"`);
+        }
+
+        this.operationLogService.log('info', `Running docker compose ${op} for project "${project}"...`);
+
+        const args = ['compose', '--project-directory', workingDir, '-p', project, op];
+        if (op === 'up') {
+          args.push('-d');
+        }
+        args.push(...additionalArgs);
+
+        const { code, stderr } = await this.docker.execStreaming(hostCred, args, 600);
+
+        if (code === 0) {
+          this.operationLogService.log('info', `Compose operation "${op}" successful.`);
+
+          // Only refresh status if this is a new operation (not called from other methods)
+          if (isNewOperation) {
+            if (op === 'down' || op === 'up') {
+              // For 'down' and 'up' operations, trigger full container discovery
+              // 'down': handles removed containers
+              // 'up': handles newly created containers
+              this.operationLogService.log('info', `Triggering container discovery after compose ${op} for project "${project}"...`);
+              await this.discoverOnHost({
+                id: hostId,
+                address: hostCred.address,
+                sshUser: hostCred.sshUser,
+                port: hostCred.port
+              });
+            } else {
+              // For other operations (start, stop, restart, pull), just refresh status
+              this.operationLogService.log('info', `Refreshing status for project "${project}"...`);
+              await this.refreshStatus(hostId, { composeProject: project });
+            }
+          }
+        } else {
+          const errorMsg = `Compose operation failed. Exit code: ${code}, Error: ${stderr}`;
+          this.operationLogService.log('error', errorMsg);
+          throw new Error(errorMsg);
+        }
+        return { ok: true, code };
+      } catch (err) {
+        isFailed = true;
+        throw err;
+      } finally {
+        // Only update status if we created the operation log
+        if (isNewOperation) {
+          await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+        }
       }
-
-      this.operationLogService.log('info', `Running docker compose ${op} for project "${project}"...`);
-
-      const args = ['-p', project, op];
-      if (op === 'up') {
-        args.push('-d');
-      }
-      args.push(...additionalArgs);
-      
-      // Escape arguments for shell safety
-      const escapedArgs = args.map(arg => `'${arg.replace(/'/g, "'''")}'`).join(' ');
-      const shellCommand = `cd '${workingDir.replace(/'/g, "'''")}' && docker compose ${escapedArgs}`;
-
-      const { code, stderr } = await this.docker.execShell(hostCred, shellCommand, { timeoutSec: 600 } as any);
-
-      if (code === 0) {
-        this.operationLogService.log('info', `Compose operation "${op}" successful.`);
-      } else {
-        const errorMsg = `Compose operation failed. Exit code: ${code}, Error: ${stderr}`;
-        this.operationLogService.log('error', errorMsg);
-        throw new Error(errorMsg);
-      }
-      return { ok: true, code };
     });
   }
 
@@ -695,19 +734,37 @@ export class ContainersService {
         targetContainerIds = [...new Set(targetContainerIds)];
 
         if (!targetContainerIds.length) {
-          this.operationLogService.log('warn', 'No target containers specified for status refresh.');
+          this.operationLogService.log('info', 'No target containers specified for status refresh.');
           return;
         }
 
+        // 1. Get fresh user-friendly status from `docker ps`
+        const { code, stdout, stderr } = await this.docker.exec(hostCred, ['ps', '-a', '--format', '{{json .}}', '--filter', `id=${targetContainerIds.join(',')}`]);
+        if (code !== 0) {
+          throw new Error(`'docker ps' for status refresh failed: ${stderr}`);
+        }
+        const psStatusMap = new Map<string, string>();
+        const psOutputLines = stdout.split('\n').filter(Boolean);
+        for (const line of psOutputLines) {
+          try {
+            const containerInfo = JSON.parse(line);
+            psStatusMap.set(containerInfo.ID, containerInfo.Status);
+          } catch (e) {
+            this.operationLogService.log('info', `Could not parse docker ps JSON line during refresh: ${line}`);
+          }
+        }
+
+        // 2. Get detailed raw status from `docker inspect`
         this.operationLogService.log('info', `Inspecting ${targetContainerIds.length} containers...`);
         const inspects = await this.docker.inspectContainers(hostCred, targetContainerIds);
 
+        // 3. Update database
         const updates = inspects.map(det => {
           return this.prisma.container.update({
             where: { hostId_containerId: { hostId, containerId: det.Id } },
             data: {
               state: det.State.Status,
-              status: det.State.Status,
+              status: psStatusMap.get(det.Id) || det.State.Status, // Use fresh ps status
               restartCount: det.RestartCount,
               startedAt: new Date(det.State.StartedAt),
             },
@@ -845,7 +902,7 @@ export class ContainersService {
           );
 
           if (error) {
-            this.operationLogService.log('warn', `Could not check for updates for ${imageRef}: ${error}`);
+            this.operationLogService.log('info', `Could not check for updates for ${imageRef}: ${error}`);
             continue;
           }
 
@@ -887,7 +944,7 @@ export class ContainersService {
     return { id: h.id, address: h.address, sshUser: h.sshUser, port: h.port ?? undefined, password: decPassword, privateKey: decKey, privateKeyPassphrase: decPassphrase };
   }
 
-  private async generateRunCommand(inspectData: any, containerName: string): Promise<string | undefined> {
+  private async generateRunCommand(_inspectData: any, _containerName: string): Promise<string | undefined> {
     // This is a complex method that would need careful refactoring if it were to log.
     // For now, we assume it doesn't produce logs itself.
     return "";
