@@ -463,6 +463,9 @@ export class ContainerComposeService {
         }
       }
 
+      // Perform cleanup of orphaned CLI containers and compose container replacement
+      await this.performContainerCleanupAndReplacement(hostId, removedContainers, currentContainers);
+
     } catch (error) {
       this.logger.error(`Failed to update compose project status for ${project}: ${error}`);
       this.operationLogService.log('error', `Failed to update compose project status: ${error instanceof Error ? error.message : String(error)}`);
@@ -949,5 +952,272 @@ export class ContainerComposeService {
       privateKey: host.sshPrivateKey ? this.crypto.decryptString(host.sshPrivateKey)?.toString() : undefined,
       privateKeyPassphrase: host.sshPrivateKeyPassphrase ? this.crypto.decryptString(host.sshPrivateKeyPassphrase)?.toString() : undefined,
     };
+  }
+
+  /**
+   * Perform container record cleanup and replacement logic
+   * 1. Clean up orphaned CLI containers with "removed" state
+   * 2. Handle Docker Compose container recreation scenarios
+   */
+  private async performContainerCleanupAndReplacement(
+    hostId: string,
+    removedContainers: Array<{id: string, containerId: string, name: string}>,
+    currentContainers: any[]
+  ): Promise<void> {
+    try {
+      // Step 1: Clean up orphaned CLI containers with "removed" state
+      await this.cleanupOrphanedCliContainers(hostId);
+
+      // Step 2: Handle Docker Compose container recreation scenarios
+      await this.handleComposeContainerReplacement(hostId, removedContainers, currentContainers);
+
+    } catch (error) {
+      this.logger.error(`Failed to perform container cleanup and replacement: ${error}`);
+      this.operationLogService.log('error', `Container cleanup and replacement failed: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't throw - cleanup failure shouldn't break the main operation
+    }
+  }
+
+  /**
+   * Clean up orphaned CLI containers that have state = "removed"
+   * These are containers that no longer exist in Docker but still have database records
+   */
+  private async cleanupOrphanedCliContainers(hostId: string): Promise<void> {
+    try {
+      // Find CLI containers with "removed" state
+      const orphanedCliContainers = await this.prisma.container.findMany({
+        where: {
+          hostId,
+          isComposeManaged: false,
+          state: 'removed',
+        },
+        select: {
+          id: true,
+          name: true,
+          containerId: true,
+        },
+      });
+
+      if (orphanedCliContainers.length === 0) {
+        this.operationLogService.log('info', `No orphaned CLI containers found for cleanup on host ${hostId}`);
+        return;
+      }
+
+      this.operationLogService.log('info', `Found ${orphanedCliContainers.length} orphaned CLI containers to clean up`);
+
+      // Delete the orphaned CLI container records
+      const deletedCount = await this.prisma.container.deleteMany({
+        where: {
+          id: { in: orphanedCliContainers.map(c => c.id) },
+          isComposeManaged: false,
+          state: 'removed',
+        },
+      });
+
+      this.operationLogService.log('info',
+        `Cleaned up ${deletedCount.count} orphaned CLI containers: ${orphanedCliContainers.map(c => c.name).join(', ')}`
+      );
+
+    } catch (error) {
+      this.logger.error(`Failed to cleanup orphaned CLI containers: ${error}`);
+      this.operationLogService.log('error', `Failed to cleanup orphaned CLI containers: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Handle Docker Compose container recreation scenarios
+   * When a compose container is recreated with a new container ID, update the existing record
+   */
+  private async handleComposeContainerReplacement(
+    _hostId: string,
+    removedContainers: Array<{id: string, containerId: string, name: string}>,
+    currentContainers: any[]
+  ): Promise<void> {
+    try {
+      // Filter to only handle compose-managed containers
+      const composeRemovedContainers = await this.prisma.container.findMany({
+        where: {
+          id: { in: removedContainers.map(c => c.id) },
+          isComposeManaged: true,
+        },
+        select: {
+          id: true,
+          name: true,
+          containerId: true,
+          composeProject: true,
+          composeService: true,
+          manualPortMapping: true,
+          state: true,
+        },
+      });
+
+      if (composeRemovedContainers.length === 0) {
+        this.operationLogService.log('info', `No compose containers found for replacement logic`);
+        return;
+      }
+
+      this.operationLogService.log('info', `Checking ${composeRemovedContainers.length} compose containers for replacement scenarios`);
+
+      // Track which current containers have been matched
+      const matchedCurrentContainerIds = new Set<string>();
+
+      for (const removedContainer of composeRemovedContainers) {
+        // Skip compose-down containers (they're handled separately)
+        if (removedContainer.state === 'compose-down') {
+          continue;
+        }
+
+        // Find matching current container by compose project + service
+        const matchingCurrentContainer = currentContainers.find(current => {
+          // Skip if already matched
+          if (matchedCurrentContainerIds.has(current.ID)) {
+            return false;
+          }
+
+          const currentLabels = current.Labels || {};
+          const currentProject = currentLabels['com.docker.compose.project'];
+          const currentService = currentLabels['com.docker.compose.service'];
+
+          return currentProject === removedContainer.composeProject &&
+                 currentService === removedContainer.composeService;
+        });
+
+        if (matchingCurrentContainer) {
+          // Mark as matched
+          matchedCurrentContainerIds.add(matchingCurrentContainer.ID);
+
+          // Replace the container record with new container ID
+          await this.replaceComposeContainerRecord(removedContainer, matchingCurrentContainer);
+        } else {
+          this.operationLogService.log('info',
+            `No matching current container found for compose service ${removedContainer.composeProject}/${removedContainer.composeService}`
+          );
+        }
+      }
+
+    } catch (error) {
+      this.logger.error(`Failed to handle compose container replacement: ${error}`);
+      this.operationLogService.log('error', `Failed to handle compose container replacement: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Replace a compose container record with new container ID while preserving user data
+   */
+  private async replaceComposeContainerRecord(
+    existingContainer: any,
+    newContainerData: any
+  ): Promise<void> {
+    try {
+      const oldContainerId = existingContainer.containerId;
+      const newContainerId = newContainerData.ID;
+
+      this.operationLogService.log('info',
+        `Replacing compose container "${existingContainer.name}" (${existingContainer.composeProject}/${existingContainer.composeService}): ${oldContainerId.substring(0, 12)} → ${newContainerId.substring(0, 12)}`
+      );
+
+      // Extract new container metadata
+      const labels = newContainerData.Labels || {};
+      const state = newContainerData.State || 'unknown';
+      const status = newContainerData.Status || 'unknown';
+      const ports = this.extractPortsFromDockerData(newContainerData);
+      const mounts = this.extractMountsFromDockerData(newContainerData);
+      const networks = this.extractNetworksFromDockerData(newContainerData);
+
+      // Update the existing record with new container ID and metadata
+      await this.prisma.container.update({
+        where: { id: existingContainer.id },
+        data: {
+          containerId: newContainerId,
+          state,
+          status,
+          ports,
+          mounts,
+          networks,
+          labels,
+          startedAt: new Date(), // Container was just recreated
+          // Preserve user-configured fields like manualPortMapping
+          // These are intentionally NOT updated to preserve user settings
+        },
+      });
+
+      this.operationLogService.log('info',
+        `Successfully replaced compose container record for "${existingContainer.name}" with new container ID: ${newContainerId.substring(0, 12)}`
+      );
+
+    } catch (error) {
+      this.logger.error(`Failed to replace compose container record: ${error}`);
+      this.operationLogService.log('error', `Failed to replace compose container record: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract ports from Docker container data
+   */
+  private extractPortsFromDockerData(containerData: any): any {
+    try {
+      const ports = containerData.Ports || [];
+      const result: any = {};
+
+      for (const port of ports) {
+        if (port.PrivatePort) {
+          const key = `${port.PrivatePort}/${port.Type || 'tcp'}`;
+          if (port.PublicPort) {
+            result[key] = [{
+              HostIp: port.IP || '0.0.0.0',
+              HostPort: port.PublicPort.toString(),
+            }];
+          }
+        }
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.warn(`Failed to extract ports from Docker data: ${error}`);
+      return {};
+    }
+  }
+
+  /**
+   * Extract mounts from Docker container data
+   */
+  private extractMountsFromDockerData(containerData: any): any {
+    try {
+      const mounts = containerData.Mounts || [];
+      return mounts.map((mount: any) => ({
+        Type: mount.Type,
+        Source: mount.Source,
+        Destination: mount.Destination,
+        Mode: mount.Mode,
+        RW: mount.RW,
+      }));
+    } catch (error) {
+      this.logger.warn(`Failed to extract mounts from Docker data: ${error}`);
+      return [];
+    }
+  }
+
+  /**
+   * Extract networks from Docker container data
+   */
+  private extractNetworksFromDockerData(containerData: any): any {
+    try {
+      const networks = containerData.Networks || {};
+      const result: any = {};
+
+      for (const [networkName, networkData] of Object.entries(networks)) {
+        result[networkName] = {
+          IPAddress: (networkData as any)?.IPAddress,
+          Gateway: (networkData as any)?.Gateway,
+          MacAddress: (networkData as any)?.MacAddress,
+        };
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.warn(`Failed to extract networks from Docker data: ${error}`);
+      return {};
+    }
   }
 }

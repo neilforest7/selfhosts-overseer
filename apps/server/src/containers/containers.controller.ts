@@ -112,8 +112,8 @@ export class ContainersController {
   }
 
   @Post('refresh-status')
-  async refreshStatus(@Body() body: { hostId: string; containerIds?: string[]; containerNames?: string[]; composeProject?: string; }) {
-    return this.containers.refreshStatus(body.hostId, { containerIds: body.containerIds, containerNames: body.containerNames, composeProject: body.composeProject });
+  async refreshStatus(@Body() body: { host: { id?: string } | { id: 'all' }; containerIds?: string[]; containerNames?: string[]; composeProject?: string; }) {
+    return this.containers.refreshStatus(body.host, { containerIds: body.containerIds, containerNames: body.containerNames, composeProject: body.composeProject });
   }
 
   @Post('cleanup-duplicates')

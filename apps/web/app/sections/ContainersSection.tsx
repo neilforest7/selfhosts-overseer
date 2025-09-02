@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, Fragment, useEffect } from 'react';
+import { useMemo, useState, Fragment, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { ManualPortDialog } from './ManualPortDialog';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import { DiscoverHostsDialog } from './DiscoverHostsDialog';
-import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { ChevronDown, ChevronLast, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 
 
 type ContainerItem = {
@@ -52,7 +52,96 @@ export default function ContainersSection() {
   const [filterMode, setFilterMode] = useState<'all' | 'compose' | 'cli'>('all');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [discoverDialogOpen, setDiscoverDialogOpen] = useState(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
+
+  // Helper function to refresh containers with debouncing
+  const refreshContainers = useCallback(async (immediate = true) => {
+    try {
+      if (immediate) {
+        await qc.invalidateQueries({
+          queryKey: ['containers'],
+          exact: false
+        });
+      }
+      // Single delayed refresh instead of multiple timeouts
+      setTimeout(() => {
+        qc.invalidateQueries({
+          queryKey: ['containers'],
+          exact: false
+        });
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to refresh containers:', error);
+    }
+  }, [qc]);
+
+  // Helper function to monitor operation status
+  const monitorOperationStatus = async (taskId: string): Promise<void> => {
+    const maxAttempts = 30; // Maximum 30 attempts (30 seconds)
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        const response = await fetch(`http://localhost:3001/api/v1/operations/${taskId}`);
+        if (!response.ok) break;
+
+        const operation = await response.json();
+
+        if (operation.status === 'COMPLETED') {
+          toast.success('容器状态已更新');
+          await refreshContainers(true);
+          return;
+        } else if (operation.status === 'ERROR') {
+          toast.error('容器状态刷新失败');
+          return;
+        }
+
+        // Wait 1 second before next check
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        attempts++;
+      } catch (error) {
+        console.error('Failed to check operation status:', error);
+        break;
+      }
+    }
+
+    // If we reach here, either max attempts reached or error occurred
+    toast.warning('容器状态刷新超时，请手动检查结果');
+    await refreshContainers(true);
+  };
+
+  // Mutation for triggering actual container status refresh operation
+  const refreshStatusMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('http://localhost:3001/api/v1/containers/refresh-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: { id: 'all' } }),
+      });
+      if (!response.ok) {
+        throw new Error(`刷新失败: ${response.statusText}`);
+      }
+      return response.json();
+    },
+    onSuccess: async (data) => {
+      toast.success('容器状态刷新已启动');
+      // Monitor the operation status and refresh UI when complete
+      if (data.taskId) {
+        await monitorOperationStatus(data.taskId);
+      } else {
+        // Fallback: refresh after a delay
+        setTimeout(async () => {
+          await refreshContainers(true);
+          toast.success('容器状态已更新');
+        }, 3000);
+      }
+    },
+    onError: (error: any) => {
+      console.error('Container status refresh failed:', error);
+      toast.error(`容器状态刷新失败: ${error.message}`);
+    },
+  });
 
   const listQuery = useQuery<{ items: ContainerItem[] }>({
     queryKey: ['containers', q, updateOnly, hostFilter, filterMode],
@@ -70,8 +159,8 @@ export default function ContainersSection() {
       if (!r.ok) throw new Error('加载失败');
       return r.json();
     },
-    refetchInterval: 10000, // 每10秒自动刷新
-    refetchIntervalInBackground: true, // 即使页面在后台也继续刷新
+    refetchInterval: 30000, // 减少到30秒自动刷新，避免竞态条件
+    refetchIntervalInBackground: false, // 页面在后台时停止刷新，减少竞态条件
   });
 
   const hostsQuery = useQuery<{ items: HostItem[] }>({ 
@@ -111,28 +200,90 @@ export default function ContainersSection() {
     return (hostId: string) => hostMap.get(hostId) || hostId.slice(0, 8);
   }, [hostsQuery.data]);
 
-  // 容器状态映射和颜色
-  const getContainerStatusBadge = (state?: string, status?: string) => {
+  // 容器状态映射和颜色 - 支持新的容器生命周期状态
+  const getContainerStatusBadge = (state?: string, status?: string, isComposeManaged?: boolean) => {
     const normalizedState = state?.toLowerCase() || '';
     const normalizedStatus = status?.toLowerCase() || '';
-    
-    if (normalizedState.includes('running') || normalizedStatus.includes('up')) {
-      return { variant: 'default' as const, text: 'Running', color: 'bg-green-500' };
-    } else if (normalizedState.includes('starting') || normalizedStatus.includes('starting')) {
-      return { variant: 'secondary' as const, text: 'Starting', color: 'bg-blue-500' };
-    } else if (normalizedState.includes('exited') || normalizedState.includes('stopped') || normalizedStatus.includes('exited')) {
-      return { variant: 'outline' as const, text: 'Stopped', color: 'bg-gray-500' };
-    } else if (normalizedState.includes('error') || normalizedState.includes('failed') || normalizedStatus.includes('error')) {
-      return { variant: 'destructive' as const, text: 'Error', color: 'bg-red-500' };
-    } else if (normalizedState.includes('paused')) {
-      return { variant: 'secondary' as const, text: 'Paused', color: 'bg-yellow-500' };
-    } else if (normalizedState.includes('restarting')) {
-      return { variant: 'secondary' as const, text: 'Restarting', color: 'bg-orange-500' };
-    } else if (normalizedState.includes('created')) {
-      return { variant: 'outline' as const, text: 'Created', color: 'bg-gray-400' };
+
+    // 优先处理新增的容器生命周期状态
+    if (normalizedState === 'removed') {
+      return {
+        variant: 'destructive' as const,
+        text: '已移除',
+        color: 'bg-red-600',
+        description: '容器已从Docker中移除但数据库记录仍存在'
+      };
+    } else if (normalizedState === 'compose-down') {
+      return {
+        variant: 'outline' as const,
+        text: '已下线',
+        color: 'bg-foreground',
+        description: '通过docker compose down停止的容器'
+      };
     }
-    
-    return { variant: 'outline' as const, text: normalizedState || 'Unknown', color: 'bg-gray-400' };
+
+    // 处理标准Docker容器状态
+    if (normalizedState.includes('running') || normalizedStatus.includes('up')) {
+      return {
+        variant: 'default' as const,
+        text: '运行中',
+        color: 'bg-green-500',
+        description: '容器正在正常运行'
+      };
+    } else if (normalizedState.includes('starting') || normalizedStatus.includes('starting')) {
+      return {
+        variant: 'secondary' as const,
+        text: '启动中',
+        color: 'bg-blue-500',
+        description: '容器正在启动过程中'
+      };
+    } else if (normalizedState.includes('exited') || normalizedState.includes('stopped') || normalizedStatus.includes('exited')) {
+      // 区分CLI容器和Compose容器的停止状态显示
+      const text = isComposeManaged ? '已停止' : '已退出';
+      const description = isComposeManaged ? 'Compose服务已停止' : 'CLI容器已退出';
+      return {
+        variant: 'outline' as const,
+        text,
+        color: 'bg-gray-500',
+        description
+      };
+    } else if (normalizedState.includes('error') || normalizedState.includes('failed') || normalizedStatus.includes('error')) {
+      return {
+        variant: 'destructive' as const,
+        text: '错误',
+        color: 'bg-red-500',
+        description: '容器运行出现错误'
+      };
+    } else if (normalizedState.includes('paused')) {
+      return {
+        variant: 'secondary' as const,
+        text: '已暂停',
+        color: 'bg-yellow-500',
+        description: '容器已暂停执行'
+      };
+    } else if (normalizedState.includes('restarting')) {
+      return {
+        variant: 'secondary' as const,
+        text: '重启中',
+        color: 'bg-orange-500',
+        description: '容器正在重启'
+      };
+    } else if (normalizedState.includes('created')) {
+      return {
+        variant: 'outline' as const,
+        text: '已创建',
+        color: 'bg-gray-400',
+        description: '容器已创建但未启动'
+      };
+    }
+
+    // 未知状态的处理
+    return {
+      variant: 'outline' as const,
+      text: normalizedState || '未知',
+      color: 'bg-gray-400',
+      description: '容器状态未知或无法识别'
+    };
   };
 
   const discover = useMutation({
@@ -198,12 +349,8 @@ export default function ContainersSection() {
       } else {
         toast.success(`发现完成（${hostName}）`);
       }
-      // 立即刷新容器状态
-      await qc.invalidateQueries({ queryKey: ['containers'] });
-      // 多次延迟刷新确保发现完成
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
+      // 使用优化的刷新函数
+      await refreshContainers(true);
     },
     onError: (err: any, variables) => {
       let hostName: string;
@@ -248,11 +395,8 @@ export default function ContainersSection() {
       } else {
         toast.success(`检查完成（${hostName}）`);
       }
-      // 立即刷新容器状态
-      await qc.invalidateQueries({ queryKey: ['containers'] });
-      // 多次延迟刷新确保检查完成
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
-      setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
+      // 使用优化的刷新函数
+      await refreshContainers(true);
     },
     onError: (err: any, variables) => {
       const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
@@ -365,17 +509,67 @@ export default function ContainersSection() {
             </span>
           )} */}
         </CardTitle>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            qc.invalidateQueries({ queryKey: ['containers'] });
-            toast.info('正在刷新容器状态...');
-          }}
-          disabled={listQuery.isFetching}
-        >
-          {listQuery.isFetching ? '刷新中...' : '刷新'}
-        </Button>
+        <div className="flex">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              if (refreshStatusMutation.isPending || isManualRefreshing || listQuery.isFetching) return;
+
+              setIsManualRefreshing(true);
+              try {
+                toast.info('正在刷新容器状态...');
+                // First trigger the actual container status refresh operation
+                await refreshStatusMutation.mutateAsync();
+                // The mutation's onSuccess handler will refresh the UI after the operation completes
+              } catch (error) {
+                console.error('Failed to refresh containers:', error);
+                toast.error('刷新失败，请重试');
+              } finally {
+                setIsManualRefreshing(false);
+              }
+            }}
+            disabled={listQuery.isFetching || isManualRefreshing || refreshStatusMutation.isPending}
+            className="rounded-r-none px-4"
+          >
+            {(listQuery.isFetching || isManualRefreshing || refreshStatusMutation.isPending) ? '刷新中...' : '刷新'}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-l-none border-l-0 px-2"
+                disabled={listQuery.isFetching || isManualRefreshing || refreshStatusMutation.isPending}
+              >
+                <ChevronDown/>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem
+                onClick={async () => {
+                  if (listQuery.isFetching || isManualRefreshing) return;
+                  setIsManualRefreshing(true);
+                  try {
+                    toast.info('正在刷新显示数据...');
+                    await qc.invalidateQueries({
+                      queryKey: ['containers'],
+                      exact: false
+                    });
+                    toast.success('显示数据已刷新');
+                  } catch (error) {
+                    console.error('Failed to refresh display:', error);
+                    toast.error('刷新显示失败');
+                  } finally {
+                    setTimeout(() => setIsManualRefreshing(false), 500);
+                  }
+                }}
+              >
+                仅刷新UI
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <Button size="sm" onClick={() => setDiscoverDialogOpen(true)}>
           发现容器
         </Button>
@@ -489,48 +683,77 @@ export default function ContainersSection() {
               })();
               const title = isCompose ? (folderBase || first.composeProject || 'compose') : first.name;
               
-              // 计算组的综合状态（含部分运行判定）
+              // 计算组的综合状态（含部分运行判定）- 支持新的容器生命周期状态
               const getGroupStatus = () => {
-                // 状态优先级：error > restarting > starting > running > paused > stopped > created > unknown
+                // 状态优先级：removed > error > restarting > starting > running > paused > compose-down > stopped > created > unknown
                 const priorities = {
+                  removed: 9,
                   error: 8, failed: 8,
                   restarting: 7,
                   starting: 6,
                   running: 5, up: 5,
                   paused: 4,
+                  'compose-down': 3,
                   stopped: 3, exited: 3,
                   created: 2,
                   unknown: 1
                 } as const;
-                
+
                 let highestPriority = 0;
                 let bestStatus = { state: 'unknown', status: '' };
                 let runningCount = 0;
                 let stoppedCount = 0;
-                
+                let removedCount = 0;
+                let composeDownCount = 0;
+
                 for (const item of items) {
                   const stateLower = (item.state || '').toLowerCase();
                   const statusLower = (item.status || '').toLowerCase();
+
+                  // 统计不同状态的容器数量
                   const isRunning = stateLower.includes('running') || statusLower.includes('up');
                   const isStopped = stateLower.includes('exited') || stateLower.includes('stopped') || statusLower.includes('exited') || statusLower.includes('stopped');
-                  if (isRunning) runningCount++; else if (isStopped) stoppedCount++;
-                  
+                  const isRemoved = stateLower === 'removed';
+                  const isComposeDown = stateLower === 'compose-down';
+
+                  if (isRunning) runningCount++;
+                  else if (isStopped) stoppedCount++;
+                  else if (isRemoved) removedCount++;
+                  else if (isComposeDown) composeDownCount++;
+
+                  // 查找最高优先级状态
                   for (const [key, priority] of Object.entries(priorities)) {
-                    if ((stateLower.includes(key) || statusLower.includes(key)) && priority > highestPriority) {
+                    if ((stateLower.includes(key) || statusLower.includes(key) || stateLower === key) && priority > highestPriority) {
                       highestPriority = priority;
                       bestStatus = { state: item.state || '', status: item.status || '' };
                     }
                   }
                 }
                 const totalCount = items.length;
-                const partial = runningCount > 0 && stoppedCount > 0;
-                return { ...bestStatus, meta: { totalCount, runningCount, stoppedCount, partial, anyRunning: runningCount > 0, anyStopped: stoppedCount > 0 } } as const;
+                // 改进的部分运行检测：只要有运行的容器且有非运行的容器就算部分运行
+                const nonRunningCount = stoppedCount + removedCount + composeDownCount;
+                const partial = runningCount > 0 && nonRunningCount > 0;
+                return {
+                  ...bestStatus,
+                  meta: {
+                    totalCount,
+                    runningCount,
+                    stoppedCount,
+                    removedCount,
+                    composeDownCount,
+                    partial,
+                    anyRunning: runningCount > 0,
+                    anyStopped: stoppedCount > 0,
+                    anyRemoved: removedCount > 0,
+                    anyComposeDown: composeDownCount > 0
+                  }
+                } as const;
               };
               
               const groupStatus = getGroupStatus();
               const statusBadge = (groupStatus as any).meta?.partial
-                ? { variant: 'secondary' as const, text: '部分运行', color: 'bg-yellow-500' }
-                : getContainerStatusBadge(groupStatus.state, groupStatus.status);
+                ? { variant: 'secondary' as const, text: '部分运行', color: 'bg-yellow-500', description: '部分容器正在运行，部分已停止' }
+                : getContainerStatusBadge(groupStatus.state, groupStatus.status, isCompose);
               
               return (
                 <Fragment key={key}> 
@@ -541,7 +764,11 @@ export default function ContainersSection() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusBadge.variant} className={`text-white ${statusBadge.color}`}>
+                      <Badge
+                        variant={statusBadge.variant}
+                        className={`text-white ${statusBadge.color}`}
+                        title={statusBadge.description}
+                      >
                         {statusBadge.text}
                       </Badge>
                     </TableCell>
@@ -816,11 +1043,15 @@ export default function ContainersSection() {
                             </TableHeader>
                             <TableBody>
                               {items.map(i => {
-                                const containerStatusBadge = getContainerStatusBadge(i.state, i.status);
+                                const containerStatusBadge = getContainerStatusBadge(i.state, i.status, i.isComposeManaged);
                                 return (
                                   <TableRow key={i.id}>
                                     <TableCell>
-                                      <Badge variant={containerStatusBadge.variant} className={`text-white ${containerStatusBadge.color}`}>
+                                      <Badge
+                                        variant={containerStatusBadge.variant}
+                                        className={`text-white ${containerStatusBadge.color}`}
+                                        title={containerStatusBadge.description}
+                                      >
                                         {containerStatusBadge.text}
                                       </Badge>
                                     </TableCell>

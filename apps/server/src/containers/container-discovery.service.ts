@@ -189,6 +189,14 @@ export class ContainerDiscoveryService {
   private async upsertContainer(hostId: string, containerData: any): Promise<void> {
     const containerId = containerData.Id;
     const name = containerData.Name?.replace(/^\//, '') || containerId.substring(0, 12);
+
+    // Check for existing logical container before creating new record
+    const existingContainer = await this.findExistingLogicalContainer(hostId, containerData);
+    if (existingContainer && existingContainer.containerId !== containerId) {
+      // Container ID changed - update existing record instead of creating new one
+      await this.replaceContainerRecord(existingContainer, containerData);
+      return;
+    }
     
     // Extract container information
     const state = containerData.State?.Status || 'unknown';
@@ -237,7 +245,7 @@ export class ContainerDiscoveryService {
     const runCommand = isComposeManaged ? null : this.generateRunCommand(containerData);
 
     // Check if container exists for activity logging
-    const existingContainer = await this.prisma.container.findUnique({
+    const existingContainerForLogging = await this.prisma.container.findUnique({
       where: { hostId_containerId: { hostId, containerId } },
     });
 
@@ -298,7 +306,7 @@ export class ContainerDiscoveryService {
       select: { name: true },
     });
 
-    if (!existingContainer) {
+    if (!existingContainerForLogging) {
       // New container discovered
       await this.activityLog.logContainerActivity(
         'discovered',
@@ -318,7 +326,7 @@ export class ContainerDiscoveryService {
           status,
         }
       );
-    } else if (existingContainer.state !== state || existingContainer.status !== status) {
+    } else if (existingContainerForLogging.state !== state || existingContainerForLogging.status !== status) {
       // Container state changed
       await this.activityLog.logContainerActivity(
         'state_changed',
@@ -327,21 +335,21 @@ export class ContainerDiscoveryService {
         hostId,
         hostInfo?.name || 'Unknown Host',
         `Container '${name}' state changed`,
-        `State: ${existingContainer.state} → ${state}, Status: ${existingContainer.status} → ${status}`,
+        `State: ${existingContainerForLogging.state} → ${state}, Status: ${existingContainerForLogging.status} → ${status}`,
         {
           isComposeManaged,
           composeProject,
           composeService,
           imageName,
           imageTag,
-          previousState: existingContainer.state,
+          previousState: existingContainerForLogging.state,
           newState: state,
-          previousStatus: existingContainer.status,
+          previousStatus: existingContainerForLogging.status,
           newStatus: status,
         },
         {
-          state: existingContainer.state,
-          status: existingContainer.status,
+          state: existingContainerForLogging.state,
+          status: existingContainerForLogging.status,
         },
         {
           state,
@@ -479,5 +487,122 @@ export class ContainerDiscoveryService {
       privateKey: host.sshPrivateKey ? this.crypto.decryptString(host.sshPrivateKey)?.toString() : undefined,
       privateKeyPassphrase: host.sshPrivateKeyPassphrase ? this.crypto.decryptString(host.sshPrivateKeyPassphrase)?.toString() : undefined,
     };
+  }
+
+  private async findExistingLogicalContainer(hostId: string, containerData: any): Promise<any | null> {
+    const name = containerData.Name?.replace(/^\//, '') || containerData.Id.substring(0, 12);
+
+    // Extract compose information
+    const labels = containerData.Config?.Labels || {};
+    const composeProject = labels['com.docker.compose.project'];
+    const composeService = labels['com.docker.compose.service'];
+
+    if (composeProject && composeService) {
+      // For compose containers: match by project + service
+      const existing = await this.prisma.container.findFirst({
+        where: {
+          hostId,
+          composeProject,
+          composeService,
+          isComposeManaged: true,
+        },
+      });
+
+      if (existing) {
+        this.operationLogService.log('info', `Found existing compose container: ${composeProject}/${composeService} (old ID: ${existing.containerId.substring(0, 12)}, new ID: ${containerData.Id.substring(0, 12)})`);
+        return existing;
+      }
+    } else {
+      // For CLI containers: match by name
+      const existing = await this.prisma.container.findFirst({
+        where: {
+          hostId,
+          name,
+          isComposeManaged: false,
+        },
+      });
+
+      if (existing && existing.containerId !== containerData.Id) {
+        this.operationLogService.log('info', `Found existing CLI container: ${name} (old ID: ${existing.containerId.substring(0, 12)}, new ID: ${containerData.Id.substring(0, 12)})`);
+        return existing;
+      }
+    }
+
+    return null;
+  }
+
+  private async replaceContainerRecord(existingContainer: any, newContainerData: any): Promise<void> {
+    const newContainerId = newContainerData.Id;
+    const name = newContainerData.Name?.replace(/^\//, '') || newContainerId.substring(0, 12);
+
+    try {
+      // Extract all the container information (same as upsertContainer logic)
+      const state = newContainerData.State?.Status || 'unknown';
+      const status = newContainerData.State?.Status || 'unknown';
+      const restartCount = newContainerData.RestartCount || 0;
+      const startedAt = newContainerData.State?.StartedAt ? new Date(newContainerData.State.StartedAt) : null;
+
+      // Extract image information
+      const imageWithTag = newContainerData.Config?.Image || newContainerData.Image || '';
+      const [imageName, imageTag] = this.parseImageRef(imageWithTag);
+      const repoDigest = newContainerData.RepoDigests?.[0] || null;
+
+      // Extract compose information
+      const labels = newContainerData.Config?.Labels || {};
+      const composeProject = labels['com.docker.compose.project'] || null;
+      const composeService = labels['com.docker.compose.service'] || null;
+      const composeWorkingDir = labels['com.docker.compose.project.working_dir'] || null;
+      const isComposeManaged = !!(composeProject && composeService);
+
+      // Generate compose group key and folder name
+      const composeGroupKey = isComposeManaged ? `${composeProject}_${composeService}` : null;
+      const composeFolderName = composeWorkingDir ? composeWorkingDir.split('/').pop() || null : null;
+
+      // Extract compose config files
+      const composeConfigFiles = labels['com.docker.compose.project.config_files'];
+
+      // Generate run command for CLI containers
+      const runCommand = !isComposeManaged ? this.generateRunCommand(newContainerData) : null;
+
+      // Extract networking and storage information
+      const ports = this.extractPorts(newContainerData);
+      const mounts = this.extractMounts(newContainerData);
+      const networks = this.extractNetworks(newContainerData);
+
+      // Update the existing record with new container ID and data
+      await this.prisma.container.update({
+        where: { id: existingContainer.id },
+        data: {
+          containerId: newContainerId,
+          name,
+          state,
+          status,
+          restartCount,
+          imageName,
+          imageTag,
+          repoDigest,
+          startedAt,
+          isComposeManaged,
+          composeProject,
+          composeService,
+          composeWorkingDir,
+          composeGroupKey,
+          composeFolderName,
+          composeConfigFiles: composeConfigFiles ? { configFiles: composeConfigFiles.split(',') } : undefined,
+          runCommand,
+          ports,
+          mounts,
+          networks,
+          labels,
+          // Preserve user-configured fields like manualPortMapping
+        },
+      });
+
+      this.operationLogService.log('info', `Successfully replaced container record for "${name}" with new container ID: ${newContainerId.substring(0, 12)}`);
+    } catch (error) {
+      this.logger.error(`Failed to replace container record for ${existingContainer.name}: ${error}`);
+      this.operationLogService.log('error', `Failed to replace container record: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
   }
 }

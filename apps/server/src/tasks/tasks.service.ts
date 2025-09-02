@@ -77,6 +77,17 @@ export class TasksService {
         return;
       }
 
+      if (command === 'internal:refresh_container_status') {
+        try {
+          await this.containersService.refreshStatusOnHost(target);
+        } catch (err) {
+          anyFailed = true;
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          this.operationLogService.log('error', `[${target.name}] Status refresh failed: ${errorMessage}`, target.id);
+        }
+        return;
+      }
+
       const prefix = `[${target.name}@${target.address}] `;
       this.operationLogService.log('system', `${prefix}>>> Starting execution...`, target.id);
 

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  test-web:
+    image: nginx:alpine
+    container_name: test-compose-web
+    ports:
+      - "8080:80"
+    environment:
+      - ENV=test
+    labels:
+      - "test.service=web"
+    restart: unless-stopped
+
+  test-db:
+    image: postgres:13-alpine
+    container_name: test-compose-db
+    environment:
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+    ports:
+      - "5433:5432"
+    labels:
+      - "test.service=database"
+    restart: unless-stopped
+    volumes:
+      - test_db_data:/var/lib/postgresql/data
+
+volumes:
+  test_db_data:
