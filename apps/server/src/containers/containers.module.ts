@@ -14,6 +14,7 @@ import { DockerModule } from '../docker/docker.module';
 import { FrpModule } from '../frp/frp.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { OperationLogModule } from '../operation-log/operation-log.module';
+import { ActivityLogModule } from '../activity-log/activity-log.module';
 import { ContainerDiscoveryService } from './container-discovery.service';
 import { ContainerLifecycleService } from './container-lifecycle.service';
 import { ContainerUpdateService } from './container-update.service';
@@ -32,6 +33,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     FrpModule,
     forwardRef(() => TasksModule),
     OperationLogModule,
+    ActivityLogModule,
     EventEmitterModule,
   ],
   controllers: [ContainersController],

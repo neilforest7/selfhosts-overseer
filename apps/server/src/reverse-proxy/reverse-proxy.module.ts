@@ -6,6 +6,7 @@ import { ContainersModule } from '../containers/containers.module';
 import { SecurityModule } from '../security/security.module';
 import { SettingsModule } from '../settings/settings.module';
 import { OperationLogModule } from '../operation-log/operation-log.module';
+import { ActivityLogModule } from '../activity-log/activity-log.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { OperationLogModule } from '../operation-log/operation-log.module';
     SecurityModule,
     SettingsModule,
     OperationLogModule,
+    ActivityLogModule,
   ],
   controllers: [ReverseProxyController],
   providers: [ReverseProxyService],

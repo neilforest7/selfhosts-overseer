@@ -13,6 +13,7 @@ import { FrpModule } from './frp/frp.module';
 import { TopologyModule } from './topology/topology.module';
 import { OperationLogModule } from './operation-log/operation-log.module';
 import { AutomationsModule } from './automations/automations.module';
+import { ActivityLogModule } from './activity-log/activity-log.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ContextModule } from './context/context.module';
@@ -42,6 +43,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     TopologyModule,
     OperationLogModule,
     AutomationsModule,
+    ActivityLogModule,
     RealtimeModule,
   ],
   controllers: [AppController],

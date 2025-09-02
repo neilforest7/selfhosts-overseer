@@ -4,6 +4,7 @@ import { DockerService } from './docker.service';
 import { CryptoService } from '../security/crypto.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContextService } from '../context/context.service';
+import { ActivityLogService } from '../activity-log/activity-log.service';
 
 @Injectable()
 export class ContainerLifecycleService {
@@ -15,6 +16,7 @@ export class ContainerLifecycleService {
     private readonly crypto: CryptoService,
     private readonly operationLogService: OperationLogService,
     private readonly contextService: ContextService,
+    private readonly activityLog: ActivityLogService,
   ) {}
 
   async restartOne(_hostOrRef: { id: string }, containerId: string, existingOpId?: string) {
@@ -43,6 +45,26 @@ export class ContainerLifecycleService {
         } else {
           await this.restartCliContainer(container);
         }
+
+        // Log activity
+        await this.activityLog.logContainerActivity(
+          'restarted',
+          container.id,
+          container.name,
+          container.hostId,
+          container.host.name,
+          `Container '${container.name}' restarted`,
+          container.isComposeManaged
+            ? `Compose service '${container.composeService}' in project '${container.composeProject}' restarted`
+            : `CLI container restarted`,
+          {
+            isComposeManaged: container.isComposeManaged,
+            composeProject: container.composeProject,
+            composeService: container.composeService,
+            imageName: container.imageName,
+            imageTag: container.imageTag,
+          }
+        );
       } catch (err) {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -80,6 +102,26 @@ export class ContainerLifecycleService {
         } else {
           await this.startCliContainer(container);
         }
+
+        // Log activity
+        await this.activityLog.logContainerActivity(
+          'started',
+          container.id,
+          container.name,
+          container.hostId,
+          container.host.name,
+          `Container '${container.name}' started`,
+          container.isComposeManaged
+            ? `Compose service '${container.composeService}' in project '${container.composeProject}' started`
+            : `CLI container started`,
+          {
+            isComposeManaged: container.isComposeManaged,
+            composeProject: container.composeProject,
+            composeService: container.composeService,
+            imageName: container.imageName,
+            imageTag: container.imageTag,
+          }
+        );
       } catch (err) {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -117,6 +159,26 @@ export class ContainerLifecycleService {
         } else {
           await this.stopCliContainer(container);
         }
+
+        // Log activity
+        await this.activityLog.logContainerActivity(
+          'stopped',
+          container.id,
+          container.name,
+          container.hostId,
+          container.host.name,
+          `Container '${container.name}' stopped`,
+          container.isComposeManaged
+            ? `Compose service '${container.composeService}' in project '${container.composeProject}' stopped`
+            : `CLI container stopped`,
+          {
+            isComposeManaged: container.isComposeManaged,
+            composeProject: container.composeProject,
+            composeService: container.composeService,
+            imageName: container.imageName,
+            imageTag: container.imageTag,
+          }
+        );
       } catch (err) {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SshService } from '../ssh/ssh.service';
 import { CryptoService } from '../security/crypto.service';
+import { ActivityLogService } from '../activity-log/activity-log.service';
 
 export interface HostItem {
   id: string;
@@ -28,6 +29,7 @@ export class HostsService {
     private readonly prisma: PrismaService,
     private readonly ssh: SshService,
     private readonly crypto: CryptoService,
+    private readonly activityLog: ActivityLogService,
   ) {
     this.logger.log('HostsService 初始化完成');
   }
@@ -119,6 +121,23 @@ export class HostsService {
       }
     });
     this.logger.log(`✅ 主机创建成功: ${created.name} (ID: ${created.id})`);
+
+    // Log activity
+    await this.activityLog.logHostActivity(
+      'created',
+      created.id,
+      created.name,
+      `Host '${created.name}' created`,
+      `New host added: ${created.address}:${created.port ?? 22} (${created.sshUser})`,
+      {
+        address: created.address,
+        port: created.port ?? 22,
+        sshUser: created.sshUser,
+        role: created.role,
+        tags: created.tags,
+      }
+    );
+
     return {
       id: created.id,
       name: created.name,
@@ -135,6 +154,12 @@ export class HostsService {
   }
 
   async update(id: string, partial: Partial<HostItem>): Promise<HostItem> {
+    // Get original host for change tracking
+    const original = await this.prisma.host.findUnique({ where: { id } });
+    if (!original) {
+      throw new Error(`Host with ID ${id} not found`);
+    }
+
     const data: any = {
       name: partial.name ?? undefined,
       address: partial.address ?? undefined,
@@ -161,6 +186,40 @@ export class HostsService {
       data,
     });
 
+    // Log activity
+    const changes = [];
+    if (partial.name && partial.name !== original.name) changes.push(`name: ${original.name} → ${partial.name}`);
+    if (partial.address && partial.address !== original.address) changes.push(`address: ${original.address} → ${partial.address}`);
+    if (partial.sshUser && partial.sshUser !== original.sshUser) changes.push(`user: ${original.sshUser} → ${partial.sshUser}`);
+    if (partial.port !== undefined && partial.port !== original.port) changes.push(`port: ${original.port ?? 22} → ${partial.port ?? 22}`);
+    if (hasNewPassword || hasNewPrivateKey) changes.push('credentials updated');
+
+    if (changes.length > 0) {
+      await this.activityLog.logHostActivity(
+        'updated',
+        updated.id,
+        updated.name,
+        `Host '${updated.name}' updated`,
+        `Changes: ${changes.join(', ')}`,
+        {
+          changes,
+          hasCredentialUpdate: hasNewPassword || hasNewPrivateKey,
+        },
+        {
+          name: original.name,
+          address: original.address,
+          sshUser: original.sshUser,
+          port: original.port,
+        },
+        {
+          name: updated.name,
+          address: updated.address,
+          sshUser: updated.sshUser,
+          port: updated.port,
+        }
+      );
+    }
+
     return {
       id: updated.id,
       name: updated.name,
@@ -181,6 +240,12 @@ export class HostsService {
 
   async remove(id: string): Promise<void> {
     this.logger.log(`开始删除主机: ${id}`);
+
+    // Get host info before deletion for activity logging
+    const host = await this.prisma.host.findUnique({ where: { id } });
+    if (!host) {
+      throw new Error(`Host with ID ${id} not found`);
+    }
 
     // 使用事务确保数据一致性
     await this.prisma.$transaction(async (tx) => {
@@ -218,6 +283,22 @@ export class HostsService {
       await tx.host.delete({ where: { id } });
       this.logger.log(`✅ 主机删除成功: ${id}`);
     });
+
+    // Log activity
+    await this.activityLog.logHostActivity(
+      'deleted',
+      id,
+      host.name,
+      `Host '${host.name}' deleted`,
+      `Host removed: ${host.address}:${host.port ?? 22} (${host.sshUser})`,
+      {
+        address: host.address,
+        port: host.port ?? 22,
+        sshUser: host.sshUser,
+        role: host.role,
+        tags: host.tags,
+      }
+    );
   }
 
   async testConnection(id: string): Promise<{ ok: boolean; code: number; stdout?: string; stderr?: string }> {
@@ -254,7 +335,26 @@ export class HostsService {
     } else {
       this.logger.warn(`❌ 主机连接测试失败: ${h.name} (退出码: ${res.code})`);
     }
-    
+
+    // Log activity
+    await this.activityLog.logHostActivity(
+      res.code === 0 ? 'connection_test_success' : 'connection_test_failed',
+      h.id,
+      h.name,
+      `Connection test ${res.code === 0 ? 'succeeded' : 'failed'} for host '${h.name}'`,
+      res.code === 0
+        ? `Successfully connected to ${h.address}:${h.port ?? 22}`
+        : `Failed to connect to ${h.address}:${h.port ?? 22} (exit code: ${res.code})`,
+      {
+        exitCode: res.code,
+        address: h.address,
+        port: h.port ?? 22,
+        sshUser: h.sshUser,
+        stdout: res.stdout.toString(),
+        stderr: res.stderr.toString(),
+      }
+    );
+
     return { ok: res.code === 0, code: res.code, stdout: res.stdout.toString(), stderr: res.stderr.toString() };
   }
 

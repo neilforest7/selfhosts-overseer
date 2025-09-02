@@ -7,6 +7,7 @@ import { ReverseProxyService } from '../reverse-proxy/reverse-proxy.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ContextService } from '../context/context.service';
+import { ActivityLogService } from '../activity-log/activity-log.service';
 
 @Injectable()
 export class ContainerDiscoveryService {
@@ -19,6 +20,7 @@ export class ContainerDiscoveryService {
     private readonly frpService: FrpService,
     private readonly operationLogService: OperationLogService,
     private readonly contextService: ContextService,
+    private readonly activityLog: ActivityLogService,
     @Inject(forwardRef(() => TasksService))
     private readonly tasksService: TasksService,
     @Inject(forwardRef(() => ReverseProxyService))
@@ -234,7 +236,12 @@ export class ContainerDiscoveryService {
     // Generate run command for CLI containers
     const runCommand = isComposeManaged ? null : this.generateRunCommand(containerData);
 
-    await this.prisma.container.upsert({
+    // Check if container exists for activity logging
+    const existingContainer = await this.prisma.container.findUnique({
+      where: { hostId_containerId: { hostId, containerId } },
+    });
+
+    const result = await this.prisma.container.upsert({
       where: { hostId_containerId: { hostId, containerId } },
       update: {
         name,
@@ -284,6 +291,64 @@ export class ContainerDiscoveryService {
         labels,
       },
     });
+
+    // Log activity
+    const hostInfo = await this.prisma.host.findUnique({
+      where: { id: hostId },
+      select: { name: true },
+    });
+
+    if (!existingContainer) {
+      // New container discovered
+      await this.activityLog.logContainerActivity(
+        'discovered',
+        result.id,
+        name,
+        hostId,
+        hostInfo?.name || 'Unknown Host',
+        `Container '${name}' discovered`,
+        `New container found: ${imageName}:${imageTag}`,
+        {
+          isComposeManaged,
+          composeProject,
+          composeService,
+          imageName,
+          imageTag,
+          state,
+          status,
+        }
+      );
+    } else if (existingContainer.state !== state || existingContainer.status !== status) {
+      // Container state changed
+      await this.activityLog.logContainerActivity(
+        'state_changed',
+        result.id,
+        name,
+        hostId,
+        hostInfo?.name || 'Unknown Host',
+        `Container '${name}' state changed`,
+        `State: ${existingContainer.state} → ${state}, Status: ${existingContainer.status} → ${status}`,
+        {
+          isComposeManaged,
+          composeProject,
+          composeService,
+          imageName,
+          imageTag,
+          previousState: existingContainer.state,
+          newState: state,
+          previousStatus: existingContainer.status,
+          newStatus: status,
+        },
+        {
+          state: existingContainer.state,
+          status: existingContainer.status,
+        },
+        {
+          state,
+          status,
+        }
+      );
+    }
   }
 
   private parseImageRef(imageRef: string): [string, string] {

@@ -6,6 +6,9 @@ const SettingsSchema = z.object({
   sshConcurrency: z.number().int().min(10).max(100).default(30),
   commandTimeoutSeconds: z.number().int().min(10).max(900).default(100),
   containerUpdateCheckCron: z.string().default('45 0 * * *'),
+  // Activity Log 配置
+  activityLogRetentionDays: z.number().int().min(1).max(365).default(30),
+  activityLogCleanupEnabled: z.boolean().default(true),
   // Docker 代理配置
   dockerProxyEnabled: z.boolean().default(false),
   dockerProxyHost: z.string().optional().default(''),

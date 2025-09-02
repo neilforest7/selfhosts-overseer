@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
+import OverviewSection from './sections/OverviewSection';
 import HostsSection from './sections/HostsSection';
 import AutomationsPage from './automations/page';
 import ContainersSection from './sections/ContainersSection';
@@ -10,12 +11,13 @@ import ObservabilitySection from './sections/ObservabilitySection';
 import TopologySection from './sections/TopologySection';
 import SettingsSection from './sections/SettingsSection';
 import CertificatesSection from './sections/CertificatesSection';
+import { ActivityLogSection } from './sections/ActivityLogSection';
 import { TaskDrawer } from '@/components/TaskDrawer';
 import LogsSection from './sections/LogsSection';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import { ListTodo } from 'lucide-react';
 
-type TabKey = 'overview' | 'hosts' | 'actions' | 'containers' | 'observability' | 'topology' | 'certificates' | 'logs' | 'settings';
+type TabKey = 'overview' | 'hosts' | 'actions' | 'containers' | 'observability' | 'topology' | 'certificates' | 'logs' | 'activity' | 'settings';
 
 export default function AppShell() {
     const [tab, setTab] = useState<TabKey>('overview');
@@ -24,7 +26,7 @@ export default function AppShell() {
     useEffect(() => {
         const applyFromHash = () => {
         const hash = window.location.hash.slice(1);
-        if (['overview', 'hosts', 'actions', 'containers', 'observability', 'topology', 'certificates', 'logs', 'settings'].includes(hash)) {
+        if (['overview', 'hosts', 'actions', 'containers', 'observability', 'topology', 'certificates', 'logs', 'activity', 'settings'].includes(hash)) {
             setTab(hash as TabKey);
         }
         };
@@ -35,7 +37,7 @@ export default function AppShell() {
 
     const renderContent = () => {
         switch (tab) {
-            case 'overview': return <HostsSection />;
+            case 'overview': return <OverviewSection />;
             case 'hosts': return <HostsSection />;
             case 'actions': return <AutomationsPage />;
             case 'containers': return <ContainersSection />;
@@ -43,6 +45,7 @@ export default function AppShell() {
             case 'topology': return <TopologySection />;
             case 'certificates': return <CertificatesSection />;
             case 'logs': return <LogsSection />;
+            case 'activity': return <ActivityLogSection showFilters={true} limit={100} title="All Activities" />;
             case 'settings': return <SettingsSection />;
             default: return <HostsSection />;
         }
@@ -53,7 +56,7 @@ export default function AppShell() {
         <div className="flex h-full bg-background text-foreground">
             <nav className="w-48 border-r p-4 space-y-2">
             <h1 className="text-lg font-bold mb-4">MCP</h1>
-            {(['overview', 'hosts', 'actions', 'containers', 'observability', 'topology', 'certificates', 'logs', 'settings'] as TabKey[]).map(t => (
+            {(['overview', 'hosts', 'actions', 'containers', 'observability', 'topology', 'certificates', 'logs', 'activity', 'settings'] as TabKey[]).map(t => (
                 <a key={t} href={`#${t}`} onClick={() => setTab(t)} className={`block px-3 py-2 rounded-md text-sm font-medium ${tab === t ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
                 {t.charAt(0).toUpperCase() + t.slice(1)}
                 </a>

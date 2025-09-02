@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { SecurityModule } from '../security/security.module';
 import { DockerModule } from '../docker/docker.module';
 import { OperationLogModule } from '../operation-log/operation-log.module';
+import { ActivityLogModule } from '../activity-log/activity-log.module';
 
 @Global()
 @Module({
@@ -13,6 +14,7 @@ import { OperationLogModule } from '../operation-log/operation-log.module';
     SecurityModule,
     DockerModule,
     OperationLogModule,
+    ActivityLogModule,
   ],
   providers: [FrpService],
   controllers: [FrpController],

@@ -17,6 +17,12 @@ enum SshAuthMethod {
   privateKey
 }
 
+enum HostStatus {
+  ONLINE
+  OFFLINE
+  UNKNOWN
+}
+
 model AppSetting {
   key   String @id
   value String
@@ -35,10 +41,16 @@ model Host {
   sshPrivateKey           String?
   sshPrivateKeyPassphrase String?
   role                    HostRole              @default(local)
+  status                  HostStatus            @default(UNKNOWN)
+  lastOnlineAt            DateTime?
+  lastOfflineAt           DateTime?
+  lastConnectivityCheck   DateTime?
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
   containers              Container[]
   operationLogEntries     OperationLogEntry[]
+  activityLogs            ActivityLog[]
+  connectivityChecks      HostConnectivityCheck[]
 }
 
 // Unified system log table
@@ -230,4 +242,69 @@ enum TriggerType {
   WEBHOOK
   EVENT
   SCHEDULE
+}
+
+enum ActivityCategory {
+  HOST_MANAGEMENT     // Host CRUD operations, connection tests
+  CONTAINER_LIFECYCLE // Container start/stop/restart/create/delete
+  CONTAINER_UPDATE    // Container image updates, version changes
+  COMPOSE_OPERATION   // Docker Compose operations
+  FRP_CONFIGURATION   // FRP tunnel configuration changes
+  REVERSE_PROXY       // NPM route changes
+  SYSTEM_OPERATION    // System-level operations
+  AUTOMATION          // Automation rule executions
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
+
+  // Event categorization
+  category    ActivityCategory
+  action      String              // e.g., "created", "updated", "deleted", "started", "stopped"
+
+  // Resource identification
+  resourceType String             // e.g., "host", "container", "frp_config", "reverse_proxy_route"
+  resourceId   String?            // ID of the affected resource
+  resourceName String?            // Human-readable name of the resource
+
+  // Context information
+  hostId      String?             // Associated host (for filtering by host)
+  hostName    String?             // Host name for display
+
+  // Event details
+  title       String              // Human-readable event title
+  description String?             // Detailed description
+  metadata    Json?               // Additional structured data
+
+  // Change tracking
+  oldValues   Json?               // Previous state (for updates)
+  newValues   Json?               // New state (for updates)
+
+  // Relationships
+  host        Host?    @relation(fields: [hostId], references: [id], onDelete: SetNull)
+
+  // Indexing for performance
+  @@index([timestamp])
+  @@index([category, timestamp])
+  @@index([hostId, timestamp])
+  @@index([resourceType, timestamp])
+  @@index([resourceType, resourceId])
+}
+
+model HostConnectivityCheck {
+  id            String      @id @default(cuid())
+  hostId        String
+  status        HostStatus
+  responseTime  Int?        // Response time in milliseconds
+  errorMessage  String?     // Error details if connection failed
+  checkedAt     DateTime    @default(now())
+
+  // Relationships
+  host          Host        @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  // Indexing for performance
+  @@index([hostId, checkedAt])
+  @@index([status, checkedAt])
+  @@index([checkedAt])
 }

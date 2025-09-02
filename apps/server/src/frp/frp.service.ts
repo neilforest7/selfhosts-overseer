@@ -8,6 +8,7 @@ import * as ini from 'ini';
 import * as toml from '@iarna/toml';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContextService } from '../context/context.service';
+import { ActivityLogService } from '../activity-log/activity-log.service';
 
 type HostWithCreds = Host & {
   password?: string;
@@ -25,6 +26,7 @@ export class FrpService {
     private readonly crypto: CryptoService,
     private readonly operationLogService: OperationLogService,
     private readonly contextService: ContextService,
+    private readonly activityLog: ActivityLogService,
   ) {}
 
   async syncFrpFromHost(hostId: string): Promise<void> {
@@ -89,29 +91,72 @@ export class FrpService {
     const config = this.parseConfig(content.toString(), configPath);
     const common = config.common || config;
 
+    // Check if FRPS config exists for activity logging
+    const existingFrpsConfig = await this.prisma.frpsConfig.findUnique({
+      where: { id: `${inspectData.Id}` },
+    });
+
+    // Normalize values for consistent comparison
+    const normalizedNewValues = {
+      bindPort: parseInt(common.bind_port || common.bindPort || config.bind_port || config.bindPort) || 0,
+      vhostHttpPort: parseInt(common.vhost_http_port || common.vhostHttpPort || config.vhost_http_port || config.vhostHttpPort) || 0,
+      vhostHttpsPort: parseInt(common.vhost_https_port || common.vhostHttpsPort || config.vhost_https_port || config.vhostHttpsPort) || 0,
+      subdomainHost: (common.subdomain_host || common.subdomainHost || config.subdomain_host || config.subdomainHost || '').trim(),
+    };
+
+    const normalizedOldValues = existingFrpsConfig ? {
+      bindPort: existingFrpsConfig.bindPort || 0,
+      vhostHttpPort: existingFrpsConfig.vhostHttpPort || 0,
+      vhostHttpsPort: existingFrpsConfig.vhostHttpsPort || 0,
+      subdomainHost: (existingFrpsConfig.subdomainHost || '').trim(),
+    } : undefined;
+
     await this.prisma.frpsConfig.upsert({
       where: { id: `${inspectData.Id}` },
       create: {
         id: `${inspectData.Id}`,
         containerId: inspectData.Id,
         hostId: host.id,
-        bindPort: parseInt(common.bind_port || common.bindPort || config.bind_port || config.bindPort),
-        vhostHttpPort: parseInt(common.vhost_http_port || common.vhostHttpPort || config.vhost_http_port || config.vhostHttpPort),
-        vhostHttpsPort: parseInt(common.vhost_https_port || common.vhostHttpsPort || config.vhost_https_port || config.vhostHttpsPort),
-        subdomainHost: common.subdomain_host || common.subdomainHost || config.subdomain_host || config.subdomainHost,
+        bindPort: normalizedNewValues.bindPort,
+        vhostHttpPort: normalizedNewValues.vhostHttpPort,
+        vhostHttpsPort: normalizedNewValues.vhostHttpsPort,
+        subdomainHost: normalizedNewValues.subdomainHost,
         rawConfig: config,
         lastSyncedAt: new Date(),
       },
       update: {
-        bindPort: parseInt(common.bind_port || common.bindPort || config.bind_port || config.bindPort),
-        vhostHttpPort: parseInt(common.vhost_http_port || common.vhostHttpPort || config.vhost_http_port || config.vhostHttpPort),
-        vhostHttpsPort: parseInt(common.vhost_https_port || common.vhostHttpsPort || config.vhost_https_port || config.vhostHttpsPort),
-        subdomainHost: common.subdomain_host || common.subdomainHost || config.subdomain_host || config.subdomainHost,
+        bindPort: normalizedNewValues.bindPort,
+        vhostHttpPort: normalizedNewValues.vhostHttpPort,
+        vhostHttpsPort: normalizedNewValues.vhostHttpsPort,
+        subdomainHost: normalizedNewValues.subdomainHost,
         rawConfig: config,
         lastSyncedAt: new Date(),
       },
     });
     this.operationLogService.log('info', `Upserted frps config for container ${inspectData.Id}`);
+
+    // Log activity
+    await this.activityLog.create({
+      category: 'FRP_CONFIGURATION',
+      action: existingFrpsConfig ? 'frps_config_updated' : 'frps_config_created',
+      resourceType: 'frps_config',
+      resourceId: inspectData.Id,
+      resourceName: `FRPS-${inspectData.Id.substring(0, 12)}`,
+      hostId: host.id,
+      hostName: host.name,
+      title: `FRPS configuration ${existingFrpsConfig ? 'updated' : 'created'}`,
+      description: `FRPS server configuration ${existingFrpsConfig ? 'updated' : 'created'} for container ${inspectData.Id.substring(0, 12)}`,
+      metadata: {
+        containerId: inspectData.Id,
+        bindPort: normalizedNewValues.bindPort,
+        vhostHttpPort: normalizedNewValues.vhostHttpPort,
+        vhostHttpsPort: normalizedNewValues.vhostHttpsPort,
+        subdomainHost: normalizedNewValues.subdomainHost,
+      },
+      oldValues: normalizedOldValues,
+      newValues: normalizedNewValues,
+    });
+
     await this.updateContainerWithWebServerPort(containerDbId, config);
   }
 
@@ -177,6 +222,31 @@ export class FrpService {
         continue;
       }
 
+      // Check if FRPC proxy exists for activity logging
+      const existingFrpcProxy = await this.prisma.frpcProxy.findUnique({
+        where: { id: `${inspectData.Id}-${proxyConfig.name}` },
+      });
+
+      // Normalize values for consistent comparison
+      const normalizedNewValues = {
+        type: ((proxyConfig as any).type || 'tcp').toString().trim(),
+        localIp: ((proxyConfig as any).local_ip || (proxyConfig as any).localIp || '127.0.0.1').trim(),
+        localPort,
+        remotePort,
+        subdomain: ((proxyConfig as any).subdomain || '').trim(),
+        customDomains: (proxyConfig as any).custom_domains?.split(',').map((d: string) => d.trim()).filter(Boolean) ||
+                      (proxyConfig as any).customDomains || [],
+      };
+
+      const normalizedOldValues = existingFrpcProxy ? {
+        type: (existingFrpcProxy.type || 'tcp').trim(),
+        localIp: (existingFrpcProxy.localIp || '127.0.0.1').trim(),
+        localPort: existingFrpcProxy.localPort || 0,
+        remotePort: existingFrpcProxy.remotePort || 0,
+        subdomain: (existingFrpcProxy.subdomain || '').trim(),
+        customDomains: existingFrpcProxy.customDomains || [],
+      } : undefined;
+
       await this.prisma.frpcProxy.upsert({
         where: { id: `${inspectData.Id}-${proxyConfig.name}` },
         create: {
@@ -184,26 +254,51 @@ export class FrpService {
           hostId: host.id,
           containerId: inspectData.Id,
           name: proxyConfig.name,
-          type: ((proxyConfig as any).type || 'tcp').toString(),
-          localIp: (proxyConfig as any).local_ip || (proxyConfig as any).localIp || '127.0.0.1',
-          localPort,
-          remotePort,
-          subdomain: (proxyConfig as any).subdomain,
-          customDomains: (proxyConfig as any).custom_domains?.split(',') || (proxyConfig as any).customDomains || [],
+          type: normalizedNewValues.type,
+          localIp: normalizedNewValues.localIp,
+          localPort: normalizedNewValues.localPort,
+          remotePort: normalizedNewValues.remotePort,
+          subdomain: normalizedNewValues.subdomain,
+          customDomains: normalizedNewValues.customDomains,
           rawConfig: proxyConfig,
           lastSyncedAt: new Date(),
           frpsConfigId: frpsConfig.id,
         },
         update: {
-          type: ((proxyConfig as any).type || 'tcp').toString(),
-          localIp: (proxyConfig as any).local_ip || (proxyConfig as any).localIp || '127.0.0.1',
-          localPort,
-          remotePort,
-          subdomain: (proxyConfig as any).subdomain,
-          customDomains: (proxyConfig as any).custom_domains?.split(',') || (proxyConfig as any).customDomains || [],
+          type: normalizedNewValues.type,
+          localIp: normalizedNewValues.localIp,
+          localPort: normalizedNewValues.localPort,
+          remotePort: normalizedNewValues.remotePort,
+          subdomain: normalizedNewValues.subdomain,
+          customDomains: normalizedNewValues.customDomains,
           rawConfig: proxyConfig,
           lastSyncedAt: new Date(),
         },
+      });
+
+      // Log activity for each proxy
+      await this.activityLog.create({
+        category: 'FRP_CONFIGURATION',
+        action: existingFrpcProxy ? 'frpc_proxy_updated' : 'frpc_proxy_created',
+        resourceType: 'frpc_proxy',
+        resourceId: `${inspectData.Id}-${proxyConfig.name}`,
+        resourceName: `${proxyConfig.name}`,
+        hostId: host.id,
+        hostName: host.name,
+        title: `FRPC proxy '${proxyConfig.name}' ${existingFrpcProxy ? 'updated' : 'created'}`,
+        description: `FRPC proxy configuration ${existingFrpcProxy ? 'updated' : 'created'}: ${normalizedNewValues.localIp}:${normalizedNewValues.localPort} → ${normalizedNewValues.remotePort}`,
+        metadata: {
+          containerId: inspectData.Id,
+          proxyName: proxyConfig.name,
+          type: normalizedNewValues.type,
+          localIp: normalizedNewValues.localIp,
+          localPort: normalizedNewValues.localPort,
+          remotePort: normalizedNewValues.remotePort,
+          subdomain: normalizedNewValues.subdomain,
+          customDomains: normalizedNewValues.customDomains,
+        },
+        oldValues: normalizedOldValues,
+        newValues: normalizedNewValues,
       });
     }
     this.operationLogService.log('info', `Upserted ${proxies.length} frpc proxies for container ${inspectData.Id}`);

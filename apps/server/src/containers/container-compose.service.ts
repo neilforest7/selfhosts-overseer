@@ -6,6 +6,7 @@ import { OperationLogService } from '../operation-log/operation-log.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ContextService } from '../context/context.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ActivityLogService } from '../activity-log/activity-log.service';
 
 @Injectable()
 export class ContainerComposeService {
@@ -18,6 +19,7 @@ export class ContainerComposeService {
     private readonly operationLogService: OperationLogService,
     private readonly contextService: ContextService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly activityLog: ActivityLogService,
     @Inject(forwardRef(() => TasksService))
     private readonly tasksService: TasksService,
   ) {}
@@ -43,6 +45,30 @@ export class ContainerComposeService {
           if (!hostCred) throw new Error(`Host with id ${hostOrRef.id} not found`);
 
           await this.executeComposeOperation(hostCred, operation, project, workingDir, services);
+
+          // Get host name for activity logging
+          const host = await this.prisma.host.findUnique({
+            where: { id: hostOrRef.id },
+            select: { name: true },
+          });
+
+          // Log activity
+          await this.activityLog.logComposeActivity(
+            operation,
+            project,
+            hostOrRef.id,
+            host?.name || 'Unknown Host',
+            `Compose project '${project}' ${operation}`,
+            services && services.length > 0
+              ? `Services: ${services.join(', ')}`
+              : `All services in project`,
+            {
+              operation,
+              workingDir,
+              services: services || [],
+              servicesCount: services?.length || 0,
+            }
+          );
 
           // Refresh container status after operation
           this.operationLogService.log('info', `Refreshing container status for project "${project}"...`);

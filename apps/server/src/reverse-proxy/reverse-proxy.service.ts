@@ -8,6 +8,7 @@ import * as fs from 'fs/promises';
 import { SettingsService } from '../settings/settings.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContextService } from '../context/context.service';
+import { ActivityLogService, ActivityCategory } from '../activity-log/activity-log.service';
 
 type HostWithCreds = Host & {
   password?: string;
@@ -26,6 +27,7 @@ export class ReverseProxyService {
     private readonly settings: SettingsService,
     private readonly operationLogService: OperationLogService,
     private readonly contextService: ContextService,
+    private readonly activityLog: ActivityLogService,
   ) {}
 
   async listRoutes(params: { hostId?: string }) {
@@ -86,7 +88,7 @@ export class ReverseProxyService {
 
     if (!routes) throw new Error('Failed to retrieve routes from NPM.');
 
-      this.operationLogService.log('info', `Found ${routes.length} routes in the database.`);
+      this.operationLogService.log('info', `Found ${routes.length} unique routes in the database (after deduplication by domain_names and modified_on).`);
     const now = new Date();
     let upsertedCount = 0;
 
@@ -125,11 +127,54 @@ export class ReverseProxyService {
           lastSyncedAt: now,
         };
 
+        // Check if route exists for activity logging
+        const existingRoute = await this.prisma.reverseProxyRoute.findUnique({
+          where: { hostId_domain: { hostId: host.id, domain } },
+        });
+
         await this.prisma.reverseProxyRoute.upsert({
           where: { hostId_domain: { hostId: host.id, domain } },
           create: data,
           update: data,
         });
+
+        // Normalize values for consistent comparison
+        const normalizedNewValues = {
+          forwardHost: route.forward_host,
+          forwardPort: parseInt(route.forward_port?.toString() || '0', 10),
+          enabled: route.enabled === 1,
+        };
+
+        const normalizedOldValues = existingRoute ? {
+          forwardHost: existingRoute.forwardHost,
+          forwardPort: existingRoute.forwardPort,
+          enabled: existingRoute.enabled,
+        } : undefined;
+
+        // Log activity
+        await this.activityLog.create({
+          category: ActivityCategory.REVERSE_PROXY,
+          action: existingRoute ? 'route_updated' : 'route_created',
+          resourceType: 'reverse_proxy_route',
+          resourceId: `${host.id}-${domain}`,
+          resourceName: domain,
+          hostId: host.id,
+          hostName: host.name,
+          title: `Reverse proxy route ${existingRoute ? 'updated' : 'created'}: ${domain}`,
+          description: `Route ${domain} → ${route.forward_host}:${route.forward_port}`,
+          metadata: {
+            domain,
+            forwardHost: route.forward_host,
+            forwardPort: route.forward_port,
+            enabled: route.enabled === 1,
+            sslForced: route.ssl_forced === 1,
+            certificateId: route.certificate_id?.toString(),
+            provider: 'npm',
+          },
+          oldValues: normalizedOldValues,
+          newValues: normalizedNewValues,
+        });
+
         upsertedCount++;
       }
     }
@@ -181,7 +226,26 @@ export class ReverseProxyService {
     const user = envVars['DB_MYSQL_USER'];
     const password = envVars['DB_MYSQL_PASSWORD'];
     const database = envVars['DB_MYSQL_NAME'];
-    const query = `SELECT ph.*, c.expires_on FROM proxy_host ph LEFT JOIN certificate c ON ph.certificate_id = c.id`;
+    const query = `
+      SELECT ph.*, c.expires_on
+      FROM proxy_host ph
+      LEFT JOIN certificate c ON ph.certificate_id = c.id
+      WHERE ph.id IN (
+        SELECT id FROM (
+          SELECT
+            id,
+            domain_names,
+            ROW_NUMBER() OVER (
+              PARTITION BY domain_names
+              ORDER BY modified_on DESC
+            ) as rn
+          FROM proxy_host
+          WHERE is_deleted = 0
+        ) ranked
+        WHERE rn = 1
+      )
+      AND ph.is_deleted = 0
+    `;
 
     const networks = npmContainerInspect.NetworkSettings?.Networks;
     const networkName = networks ? Object.keys(networks)[0] : null;
@@ -278,11 +342,26 @@ export class ReverseProxyService {
     const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY);
     return new Promise((resolve, reject) => {
       const query = `
-        SELECT 
+        SELECT
           ph.*,
           c.expires_on
         FROM proxy_host ph
         LEFT JOIN certificate c ON ph.certificate_id = c.id
+        WHERE ph.id IN (
+          SELECT id FROM (
+            SELECT
+              id,
+              domain_names,
+              ROW_NUMBER() OVER (
+                PARTITION BY domain_names
+                ORDER BY modified_on DESC
+              ) as rn
+            FROM proxy_host
+            WHERE is_deleted = 0
+          ) ranked
+          WHERE rn = 1
+        )
+        AND ph.is_deleted = 0
       `;
       db.all(query, (err, rows) => {
         if (err) reject(err);
