@@ -9,6 +9,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import AddToHomeScreen from '@/components/AddToHomeScreen';
+
+
 
 type Settings = { 
   sshConcurrency: number; 
@@ -87,6 +90,7 @@ export default function SettingsSection() {
     <Card>
       <CardHeader><CardTitle>设置</CardTitle></CardHeader>
       <CardContent className="space-y-4">
+        <AddToHomeScreen />
         <div className="grid gap-2 max-w-xs">
           <label className="text-sm">SSH 并发（10–100）</label>
           <Input type="number" value={sshConcurrency} onChange={(e)=>setSshConcurrency(Number(e.target.value))} />

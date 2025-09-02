@@ -3,7 +3,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ActivityLogService, ActivityCategory } from '../activity-log/activity-log.service';
 import { HostStatus } from '@prisma/client';
-import { spawn } from 'child_process';
+import { SshService } from '../ssh/ssh.service';
+import { CryptoService } from '../security/crypto.service';
+
+interface ConnectionPool {
+  [hostKey: string]: {
+    lastUsed: Date;
+    consecutiveFailures: number;
+    backoffUntil?: Date;
+  };
+}
+
+interface PerformanceMetrics {
+  totalChecks: number;
+  successfulChecks: number;
+  failedChecks: number;
+  averageResponseTime: number;
+  lastResetAt: Date;
+}
 
 export interface ConnectivityCheckResult {
   hostId: string;
@@ -31,6 +48,8 @@ export class ConnectivityService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly activityLog: ActivityLogService,
+    private readonly ssh: SshService,
+    private readonly crypto: CryptoService,
   ) {}
 
   /**
@@ -184,58 +203,57 @@ export class ConnectivityService {
   }
 
   /**
-   * Perform SSH connectivity test
+   * Perform SSH connectivity test using the same method as manual test
    */
   private async performSSHConnectivityTest(host: any): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      const timeout = 10000; // 10 seconds timeout
-      const port = host.port || 22;
-      
-      // Use SSH connection test with timeout
-      const sshArgs = [
-        '-o', 'ConnectTimeout=10',
-        '-o', 'BatchMode=yes',
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'LogLevel=ERROR',
-        '-p', port.toString(),
-        `${host.sshUser}@${host.address}`,
-        'echo "connectivity_test"'
-      ];
+    try {
+      this.logger.debug(`Performing SSH connectivity test for host: ${host.name} (${host.address}:${host.port || 22})`);
 
-      const sshProcess = spawn('ssh', sshArgs);
-      let output = '';
-      let errorOutput = '';
+      // Determine authentication method
+      const usePassword = host.sshAuthMethod === 'password';
+      const useKey = host.sshAuthMethod === 'privateKey';
 
-      const timer = setTimeout(() => {
-        sshProcess.kill('SIGTERM');
-        resolve({ success: false, error: 'Connection timeout' });
-      }, timeout);
+      // Decrypt authentication credentials
+      const decryptedPassword = this.crypto.decryptString(host.sshPassword ?? null);
+      const decPassword = decryptedPassword ? decryptedPassword.toString() : undefined;
 
-      sshProcess.stdout.on('data', (data) => {
-        output += data.toString();
+      const decryptedKey = this.crypto.decryptString(host.sshPrivateKey ?? null);
+      const decKey = decryptedKey ? decryptedKey.toString() : undefined;
+
+      const decryptedPassphrase = this.crypto.decryptString(host.sshPrivateKeyPassphrase ?? null);
+      const decPassphrase = decryptedPassphrase ? decryptedPassphrase.toString() : undefined;
+
+      this.logger.debug(`SSH auth method: ${host.sshAuthMethod}, usePassword: ${usePassword}, useKey: ${useKey}, hasPassword: ${!!decPassword}, hasKey: ${!!decKey}`);
+
+      // Use the same SSH service as manual test
+      const result = await this.ssh.executeCapture({
+        host: host.address,
+        user: host.sshUser,
+        port: host.port ?? undefined,
+        command: 'echo "connectivity_test"',
+        connectTimeoutSeconds: 10,
+        killAfterSeconds: 10,
+        password: usePassword ? decPassword : undefined,
+        privateKey: useKey ? decKey : undefined,
+        privateKeyPassphrase: useKey ? decPassphrase : undefined,
+        hostKeyCheckingMode: 'accept-new', // More permissive for connectivity checks
       });
 
-      sshProcess.stderr.on('data', (data) => {
-        errorOutput += data.toString();
-      });
+      const success = result.code === 0 && result.stdout.toString().includes('connectivity_test');
 
-      sshProcess.on('close', (code) => {
-        clearTimeout(timer);
-        
-        if (code === 0 && output.includes('connectivity_test')) {
-          resolve({ success: true });
-        } else {
-          const error = errorOutput || `SSH connection failed with exit code ${code}`;
-          resolve({ success: false, error: error.trim() });
-        }
-      });
-
-      sshProcess.on('error', (error) => {
-        clearTimeout(timer);
-        resolve({ success: false, error: error.message });
-      });
-    });
+      if (success) {
+        this.logger.debug(`✅ SSH connectivity test successful for host: ${host.name}`);
+        return { success: true };
+      } else {
+        const error = result.stderr.toString() || `SSH connection failed with exit code ${result.code}`;
+        this.logger.debug(`❌ SSH connectivity test failed for host: ${host.name}: ${error}`);
+        return { success: false, error: error.trim() };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`SSH connectivity test error for host ${host.name}: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
   }
 
   /**

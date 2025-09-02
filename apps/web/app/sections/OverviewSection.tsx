@@ -4,7 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ActivityLogWidget } from './ActivityLogWidget';
-import { Server, Container, Network, Activity, TrendingUp, AlertTriangle } from 'lucide-react';
+import { HostStatusSummary } from '@/components/HostStatusIndicator';
+import { useHostConnectivity } from '@/lib/hooks/useHostConnectivity';
+import { Server, Container, Network, Activity, TrendingUp, AlertTriangle, Wifi } from 'lucide-react';
 
 interface SystemStats {
   hosts: {
@@ -98,6 +100,9 @@ export default function OverviewSection() {
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 
+  // Add connectivity hook
+  const { stats: connectivityStats } = useHostConnectivity();
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -135,11 +140,11 @@ export default function OverviewSection() {
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Total Hosts"
-          value={stats?.hosts.total || 0}
-          subtitle={`${stats?.hosts.online || 0} online, ${stats?.hosts.offline || 0} offline`}
-          icon={<Server className="h-4 w-4 text-muted-foreground" />}
-          trend={stats?.hosts.online === stats?.hosts.total ? 'up' : 'neutral'}
+          title="Host Connectivity"
+          value={connectivityStats?.total || 0}
+          subtitle={`${connectivityStats?.online || 0} online, ${connectivityStats?.offline || 0} offline`}
+          icon={<Wifi className="h-4 w-4 text-muted-foreground" />}
+          trend={connectivityStats?.online === connectivityStats?.total ? 'up' : (connectivityStats?.offline || 0) > 0 ? 'down' : 'neutral'}
         />
         
         <StatCard
@@ -243,14 +248,14 @@ export default function OverviewSection() {
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Hosts Online</span>
-                <Badge variant={stats?.hosts.online === stats?.hosts.total ? "default" : "destructive"}>
-                  {stats?.hosts.online}/{stats?.hosts.total}
+                <Badge variant={connectivityStats?.online === connectivityStats?.total ? "default" : "destructive"}>
+                  {connectivityStats?.online || 0}/{connectivityStats?.total}
                 </Badge>
               </div>
               
               <div className="flex items-center justify-between">
                 <span className="text-sm">Containers Running</span>
-                <Badge variant="default">
+                <Badge variant={stats?.containers.running === stats?.containers.total ? "default" : "ghost"}>
                   {stats?.containers.running}/{stats?.containers.total}
                 </Badge>
               </div>

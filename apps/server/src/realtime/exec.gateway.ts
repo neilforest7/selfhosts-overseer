@@ -55,6 +55,19 @@ export class ExecGateway {
     client.leave(room);
   }
 
+  @SubscribeMessage('joinConnectivity')
+  onJoinConnectivity(@ConnectedSocket() client: Socket, @MessageBody() body: { hostId?: string }) {
+    // Join the connectivity room
+    const room = body?.hostId ? `connectivity:host:${body.hostId}` : 'connectivity:global';
+    client.join(room);
+  }
+
+  @SubscribeMessage('leaveConnectivity')
+  onLeaveConnectivity(@ConnectedSocket() client: Socket, @MessageBody() body: { hostId?: string }) {
+    const room = body?.hostId ? `connectivity:host:${body.hostId}` : 'connectivity:global';
+    client.leave(room);
+  }
+
   // Event listener for new activity logs
   @OnEvent('activity-log.created')
   handleActivityLogCreated(activityLog: any) {
@@ -65,6 +78,34 @@ export class ExecGateway {
     if (activityLog.hostId) {
       this.server.to(`activity:host:${activityLog.hostId}`).emit('activity.new', activityLog);
     }
+  }
+
+  // Event listeners for host connectivity changes
+  @OnEvent('host.status.changed')
+  handleHostStatusChanged(event: any) {
+    // Broadcast to global connectivity room
+    this.server.to('connectivity:global').emit('connectivity.status.changed', event);
+
+    // Broadcast to host-specific room
+    this.server.to(`connectivity:host:${event.hostId}`).emit('connectivity.status.changed', event);
+  }
+
+  @OnEvent('host.online')
+  handleHostOnline(event: any) {
+    // Broadcast to global connectivity room
+    this.server.to('connectivity:global').emit('connectivity.host.online', event);
+
+    // Broadcast to host-specific room
+    this.server.to(`connectivity:host:${event.hostId}`).emit('connectivity.host.online', event);
+  }
+
+  @OnEvent('host.offline')
+  handleHostOffline(event: any) {
+    // Broadcast to global connectivity room
+    this.server.to('connectivity:global').emit('connectivity.host.offline', event);
+
+    // Broadcast to host-specific room
+    this.server.to(`connectivity:host:${event.hostId}`).emit('connectivity.host.offline', event);
   }
 }
 

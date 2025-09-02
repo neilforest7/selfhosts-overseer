@@ -19,7 +19,13 @@ const SettingsSchema = z.object({
   // Docker 凭证配置
   dockerCredentialsEnabled: z.boolean().default(false),
   dockerCredentialsUsername: z.string().optional().default(''),
-  dockerCredentialsPersonalAccessToken: z.string().optional().default('')
+  dockerCredentialsPersonalAccessToken: z.string().optional().default(''),
+  // 连接性检查配置
+  connectivityCheckInterval: z.number().int().min(60).max(3600).default(300), // 5 minutes default
+  connectivityCheckTimeout: z.number().int().min(5).max(60).default(10), // 10 seconds default
+  connectivityCheckRetries: z.number().int().min(0).max(5).default(1), // 1 retry default
+  connectivityAlertThreshold: z.number().int().min(1).max(10).default(3), // Alert after 3 failed checks
+  connectivityCheckEnabled: z.boolean().default(true)
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;

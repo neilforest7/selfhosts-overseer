@@ -1,9 +1,13 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { HostsService, HostItem } from './hosts.service';
+import { ConnectivityService } from './connectivity.service';
 
 @Controller('/api/v1/hosts')
 export class HostsController {
-  constructor(private readonly hostsService: HostsService) {}
+  constructor(
+    private readonly hostsService: HostsService,
+    private readonly connectivityService: ConnectivityService,
+  ) {}
 
   @Get()
   async list(
@@ -38,6 +42,27 @@ export class HostsController {
   @Post('cleanup/orphaned-routes')
   async cleanupOrphanedRoutes(): Promise<{ deletedCount: number }> {
     return this.hostsService.cleanupOrphanedReverseProxyRoutes();
+  }
+
+  @Get(':id/connectivity')
+  async getConnectivity(@Param('id') id: string, @Query('limit') limitStr?: string) {
+    const limit = limitStr ? parseInt(limitStr, 10) : 100;
+    return this.connectivityService.getHostConnectivityHistory(id, limit);
+  }
+
+  @Post(':id/check-connectivity')
+  async checkConnectivity(@Param('id') id: string) {
+    return this.connectivityService.checkHostConnectivity(id);
+  }
+
+  @Post('check-all-connectivity')
+  async checkAllConnectivity() {
+    return this.connectivityService.checkAllHostsConnectivity();
+  }
+
+  @Get('connectivity/stats')
+  async getConnectivityStats() {
+    return this.connectivityService.getConnectivityStats();
   }
 }
 

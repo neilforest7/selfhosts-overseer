@@ -95,7 +95,12 @@ export function ActivityLogWidget({ className }: ActivityLogWidgetProps) {
   });
 
   // Use realtime activities if connected, otherwise fallback to API data
-  const displayActivities = useRealtime && isConnected ? realtimeActivities : activities;
+  // Ensure unique activities by ID
+  const rawActivities = useRealtime && isConnected ? realtimeActivities : activities;
+  const displayActivities = rawActivities ?
+    rawActivities.filter((activity, index, arr) =>
+      arr.findIndex(a => a.id === activity.id) === index
+    ) : [];
 
   const getActionColor = (action: string) => {
     return actionColors[action] || 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
@@ -115,9 +120,9 @@ export function ActivityLogWidget({ className }: ActivityLogWidgetProps) {
             {useRealtime && (
               <div className="flex items-center gap-1">
                 {isConnected ? (
-                  <Wifi className="h-3 w-3 text-green-500" title="Real-time connected" />
+                  <Wifi className="h-3 w-3 text-green-500" />
                 ) : (
-                  <WifiOff className="h-3 w-3 text-red-500" title="Real-time disconnected" />
+                  <WifiOff className="h-3 w-3 text-red-500" />
                 )}
               </div>
             )}
@@ -132,7 +137,7 @@ export function ActivityLogWidget({ className }: ActivityLogWidgetProps) {
         </div>
       </CardHeader>
       <CardContent>
-        <ScrollArea className="max-h-[800px]">
+        <ScrollArea className="h-[620px]">
           {(isLoading && !useRealtime) && (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
@@ -160,8 +165,8 @@ export function ActivityLogWidget({ className }: ActivityLogWidgetProps) {
 
           {displayActivities && displayActivities.length > 0 && (
             <div className="space-y-3">
-              {displayActivities.map((activity) => (
-                <div key={activity.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
+              {displayActivities.map((activity, index) => (
+                <div key={`${activity.id}-${index}`} className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
                   <div className="flex-shrink-0 mt-0.5">
                     {categoryIcons[activity.category] || <Settings className="h-3 w-3" />}
                   </div>
@@ -183,7 +188,7 @@ export function ActivityLogWidget({ className }: ActivityLogWidgetProps) {
                         </Badge>
                       )}
                     </div>
-                    <div className='flex space-x-4 justify-between'>
+                    <div className='flex space-x-4 justify-between pr-2'>
                       <p className="text-sm font-medium leading-tight">
                         {activity.title}
                       </p>

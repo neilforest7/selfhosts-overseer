@@ -14,6 +14,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { ClientOnly } from '@/components/ClientOnly';
+import { HostStatusIndicator } from '@/components/HostStatusIndicator';
+import { useHostConnectivity } from '@/lib/hooks/useHostConnectivity';
 
 type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; role?: 'local' | 'remote'; hasPassword?: boolean; hasPrivateKey?: boolean };
 
@@ -25,6 +27,15 @@ export default function HostsSection() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Host> | null>(null);
   const [testing, setTesting] = useState<Record<string, boolean>>({});
+
+  // Add connectivity hook
+  const {
+    isConnected,
+    connectionError,
+    stats,
+    checkConnectivity,
+    getHostConnectivity
+  } = useHostConnectivity();
 
   const hostsQuery = useQuery<{ items: Host[]; nextCursor: string | null }>({
     queryKey: ['hosts', tag, cursor],
@@ -184,6 +195,7 @@ export default function HostsSection() {
               }} /></TableHead>
               <TableHead>名称</TableHead>
               <TableHead>地址</TableHead>
+              <TableHead>状态</TableHead>
               <TableHead>角色</TableHead>
               <TableHead>用户</TableHead>
               <TableHead>标签</TableHead>
@@ -191,11 +203,24 @@ export default function HostsSection() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(hostsQuery.data?.items || []).map((h) => (
+            {(hostsQuery.data?.items || []).map((h) => {
+              const connectivity = getHostConnectivity(h.id);
+              return (
               <TableRow key={h.id}>
                 <TableCell className="text-center"><Checkbox checked={!!selected[h.id]} onCheckedChange={(v) => setSelected((s) => ({ ...s, [h.id]: v === true }))} /></TableCell>
                 <TableCell>{h.name}</TableCell>
                 <TableCell className="text-muted-foreground">{h.address}</TableCell>
+                <TableCell>
+                  <HostStatusIndicator
+                    status={connectivity?.status || 'UNKNOWN'}
+                    responseTime={connectivity?.responseTime}
+                    lastChecked={connectivity?.lastChecked}
+                    lastOnline={connectivity?.lastOnline}
+                    lastOffline={connectivity?.lastOffline}
+                    errorMessage={connectivity?.errorMessage}
+                    variant="compact"
+                  />
+                </TableCell>
                 <TableCell>
                   <Badge variant={h.role === 'remote' ? 'secondary' : 'secondary'}>
                     {h.role === 'remote' ? '公网' : '内网'}
@@ -217,7 +242,8 @@ export default function HostsSection() {
                   <Button variant="destructive" onClick={async ()=>{ await fetch(`http://localhost:3001/api/v1/hosts/${h.id}`, { method: 'DELETE' }); qc.invalidateQueries({ queryKey: ['hosts'] }); }}>删除</Button>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
         <div className="flex justify-end">

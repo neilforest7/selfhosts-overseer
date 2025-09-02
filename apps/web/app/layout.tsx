@@ -2,7 +2,6 @@ import './globals.css';
 import { Toaster } from 'sonner';
 import Providers from './providers';
 import AppShell from './app-shell';
-import AddToHomeScreen from '@/components/AddToHomeScreen';
 
 export const metadata = {
   title: 'Self-Host Serv Agent',
@@ -16,7 +15,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning className="min-h-screen bg-background text-foreground">
         <Providers>
         <main className="h-screen flex flex-col p-6 space-y-8">
-          <AddToHomeScreen />
           <div className="rounded-lg border p-4 flex-grow">
             {/* 单页应用主体 */}
             {/* 侧边栏 + 内容 */}
