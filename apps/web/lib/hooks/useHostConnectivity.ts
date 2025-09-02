@@ -83,6 +83,46 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
     refetchInterval: 60000, // Refetch every minute
   });
 
+  // Fetch initial connectivity data for all hosts
+  const { data: initialHosts } = useQuery({
+    queryKey: ['hosts', 'all', 'connectivity'],
+    queryFn: async () => {
+      const response = await fetch('/api/v1/hosts?limit=1000'); // Fetch a large number of hosts
+      if (!response.ok) throw new Error('Failed to fetch hosts for connectivity');
+      const data = await response.json();
+      return data.items as any[];
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  useEffect(() => {
+    if (initialHosts) {
+      console.log('Received hosts for connectivity status:', initialHosts);
+      setConnectivityData(prev => {
+        const updated = new Map(prev);
+        initialHosts.forEach((host: any) => {
+          // Only update if not already present from a websocket event
+          if (!updated.has(host.id)) {
+            const newEntry = {
+              hostId: host.id,
+              hostName: host.name,
+              status: host.status || 'UNKNOWN',
+              lastChecked: host.lastConnectivityCheck,
+              // We don't get these from the initial fetch, so keep them undefined
+              responseTime: undefined,
+              lastOnline: undefined,
+              lastOffline: undefined,
+              errorMessage: undefined,
+            };
+            updated.set(host.id, newEntry);
+          }
+        });
+        console.log('Updated connectivity data map:', updated);
+        return updated;
+      });
+    }
+  }, [initialHosts]);
+
   // Initialize WebSocket connection
   const connectSocket = useCallback(() => {
     if (socket?.connected) return;

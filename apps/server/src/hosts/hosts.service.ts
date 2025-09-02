@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SshService } from '../ssh/ssh.service';
 import { CryptoService } from '../security/crypto.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
+import { HostStatus } from '@prisma/client';
 
 export interface HostItem {
   id: string;
@@ -12,6 +13,8 @@ export interface HostItem {
   port?: number;
   tags?: string[];
   role?: 'local' | 'remote';
+  status: HostStatus;
+  lastConnectivityCheck?: Date | null;
   sshOptions?: unknown;
   sshAuthMethod?: 'password' | 'privateKey';
   sshPassword?: string | null;
@@ -50,6 +53,8 @@ export class HostsService {
       port: r.port ?? undefined,
       tags: r.tags,
       role: r.role as 'local' | 'remote',
+      status: r.status,
+      lastConnectivityCheck: r.lastConnectivityCheck,
       sshOptions: (r as any).sshOptions ?? undefined,
       sshAuthMethod: (r as any).sshAuthMethod ?? 'password',
       // 不透出明文与密文，仅提供存在标记

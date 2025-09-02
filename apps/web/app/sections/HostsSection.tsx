@@ -15,9 +15,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { ClientOnly } from '@/components/ClientOnly';
 import { HostStatusIndicator } from '@/components/HostStatusIndicator';
-import { useHostConnectivity } from '@/lib/hooks/useHostConnectivity';
+import { useHostConnectivity, HostStatus } from '@/lib/hooks/useHostConnectivity';
 
-type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; role?: 'local' | 'remote'; hasPassword?: boolean; hasPrivateKey?: boolean };
+type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; role?: 'local' | 'remote'; hasPassword?: boolean; hasPrivateKey?: boolean; status: HostStatus; lastConnectivityCheck?: string | Date | null; };
 
 export default function HostsSection() {
   const qc = useQueryClient();
@@ -212,9 +212,9 @@ export default function HostsSection() {
                 <TableCell className="text-muted-foreground">{h.address}</TableCell>
                 <TableCell>
                   <HostStatusIndicator
-                    status={connectivity?.status || 'UNKNOWN'}
+                    status={connectivity?.status || h.status || 'UNKNOWN'}
                     responseTime={connectivity?.responseTime}
-                    lastChecked={connectivity?.lastChecked}
+                    lastChecked={connectivity?.lastChecked || h.lastConnectivityCheck}
                     lastOnline={connectivity?.lastOnline}
                     lastOffline={connectivity?.lastOffline}
                     errorMessage={connectivity?.errorMessage}
