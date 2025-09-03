@@ -247,6 +247,222 @@ export class ReverseProxyService {
       AND ph.is_deleted = 0
     `;
 
+    // First, try to find and use the database container directly
+    const dbContainer = await this.findDatabaseContainer(host, npmContainerInspect, dbHostService);
+    if (dbContainer) {
+      this.operationLogService.log('info', `Found database container: ${dbContainer.name} (${dbContainer.id.substring(0, 12)})`);
+      const result = await this.executeQueryInDatabaseContainer(host, dbContainer, user, password, database, query);
+      if (result !== null) {
+        return result;
+      }
+      this.operationLogService.log('info', `Failed to execute query in database container, trying fallback approaches...`);
+    } else {
+      this.operationLogService.log('info', `Could not identify database container, trying fallback approaches...`);
+    }
+
+    // Fallback: Try executing in NPM container
+    const npmContainerId = npmContainerInspect.Id;
+    if (!npmContainerId) {
+      this.operationLogService.log('error', `Could not get NPM container ID from inspect data.`);
+      return null;
+    }
+
+    this.operationLogService.log('info', `Executing MySQL query directly in NPM container: ${npmContainerId.substring(0, 12)}`);
+
+    // Execute the MySQL query directly within the NPM container
+    const mysqlCommand = `mysql -h '${dbHostService}' -u'${user}' --password='${password}' '${database}' -e "${query.replace(/"/g, '\\"')}"`;
+    const dockerExecCommand = `docker exec ${npmContainerId} sh -c "${mysqlCommand}"`;
+
+    const { code, stdout, stderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, dockerExecCommand);
+
+    if (code !== 0) {
+      this.operationLogService.log('error', `Failed to execute MySQL query in NPM container. Exit code: ${code}, Stderr: ${stderr.toString()}`);
+
+      // If mysql client is not available in the NPM container, try alternative approaches
+      if (stderr.toString().includes('mysql: not found') || stderr.toString().includes('command not found')) {
+        this.operationLogService.log('info', `MySQL client not found in NPM container, trying alternative approach...`);
+        return this.syncFromMysqlAlternative(host, npmContainerInspect, envVars);
+      }
+
+      return null;
+    }
+
+    return this.parseMysqlOutput(stdout.toString());
+  }
+
+  private async findDatabaseContainer(host: HostWithCreds, npmContainerInspect: any, dbHostService: string): Promise<{ id: string; name: string } | null> {
+    try {
+      // Get the NPM container's compose project information
+      const npmLabels = npmContainerInspect.Config?.Labels || {};
+      const composeProject = npmLabels['com.docker.compose.project'];
+
+      if (!composeProject) {
+        this.operationLogService.log('info', `NPM container is not part of a Docker Compose project, cannot identify database container`);
+        return null;
+      }
+
+      this.operationLogService.log('info', `NPM container is part of compose project: ${composeProject}`);
+
+      // Get all containers in the same compose project
+      const { code, stdout } = await this.docker.execShell(
+        { ...host, port: host.port ?? undefined },
+        `docker ps -a --filter "label=com.docker.compose.project=${composeProject}" --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Labels}}"`
+      );
+
+      if (code !== 0) {
+        this.operationLogService.log('error', `Failed to list containers in compose project ${composeProject}`);
+        return null;
+      }
+
+      const containers = stdout.toString().trim().split('\n').filter(Boolean);
+      this.operationLogService.log('info', `Found ${containers.length} containers in compose project ${composeProject}`);
+
+      // Look for database container using multiple strategies
+      for (const containerLine of containers) {
+        const [id, names, image, labels] = containerLine.split('|');
+
+        // Strategy 1: Check if container name matches DB_MYSQL_HOST
+        if (names.includes(dbHostService)) {
+          this.operationLogService.log('info', `Found database container by hostname match: ${names}`);
+          return { id, name: names };
+        }
+
+        // Strategy 2: Check for common database container names
+        const lowerNames = names.toLowerCase();
+        const lowerImage = image.toLowerCase();
+        if (lowerNames.includes('db') || lowerNames.includes('mysql') || lowerNames.includes('mariadb') ||
+            lowerImage.includes('mysql') || lowerImage.includes('mariadb')) {
+          this.operationLogService.log('info', `Found database container by name/image pattern: ${names} (${image})`);
+          return { id, name: names };
+        }
+
+        // Strategy 3: Check compose service name in labels
+        if (labels.includes('com.docker.compose.service=db') ||
+            labels.includes('com.docker.compose.service=mysql') ||
+            labels.includes('com.docker.compose.service=mariadb')) {
+          this.operationLogService.log('info', `Found database container by compose service label: ${names}`);
+          return { id, name: names };
+        }
+      }
+
+      this.operationLogService.log('info', `No database container found in compose project ${composeProject}`);
+      return null;
+    } catch (error) {
+      this.operationLogService.log('error', `Error finding database container: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  private async executeQueryInDatabaseContainer(
+    host: HostWithCreds,
+    dbContainer: { id: string; name: string },
+    user: string,
+    password: string,
+    database: string,
+    query: string
+  ): Promise<any[] | null> {
+    try {
+      this.operationLogService.log('info', `Executing MySQL query in database container: ${dbContainer.name}`);
+
+      // Normalize the query to a single line and properly escape it
+      const normalizedQuery = query.replace(/\s+/g, ' ').trim();
+
+      // Try different connection approaches for MySQL client
+      let mysqlCommand = `mysql -h 127.0.0.1 -u'${user}' --password='${password}' '${database}' -e '${normalizedQuery.replace(/'/g, "'\"'\"'")}'`;
+      let dockerExecCommand = `docker exec ${dbContainer.id} sh -c '${mysqlCommand.replace(/'/g, "'\"'\"'")}'`;
+
+      let { code, stdout, stderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, dockerExecCommand);
+
+      // If connection failed, try localhost
+      if (code !== 0 && stderr.toString().includes('Access denied')) {
+        this.operationLogService.log('info', `Access denied with 127.0.0.1, trying localhost...`);
+        mysqlCommand = `mysql -h localhost -u'${user}' --password='${password}' '${database}' -e '${normalizedQuery.replace(/'/g, "'\"'\"'")}'`;
+        dockerExecCommand = `docker exec ${dbContainer.id} sh -c '${mysqlCommand.replace(/'/g, "'\"'\"'")}'`;
+
+        const localhostResult = await this.docker.execShell({ ...host, port: host.port ?? undefined }, dockerExecCommand);
+        code = localhostResult.code;
+        stdout = localhostResult.stdout;
+        stderr = localhostResult.stderr;
+      }
+
+      // If MySQL client not found, try MariaDB client
+      if (code !== 0 && (stderr.toString().includes('mysql: not found') || stderr.toString().includes('command not found'))) {
+        this.operationLogService.log('info', `MySQL client not found in database container, trying MariaDB client...`);
+
+        // Try MariaDB with 127.0.0.1 first
+        let mariadbCommand = `mariadb -h 127.0.0.1 -u'${user}' --password='${password}' '${database}' -e '${normalizedQuery.replace(/'/g, "'\"'\"'")}'`;
+        let mariadbExecCommand = `docker exec ${dbContainer.id} sh -c '${mariadbCommand.replace(/'/g, "'\"'\"'")}'`;
+
+        const mariadbResult = await this.docker.execShell({ ...host, port: host.port ?? undefined }, mariadbExecCommand);
+        code = mariadbResult.code;
+        stdout = mariadbResult.stdout;
+        stderr = mariadbResult.stderr;
+
+        // If MariaDB connection failed, try localhost
+        if (code !== 0 && stderr.toString().includes('Access denied')) {
+          this.operationLogService.log('info', `MariaDB access denied with 127.0.0.1, trying localhost...`);
+          mariadbCommand = `mariadb -h localhost -u'${user}' --password='${password}' '${database}' -e '${normalizedQuery.replace(/'/g, "'\"'\"'")}'`;
+          mariadbExecCommand = `docker exec ${dbContainer.id} sh -c '${mariadbCommand.replace(/'/g, "'\"'\"'")}'`;
+
+          const mariadbLocalhostResult = await this.docker.execShell({ ...host, port: host.port ?? undefined }, mariadbExecCommand);
+          code = mariadbLocalhostResult.code;
+          stdout = mariadbLocalhostResult.stdout;
+          stderr = mariadbLocalhostResult.stderr;
+
+          // If still failing, try without host specification (uses socket)
+          if (code !== 0 && stderr.toString().includes('Access denied')) {
+            this.operationLogService.log('info', `MariaDB access denied with localhost, trying socket connection...`);
+            mariadbCommand = `mariadb -u'${user}' --password='${password}' '${database}' -e '${normalizedQuery.replace(/'/g, "'\"'\"'")}'`;
+            mariadbExecCommand = `docker exec ${dbContainer.id} sh -c '${mariadbCommand.replace(/'/g, "'\"'\"'")}'`;
+
+            const mariadbSocketResult = await this.docker.execShell({ ...host, port: host.port ?? undefined }, mariadbExecCommand);
+            code = mariadbSocketResult.code;
+            stdout = mariadbSocketResult.stdout;
+            stderr = mariadbSocketResult.stderr;
+          }
+        }
+      }
+
+      if (code !== 0) {
+        this.operationLogService.log('error', `Failed to execute query in database container. Exit code: ${code}, Stderr: ${stderr.toString()}`);
+        return null;
+      }
+
+      this.operationLogService.log('info', `Successfully executed query in database container`);
+      return this.parseMysqlOutput(stdout.toString());
+    } catch (error) {
+      this.operationLogService.log('error', `Error executing query in database container: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  private async syncFromMysqlAlternative(host: HostWithCreds, npmContainerInspect: any, envVars: { [key: string]: string }): Promise<any[] | null> {
+    const dbHostService = envVars['DB_MYSQL_HOST'];
+    const user = envVars['DB_MYSQL_USER'];
+    const password = envVars['DB_MYSQL_PASSWORD'];
+    const database = envVars['DB_MYSQL_NAME'];
+    const query = `
+      SELECT ph.*, c.expires_on
+      FROM proxy_host ph
+      LEFT JOIN certificate c ON ph.certificate_id = c.id
+      WHERE ph.id IN (
+        SELECT id FROM (
+          SELECT
+            id,
+            domain_names,
+            ROW_NUMBER() OVER (
+              PARTITION BY domain_names
+              ORDER BY modified_on DESC
+            ) as rn
+          FROM proxy_host
+          WHERE is_deleted = 0
+        ) ranked
+        WHERE rn = 1
+      )
+      AND ph.is_deleted = 0
+    `;
+
+    // Try to use a lightweight MySQL client container that shares the same network as NPM
     const networks = npmContainerInspect.NetworkSettings?.Networks;
     const networkName = networks ? Object.keys(networks)[0] : null;
     if (!networkName) {
@@ -254,14 +470,88 @@ export class ReverseProxyService {
       return null;
     }
 
-    const mysqlCommand = `mysql -h '${dbHostService}' -u'${user}' --password='${password}' '${database}' -e "${query}"`;
-    const runCommand = `docker run --rm --network ${networkName} mysql:8 ${mysqlCommand}`;
+    this.operationLogService.log('info', `Using lightweight MySQL client container on network: ${networkName}`);
+
+    // Use a smaller, more reliable MySQL client image
+    const mysqlCommand = `mysql -h '${dbHostService}' -u'${user}' --password='${password}' '${database}' -e "${query.replace(/"/g, '\\"')}"`;
+    const runCommand = `docker run --rm --network ${networkName} mysql:8.0-debian ${mysqlCommand}`;
 
     const { code, stdout, stderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, runCommand);
 
     if (code !== 0) {
-      this.operationLogService.log('error', `Failed to execute mysql query in temporary container. Exit code: ${code}, Stderr: ${stderr.toString()}`);
+      this.operationLogService.log('error', `Failed to execute MySQL query using temporary container. Exit code: ${code}, Stderr: ${stderr.toString()}`);
+
+      // If the mysql:8.0-debian image is also not available, try with mariadb client
+      if (stderr.toString().includes('Unable to find image')) {
+        this.operationLogService.log('info', `MySQL image not available, trying with MariaDB client...`);
+        const mariadbCommand = `mariadb -h '${dbHostService}' -u'${user}' --password='${password}' '${database}' -e "${query.replace(/"/g, '\\"')}"`;
+        const mariadbRunCommand = `docker run --rm --network ${networkName} mariadb:10.11 ${mariadbCommand}`;
+
+        const { code: mariaCode, stdout: mariaStdout, stderr: mariaStderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, mariadbRunCommand);
+
+        if (mariaCode !== 0) {
+          this.operationLogService.log('error', `Failed to execute query using MariaDB client. Exit code: ${mariaCode}, Stderr: ${mariaStderr.toString()}`);
+
+          // Last resort: try to use any available mysql/mariadb client on the host system
+          if (mariaStderr.toString().includes('Unable to find image')) {
+            this.operationLogService.log('info', `No MySQL/MariaDB Docker images available, trying host system client...`);
+            return this.syncFromMysqlHostClient(host, envVars);
+          }
+
+          return null;
+        }
+
+        return this.parseMysqlOutput(mariaStdout.toString());
+      }
+
       return null;
+    }
+
+    return this.parseMysqlOutput(stdout.toString());
+  }
+
+  private async syncFromMysqlHostClient(host: HostWithCreds, envVars: { [key: string]: string }): Promise<any[] | null> {
+    const dbHostService = envVars['DB_MYSQL_HOST'];
+    const user = envVars['DB_MYSQL_USER'];
+    const password = envVars['DB_MYSQL_PASSWORD'];
+    const database = envVars['DB_MYSQL_NAME'];
+    const query = `
+      SELECT ph.*, c.expires_on
+      FROM proxy_host ph
+      LEFT JOIN certificate c ON ph.certificate_id = c.id
+      WHERE ph.id IN (
+        SELECT id FROM (
+          SELECT
+            id,
+            domain_names,
+            ROW_NUMBER() OVER (
+              PARTITION BY domain_names
+              ORDER BY modified_on DESC
+            ) as rn
+          FROM proxy_host
+          WHERE is_deleted = 0
+        ) ranked
+        WHERE rn = 1
+      )
+      AND ph.is_deleted = 0
+    `;
+
+    // Try to use mysql client directly on the host system
+    const mysqlCommand = `mysql -h '${dbHostService}' -u'${user}' --password='${password}' '${database}' -e "${query.replace(/"/g, '\\"')}"`;
+
+    const { code, stdout, stderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, mysqlCommand);
+
+    if (code !== 0) {
+      // Try mariadb client as fallback
+      const mariadbCommand = `mariadb -h '${dbHostService}' -u'${user}' --password='${password}' '${database}' -e "${query.replace(/"/g, '\\"')}"`;
+      const { code: mariaCode, stdout: mariaStdout, stderr: mariaStderr } = await this.docker.execShell({ ...host, port: host.port ?? undefined }, mariadbCommand);
+
+      if (mariaCode !== 0) {
+        this.operationLogService.log('error', `Failed to execute MySQL query using host system clients. MySQL error: ${stderr.toString()}, MariaDB error: ${mariaStderr.toString()}`);
+        return null;
+      }
+
+      return this.parseMysqlOutput(mariaStdout.toString());
     }
 
     return this.parseMysqlOutput(stdout.toString());
