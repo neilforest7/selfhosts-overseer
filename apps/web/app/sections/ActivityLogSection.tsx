@@ -188,6 +188,7 @@ export function ActivityLogSection({
                   <SelectItem value="REVERSE_PROXY">Reverse Proxy</SelectItem>
                   <SelectItem value="SYSTEM_OPERATION">System Operations</SelectItem>
                   <SelectItem value="AUTOMATION">Automation</SelectItem>
+                  <SelectItem value="DNS_RESOLUTION">DNS Resolution</SelectItem>
                 </SelectContent>
               </Select>
 

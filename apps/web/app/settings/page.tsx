@@ -8,18 +8,33 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Clock, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 
-type Settings = { 
-  sshConcurrency: number; 
-  commandTimeoutSeconds: number; 
+type Settings = {
+  sshConcurrency: number;
+  commandTimeoutSeconds: number;
   containerUpdateCheckCron: string;
   dockerProxyEnabled: boolean;
   dockerProxyHost: string;
   dockerProxyPort: number;
   dockerProxyUsername: string;
   dockerProxyPassword: string;
+  dnsResolutionFrequencyMinutes: number;
+  dnsSkipNonAddressRecords: boolean;
 };
+
+// Frequency options for DNS resolution
+const FREQUENCY_OPTIONS = [
+  { value: 5, label: 'Every 5 minutes' },
+  { value: 15, label: 'Every 15 minutes' },
+  { value: 30, label: 'Every 30 minutes' },
+  { value: 60, label: 'Every hour' },
+  { value: 360, label: 'Every 6 hours' },
+  { value: 720, label: 'Every 12 hours' },
+  { value: 1440, label: 'Every 24 hours' },
+];
 
 export default function SettingsPage() {
   const qc = useQueryClient();
@@ -42,6 +57,10 @@ export default function SettingsPage() {
   const [dockerProxyUsername, setDockerProxyUsername] = useState('');
   const [dockerProxyPassword, setDockerProxyPassword] = useState('');
 
+  // DNS 解析设置状态
+  const [dnsResolutionFrequencyMinutes, setDnsResolutionFrequencyMinutes] = useState(60);
+  const [dnsSkipNonAddressRecords, setDnsSkipNonAddressRecords] = useState(false);
+
   useEffect(() => {
     if (sQuery.data) {
       setSshConcurrency(sQuery.data.sshConcurrency);
@@ -51,6 +70,8 @@ export default function SettingsPage() {
       setDockerProxyPort(sQuery.data.dockerProxyPort || 8080);
       setDockerProxyUsername(sQuery.data.dockerProxyUsername || '');
       setDockerProxyPassword(sQuery.data.dockerProxyPassword || '');
+      setDnsResolutionFrequencyMinutes(sQuery.data.dnsResolutionFrequencyMinutes || 60);
+      setDnsSkipNonAddressRecords(sQuery.data.dnsSkipNonAddressRecords || false);
     }
   }, [sQuery.data]);
 
@@ -148,33 +169,94 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        <Separator />
+
+        {/* DNS 解析设置 */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            <h3 className="text-lg font-medium">DNS 解析设置</h3>
+          </div>
+
+          <div className="grid gap-4 max-w-md">
+            <div className="grid gap-2">
+              <Label htmlFor="dns-frequency" className="text-sm">解析频率</Label>
+              <Select
+                value={dnsResolutionFrequencyMinutes.toString()}
+                onValueChange={(value) => setDnsResolutionFrequencyMinutes(parseInt(value, 10))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择频率" />
+                </SelectTrigger>
+                <SelectContent>
+                  {FREQUENCY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value.toString()}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                系统检查和解析 DNS 记录的频率。较低的频率提供更实时的监控但消耗更多资源。
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4" />
+                <Label className="text-sm">记录类型过滤</Label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="skip-non-standard"
+                  checked={dnsSkipNonAddressRecords}
+                  onCheckedChange={(checked) => setDnsSkipNonAddressRecords(checked as boolean)}
+                />
+                <Label htmlFor="skip-non-standard" className="text-sm">
+                  解析时跳过非标准 DNS 记录类型
+                </Label>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                启用后，只解析标准 DNS 记录类型（A、AAAA、CNAME），跳过专用类型如 MX、TXT、NS、PTR、SRV 和 CAA。这通过专注于最常用的记录类型来提高性能。
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="flex gap-2">
-          <Button 
-            onClick={() => save.mutate({ 
-              sshConcurrency: validConcurrency, 
+          <Button
+            onClick={() => save.mutate({
+              sshConcurrency: validConcurrency,
               commandTimeoutSeconds: validTimeout,
               dockerProxyEnabled,
               dockerProxyHost: dockerProxyHost.trim(),
               dockerProxyPort: validProxyPort,
               dockerProxyUsername: dockerProxyUsername.trim(),
-              dockerProxyPassword: dockerProxyPassword.trim()
-            })} 
+              dockerProxyPassword: dockerProxyPassword.trim(),
+              dnsResolutionFrequencyMinutes,
+              dnsSkipNonAddressRecords
+            })}
             disabled={save.isPending}
           >
             保存
           </Button>
-          <Button 
-            variant="secondary" 
-            onClick={() => { 
-              if (sQuery.data) { 
-                setSshConcurrency(sQuery.data.sshConcurrency); 
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (sQuery.data) {
+                setSshConcurrency(sQuery.data.sshConcurrency);
                 setTimeoutSec(sQuery.data.commandTimeoutSeconds);
                 setDockerProxyEnabled(sQuery.data.dockerProxyEnabled || false);
                 setDockerProxyHost(sQuery.data.dockerProxyHost || '');
                 setDockerProxyPort(sQuery.data.dockerProxyPort || 8080);
                 setDockerProxyUsername(sQuery.data.dockerProxyUsername || '');
                 setDockerProxyPassword(sQuery.data.dockerProxyPassword || '');
-              } 
+                setDnsResolutionFrequencyMinutes(sQuery.data.dnsResolutionFrequencyMinutes || 60);
+                setDnsSkipNonAddressRecords(sQuery.data.dnsSkipNonAddressRecords || false);
+              }
             }}
           >
             重置

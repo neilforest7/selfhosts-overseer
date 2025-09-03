@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ActivityLogWidget } from './ActivityLogWidget';
+import { DnsOverviewWidget } from './DnsOverviewWidget';
 import { HostStatusSummary } from '@/components/HostStatusIndicator';
 import { useHostConnectivity } from '@/lib/hooks/useHostConnectivity';
 import { Server, Container, Network, Activity, TrendingUp, AlertTriangle, Wifi } from 'lucide-react';
@@ -240,6 +241,9 @@ export default function OverviewSection() {
             </CardContent>
           </Card>
 
+          {/* DNS Overview Widget */}
+          <DnsOverviewWidget />
+
           {/* System Status */}
           <Card>
             <CardHeader>
@@ -252,19 +256,19 @@ export default function OverviewSection() {
                   {connectivityStats?.online || 0}/{connectivityStats?.total}
                 </Badge>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <span className="text-sm">Containers Running</span>
-                <Badge variant={stats?.containers.running === stats?.containers.total ? "default" : "ghost"}>
+                <Badge variant={stats?.containers.running === stats?.containers.total ? "default" : "secondary"}>
                   {stats?.containers.running}/{stats?.containers.total}
                 </Badge>
               </div>
-              
-              {stats?.containers.updateAvailable > 0 && (
+
+              {(stats?.containers.updateAvailable || 0) > 0 && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm">Updates Available</span>
                   <Badge variant="secondary">
-                    {stats.containers.updateAvailable}
+                    {stats?.containers.updateAvailable}
                   </Badge>
                 </div>
               )}

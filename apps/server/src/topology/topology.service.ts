@@ -29,16 +29,20 @@ export class TopologyService {
 
   async getGraphData(): Promise<CyElement[]> {
     this.logger.log('Fetching data for topology graph...');
-    const [hosts, containers, routes, frpsConfigs, frpcProxies] =
+    const [hosts, containers, routes, frpsConfigs, frpcProxies, dnsRecords] =
       await Promise.all([
         this.prisma.host.findMany(),
         this.prisma.container.findMany(),
         this.prisma.reverseProxyRoute.findMany(),
         this.prisma.frpsConfig.findMany(),
         this.prisma.frpcProxy.findMany(),
+        this.prisma.dnsRecord.findMany({
+          where: { isEnabled: true },
+          include: { provider: true },
+        }),
       ]);
     this.logger.log(
-      `Fetched ${hosts.length} hosts, ${containers.length} containers, ${routes.length} routes, ${frpsConfigs.length} frps, ${frpcProxies.length} frpc.`,
+      `Fetched ${hosts.length} hosts, ${containers.length} containers, ${routes.length} routes, ${frpsConfigs.length} frps, ${frpcProxies.length} frpc, ${dnsRecords.length} dns records.`,
     );
     this.logger.log(`Valid host IDs: ${hosts.map((h) => h.id).join(', ')}`);
 
@@ -156,6 +160,9 @@ export class TopologyService {
         data: { id: `domain-${domain}`, label: domain, type: 'domain', parent: parentHostId },
       });
     });
+
+    // Step 4.1: Create DNS-related nodes (external IPs and DNS provider nodes)
+    this.addDnsNodesToTopology(elements, createdNodeIds, dnsRecords, domains, addNode, addEdge);
 
     const frpsConfigIdToContainer = new Map(
       frpsConfigs.map(fc => {
@@ -365,5 +372,143 @@ export class TopologyService {
         p.frpsConfigId === frpsConfigId &&
         (p.subdomain === subdomain || p.customDomains.includes(route.domain)),
     );
+  }
+
+  private addDnsNodesToTopology(
+    elements: CyElement[],
+    createdNodeIds: Set<string>,
+    dnsRecords: any[],
+    domains: string[],
+    addNode: (node: CyElement) => void,
+    addEdge: (edge: CyElement) => void,
+  ): void {
+    // Create a map of unique external IPs
+    const externalIps = new Map<string, any[]>();
+
+    // Group DNS records by resolved IP
+    dnsRecords.forEach(record => {
+      if (record.currentIp && record.status === 'RESOLVED') {
+        if (!externalIps.has(record.currentIp)) {
+          externalIps.set(record.currentIp, []);
+        }
+        externalIps.get(record.currentIp)!.push(record);
+      }
+    });
+
+    // Create external IP nodes
+    externalIps.forEach((records, ip) => {
+      const externalIpNodeId = `external-ip-${ip.replace(/\./g, '-')}`;
+
+      // Only create the node if it doesn't already exist
+      if (!createdNodeIds.has(externalIpNodeId)) {
+        addNode({
+          group: 'nodes',
+          data: {
+            id: externalIpNodeId,
+            label: ip,
+            type: 'external-ip',
+            dnsData: {
+              ip,
+              recordCount: records.length,
+              domains: records.map(r => r.domain),
+              lastChecked: records.reduce((latest, r) =>
+                !latest || (r.lastCheckAt && r.lastCheckAt > latest) ? r.lastCheckAt : latest, null),
+              status: records.every(r => r.status === 'RESOLVED') ? 'healthy' : 'mixed',
+            },
+          },
+        });
+      }
+
+      // Create edges from domains to external IPs
+      records.forEach(record => {
+        if (domains.includes(record.domain)) {
+          const domainNodeId = `domain-${record.domain}`;
+          const edgeId = `dns-resolution-${record.domain}-${ip.replace(/\./g, '-')}`;
+
+          addEdge({
+            group: 'edges',
+            data: {
+              id: edgeId,
+              source: domainNodeId,
+              target: externalIpNodeId,
+              label: `resolves to`,
+              type: 'dns-resolution-edge',
+              dnsData: {
+                recordType: record.recordType,
+                provider: record.provider.displayName,
+                lastCheckAt: record.lastCheckAt,
+                responseTime: record.responseTime,
+                status: record.status,
+              },
+            },
+          });
+        }
+      });
+    });
+
+    // Create DNS provider nodes (grouped by provider)
+    const providerGroups = new Map<string, any[]>();
+    dnsRecords.forEach(record => {
+      const providerId = record.provider.id;
+      if (!providerGroups.has(providerId)) {
+        providerGroups.set(providerId, []);
+      }
+      providerGroups.get(providerId)!.push(record);
+    });
+
+    providerGroups.forEach((records, providerId) => {
+      const provider = records[0].provider;
+      const providerNodeId = `dns-provider-${providerId}`;
+
+      addNode({
+        group: 'nodes',
+        data: {
+          id: providerNodeId,
+          label: provider.displayName,
+          type: 'dns-provider',
+          dnsData: {
+            providerId,
+            providerName: provider.name,
+            recordCount: records.length,
+            enabledRecords: records.filter(r => r.isEnabled).length,
+            healthyRecords: records.filter(r => r.status === 'RESOLVED').length,
+            lastActivity: records.reduce((latest, r) =>
+              !latest || (r.lastCheckAt && r.lastCheckAt > latest) ? r.lastCheckAt : latest, null),
+          },
+        },
+      });
+
+      // Create edges from DNS provider to external IPs it manages
+      const managedIps = new Set<string>();
+      records.forEach(record => {
+        if (record.currentIp && record.status === 'RESOLVED') {
+          managedIps.add(record.currentIp);
+        }
+      });
+
+      managedIps.forEach(ip => {
+        const externalIpNodeId = `external-ip-${ip.replace(/\./g, '-')}`;
+        const edgeId = `dns-provider-manages-${providerId}-${ip.replace(/\./g, '-')}`;
+
+        if (createdNodeIds.has(externalIpNodeId)) {
+          addEdge({
+            group: 'edges',
+            data: {
+              id: edgeId,
+              source: providerNodeId,
+              target: externalIpNodeId,
+              label: 'manages',
+              type: 'dns-management-edge',
+              dnsData: {
+                provider: provider.displayName,
+                recordsForIp: records.filter(r => r.currentIp === ip).length,
+              },
+            },
+          });
+        }
+      });
+    });
+
+    this.logger.log(`Added ${externalIps.size} external IP nodes and ${providerGroups.size} DNS provider nodes to topology`);
   }
 }

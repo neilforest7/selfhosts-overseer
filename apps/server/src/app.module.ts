@@ -10,6 +10,7 @@ import { ReverseProxyModule } from './reverse-proxy/reverse-proxy.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { LogsModule } from './logs/logs.module';
 import { FrpModule } from './frp/frp.module';
+import { DnsModule } from './dns/dns.module';
 import { TopologyModule } from './topology/topology.module';
 import { OperationLogModule } from './operation-log/operation-log.module';
 import { AutomationsModule } from './automations/automations.module';
@@ -40,6 +41,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     CertificatesModule,
     LogsModule,
     FrpModule,
+    DnsModule,
     TopologyModule,
     OperationLogModule,
     AutomationsModule,

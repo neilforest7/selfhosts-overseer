@@ -251,6 +251,7 @@ enum ActivityCategory {
   COMPOSE_OPERATION   // Docker Compose operations
   FRP_CONFIGURATION   // FRP tunnel configuration changes
   REVERSE_PROXY       // NPM route changes
+  DNS_RESOLUTION      // DNS detection and resolution activities
   SYSTEM_OPERATION    // System-level operations
   AUTOMATION          // Automation rule executions
 }
@@ -307,4 +308,128 @@ model HostConnectivityCheck {
   @@index([hostId, checkedAt])
   @@index([status, checkedAt])
   @@index([checkedAt])
+}
+
+// DNS Record Types
+enum DnsRecordType {
+  A
+  AAAA
+  CNAME
+  MX
+  TXT
+  NS
+  PTR
+  SRV
+  CAA
+}
+
+// DNS Status
+enum DnsStatus {
+  UNKNOWN
+  RESOLVED
+  FAILED
+  TIMEOUT
+  NO_RECORD
+}
+
+// DNS Provider Configuration
+model DnsProvider {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g., "cloudflare", "route53", "dnspod"
+  displayName String   // e.g., "Cloudflare", "AWS Route 53"
+  isEnabled   Boolean  @default(true)
+
+  // API Configuration (encrypted storage)
+  apiConfig   Json     // Store API keys, endpoints, etc.
+
+  // Rate limiting configuration
+  rateLimitPerMinute Int @default(60)
+  timeoutSeconds     Int @default(30)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Associated DNS records
+  dnsRecords  DnsRecord[]
+
+  @@index([isEnabled])
+}
+
+// DNS Record Management
+model DnsRecord {
+  id           String      @id @default(cuid())
+  domain       String      // Full domain name, e.g., "api.example.com"
+  recordType   DnsRecordType @default(A)
+
+  // Associated DNS provider
+  providerId   String
+  provider     DnsProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // Detection configuration
+  isEnabled    Boolean     @default(true)
+  checkInterval Int        @default(300) // Check interval in seconds
+
+  // Current resolution status
+  currentIp    String?     // Currently resolved IP
+  lastCheckAt  DateTime?   // Last check time
+  lastChangeAt DateTime?   // Last change time
+  status       DnsStatus   @default(UNKNOWN)
+  errorMessage String?     // Error message
+
+  // Cloudflare-specific metadata (for discovered records)
+  cloudflareRecordId String?  // Cloudflare's internal record ID
+  cloudflareZoneId   String?  // Cloudflare zone ID
+  cloudflareZoneName String?  // Zone name (domain)
+  ttl                Int?     // TTL value
+  proxied            Boolean? // Cloudflare proxy status
+  content            String?  // Record content/value
+  priority           Int?     // Priority for MX records
+  comment            String?  // Cloudflare record comment
+
+  // Discovery metadata
+  isDiscovered       Boolean  @default(false) // Whether this record was auto-discovered
+  lastSyncAt         DateTime? // Last sync with provider
+  providerCreatedAt  DateTime? // Creation date from provider
+  providerModifiedAt DateTime? // Last modified date from provider
+
+  // Metadata
+  description  String?
+  tags         String[]
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // Resolution history
+  resolutions  DnsResolution[]
+
+  @@unique([domain, providerId])
+  @@index([isEnabled, status])
+  @@index([domain])
+  @@index([providerId])
+  @@index([cloudflareRecordId])
+  @@index([cloudflareZoneId])
+  @@index([isDiscovered])
+}
+
+// DNS Resolution History
+model DnsResolution {
+  id          String    @id @default(cuid())
+  dnsRecordId String
+  dnsRecord   DnsRecord @relation(fields: [dnsRecordId], references: [id], onDelete: Cascade)
+
+  // Resolution result
+  resolvedIp  String?   // Resolved IP address
+  responseTime Int?     // Response time in milliseconds
+  status      DnsStatus
+  errorMessage String?  // Error details
+
+  // Geographic location information (optional)
+  geoLocation Json?     // Contains country, city, ISP, etc.
+
+  // Check time
+  checkedAt   DateTime  @default(now())
+
+  @@index([dnsRecordId, checkedAt])
+  @@index([checkedAt])
+  @@index([status, checkedAt])
 }

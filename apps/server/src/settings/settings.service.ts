@@ -25,7 +25,10 @@ const SettingsSchema = z.object({
   connectivityCheckTimeout: z.number().int().min(5).max(60).default(10), // 10 seconds default
   connectivityCheckRetries: z.number().int().min(0).max(5).default(1), // 1 retry default
   connectivityAlertThreshold: z.number().int().min(1).max(10).default(3), // Alert after 3 failed checks
-  connectivityCheckEnabled: z.boolean().default(true)
+  connectivityCheckEnabled: z.boolean().default(true),
+  // DNS 解析配置
+  dnsResolutionFrequencyMinutes: z.number().int().min(5).max(1440).default(60), // 1 hour default, range: 5 minutes to 24 hours
+  dnsSkipNonAddressRecords: z.boolean().default(false), // Skip non-standard records (only resolve A, AAAA, CNAME) during resolution
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -68,6 +71,10 @@ export class SettingsService {
     const current = await this.get();
     const merged = SettingsSchema.parse({ ...current, ...partial });
     await this.writeAll(merged);
+
+    // Note: DNS processor will check for updated settings on its next scheduled run
+    // This avoids circular dependencies while still allowing settings to take effect
+
     return merged;
   }
 }
