@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DnsService } from '../dns/dns.service';
 import {
   Container,
   FrpcProxy,
@@ -25,7 +26,10 @@ interface CyElement {
 @Injectable()
 export class TopologyService {
   private readonly logger = new Logger(TopologyService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dnsService: DnsService,
+  ) {}
 
   async getGraphData(): Promise<CyElement[]> {
     this.logger.log('Fetching data for topology graph...');
@@ -84,6 +88,18 @@ export class TopologyService {
         },
       });
     });
+
+    // Create DNS group container if there are DNS records
+    if (dnsRecords.length > 0) {
+      addNode({
+        group: 'nodes',
+        data: {
+          id: 'group-dns',
+          label: 'DNS Infrastructure',
+          type: 'group',
+        },
+      });
+    }
 
     hosts.forEach((host) => {
       addNode({
@@ -162,7 +178,7 @@ export class TopologyService {
     });
 
     // Step 4.1: Create DNS-related nodes (external IPs and DNS provider nodes)
-    this.addDnsNodesToTopology(elements, createdNodeIds, dnsRecords, domains, addNode, addEdge);
+    this.addDnsNodesToTopology(elements, createdNodeIds, dnsRecords, domains, routes, containers, addNode, addEdge);
 
     const frpsConfigIdToContainer = new Map(
       frpsConfigs.map(fc => {
@@ -180,11 +196,22 @@ export class TopologyService {
         const portNodeId = `port-${proxy.remotePort}-on-${frpsContainer.id}`;
         addNode({
           group: 'nodes',
-          data: { id: portNodeId, label: `Port ${proxy.remotePort}`, parent: `host-${frpsContainer.hostId}`, type: 'remote-port' },
+          data: { 
+            id: portNodeId, 
+            label: `Port ${proxy.remotePort}`, 
+            parent: `host-${frpsContainer.hostId}`, 
+            type: 'remote-port' 
+          },
         });
         addEdge({
           group: 'edges',
-          data: { id: `edge-frps-${frpsContainer.id}-opens-${portNodeId}`, target: `container-${frpsContainer.id}`, source: portNodeId, label: 'opens', type: 'opens-edge' },
+          data: { 
+            id: `edge-frps-${frpsContainer.id}-opens-${portNodeId}`, 
+            target: `container-${frpsContainer.id}`, 
+            source: portNodeId, 
+            // label: 'opens', 
+            type: 'opens-edge' 
+          },
         });
       }
     });
@@ -196,7 +223,13 @@ export class TopologyService {
 
       addEdge({
         group: 'edges',
-        data: { id: `edge-npm-${npmContainer.id}-exposes-${route.domain}`, source: `container-${npmContainer.id}`, target: `domain-${route.domain}`, label: 'exposes', type: 'exposes-edge' },
+        data: { 
+          id: `edge-npm-${npmContainer.id}-exposes-${route.domain}`, 
+          source: `container-${npmContainer.id}`, 
+          target: `domain-${route.domain}`, 
+          // label: 'exposes', 
+          type: 'exposes-edge' 
+        },
       });
 
       const frpcProxy = frpcProxies.find(p => p.remotePort === route.forwardPort);
@@ -209,7 +242,12 @@ export class TopologyService {
         const remotePortNodeId = `port-${frpcProxy.remotePort}-on-${frpsContainer.id}`;
         addEdge({
           group: 'edges',
-          data: { id: `edge-domain-${route.domain}-to-port-${remotePortNodeId}`, source: `domain-${route.domain}`, target: remotePortNodeId, label: `proxy` },
+          data: { 
+            id: `edge-domain-${route.domain}-to-port-${remotePortNodeId}`, 
+            source: `domain-${route.domain}`, 
+            target: remotePortNodeId, 
+            // label: `proxy` 
+          },
         });
 
         const frpcContainer = containers.find(c => c.containerId === frpcProxy.containerId);
@@ -234,7 +272,7 @@ export class TopologyService {
                 id: `edge-frpc-${frpcContainer.id}-to-target-${finalTarget.id}`, 
                 source: `container-${frpcContainer.id}`, 
                 target: `container-${finalTarget.id}`, 
-                label: `proxy to ${frpcProxy.localPort}`, 
+                // label: `proxy to ${frpcProxy.localPort}`, 
                 type: 'frpc-edge' 
               },
             });
@@ -274,7 +312,12 @@ export class TopologyService {
         if (targetContainer.id !== npmContainer.id) {
           addEdge({
             group: 'edges',
-            data: { id: `edge-domain-${route.domain}-to-target-${targetContainer.id}`, source: `domain-${route.domain}`, target: `container-${targetContainer.id}`, label: `proxy to ${route.forwardPort}` },
+            data: {
+              id: `edge-domain-${route.domain}-to-target-${targetContainer.id}`,
+              source: `domain-${route.domain}`, 
+              target: `container-${targetContainer.id}`, 
+              // label: `proxy to ${route.forwardPort}` 
+            },
           });
         }
       }
@@ -382,6 +425,8 @@ export class TopologyService {
     createdNodeIds: Set<string>,
     dnsRecords: any[],
     domains: string[],
+    routes: ReverseProxyRoute[],
+    containers: Container[],
     addNode: (node: CyElement) => void,
     addEdge: (edge: CyElement) => void,
   ): void {
@@ -403,29 +448,31 @@ export class TopologyService {
       const externalIpNodeId = `external-ip-${ip.replace(/\./g, '-')}`;
 
       // Only create the node if it doesn't already exist
-      if (!createdNodeIds.has(externalIpNodeId)) {
-        addNode({
-          group: 'nodes',
-          data: {
-            id: externalIpNodeId,
-            label: ip,
-            type: 'external-ip',
-            dnsData: {
-              ip,
-              recordCount: records.length,
-              domains: records.map(r => r.domain),
-              lastChecked: records.reduce((latest, r) =>
-                !latest || (r.lastCheckAt && r.lastCheckAt > latest) ? r.lastCheckAt : latest, null),
-              status: records.every(r => r.status === 'RESOLVED') ? 'healthy' : 'mixed',
-            },
-          },
-        });
-      }
+      // if (!createdNodeIds.has(externalIpNodeId)) {
+      //   addNode({
+      //     group: 'nodes',
+      //     data: {
+      //       id: externalIpNodeId,
+      //       label: ip,
+      //       parent: 'group-dns', // Place external IP nodes in DNS group
+      //       type: 'external-ip',
+      //       dnsData: {
+      //         ip,
+      //         recordCount: records.length,
+      //         domains: records.map(r => r.domain),
+      //         lastChecked: records.reduce((latest, r) =>
+      //           !latest || (r.lastCheckAt && r.lastCheckAt > latest) ? r.lastCheckAt : latest, null),
+      //         status: records.every(r => r.status === 'RESOLVED') ? 'healthy' : 'mixed',
+      //       },
+      //     },
+      //   });
+      // }
 
       // Create edges from domains to external IPs
       records.forEach(record => {
         if (domains.includes(record.domain)) {
           const domainNodeId = `domain-${record.domain}`;
+          const domainUpstreamNpm = `npm-${record.domain}`;
           const edgeId = `dns-resolution-${record.domain}-${ip.replace(/\./g, '-')}`;
 
           addEdge({
@@ -434,7 +481,7 @@ export class TopologyService {
               id: edgeId,
               source: domainNodeId,
               target: externalIpNodeId,
-              label: `resolves to`,
+              // label: `resolves to`,
               type: 'dns-resolution-edge',
               dnsData: {
                 recordType: record.recordType,
@@ -444,6 +491,11 @@ export class TopologyService {
                 status: record.status,
               },
             },
+            // style: {
+            //   'curve-style': 'straight', // Render as straight lines
+            //   'line-style': 'solid',
+            //   'target-arrow-shape': 'triangle',
+            // },
           });
         }
       });
@@ -468,6 +520,7 @@ export class TopologyService {
         data: {
           id: providerNodeId,
           label: provider.displayName,
+          parent: 'group-dns', // Place DNS provider nodes in DNS group
           type: 'dns-provider',
           dnsData: {
             providerId,
@@ -500,7 +553,7 @@ export class TopologyService {
               id: edgeId,
               source: providerNodeId,
               target: externalIpNodeId,
-              label: 'manages',
+              // label: 'manages',
               type: 'dns-management-edge',
               dnsData: {
                 provider: provider.displayName,
@@ -512,6 +565,87 @@ export class TopologyService {
       });
     });
 
-    this.logger.log(`Added ${externalIps.size} external IP nodes and ${providerGroups.size} DNS provider nodes to topology`);
+    // Create DNS record nodes within the DNS group
+    dnsRecords.forEach(record => {
+      const dnsRecordNodeId = `dns-record-${record.id}`;
+
+      addNode({
+        group: 'nodes',
+        data: {
+          id: dnsRecordNodeId,
+          label: `${record.domain} (${record.recordType})`,
+          parent: 'group-dns', // Place DNS record nodes in DNS group
+          type: 'dns-record',
+          dnsData: {
+            recordId: record.id,
+            domain: record.domain,
+            recordType: record.recordType,
+            provider: record.provider.displayName,
+            status: record.status,
+            currentIp: record.currentIp,
+            lastCheckAt: record.lastCheckAt,
+            responseTime: record.responseTime,
+            isEnabled: record.isEnabled,
+          },
+        },
+      });
+
+      // Create edges from DNS record to NPM container (if domain exists in topology)
+      if (domains.includes(record.domain)) {
+        // Find the NPM container that manages this domain
+        const route = routes.find(r => r.domain === record.domain);
+        const npmContainer = route ? this.findNpmContainer(route, containers) : undefined;
+
+        if (npmContainer) {
+          const npmContainerNodeId = `container-${npmContainer.id}`;
+          const edgeId = `dns-record-to-npm-${record.id}`;
+
+          addEdge({
+            group: 'edges',
+            data: {
+              id: edgeId,
+              source: dnsRecordNodeId,
+              target: npmContainerNodeId,
+              // label: 'resolves to',
+              type: 'dns-record-to-npm-edge',
+              dnsData: {
+                recordType: record.recordType,
+                provider: record.provider.displayName,
+                status: record.status,
+                domain: record.domain,
+              },
+            },
+          });
+        }
+      }
+    });
+
+    // Create edges from DNS providers to their DNS records
+    providerGroups.forEach((records, providerId) => {
+      const providerNodeId = `dns-provider-${providerId}`;
+
+      records.forEach(record => {
+        const dnsRecordNodeId = `dns-record-${record.id}`;
+        const edgeId = `dns-provider-to-record-${providerId}-${record.id}`;
+
+        addEdge({
+          group: 'edges',
+          data: {
+            id: edgeId,
+            source: providerNodeId,
+            target: dnsRecordNodeId,
+            label: 'manages',
+            type: 'dns-provider-to-record-edge',
+            dnsData: {
+              provider: record.provider.displayName,
+              domain: record.domain,
+              recordType: record.recordType,
+            },
+          },
+        });
+      });
+    });
+
+    this.logger.log(`Added ${externalIps.size} external IP nodes, ${providerGroups.size} DNS provider nodes, and ${dnsRecords.length} DNS record nodes to topology`);
   }
 }

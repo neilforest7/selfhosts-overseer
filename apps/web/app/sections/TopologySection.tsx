@@ -172,11 +172,63 @@ const stylesheet = [
   },
   {
     selector: 'node[type="frpc"]',
-    style: { 
-      'background-color': '#f1c40f', 
-      'border-color': '#f39c12', 
+    style: {
+      'background-color': '#f1c40f',
+      'border-color': '#f39c12',
       'text-outline-color': '#f39c12',
       'font-size': '24px',
+    },
+  },
+  // DNS Provider styles
+  {
+    selector: 'node[type="dns-provider"]',
+    style: {
+      'background-color': '#FF6347', // 鲜橙色
+      'shape': 'ellipse', // 圆圈形状
+      'width': '80px', // 大圆圈
+      'height': '80px',
+      'border-width': 3,
+      'border-color': '#FF4500',
+      'color': '#FFFFFF',
+      'text-valign': 'center',
+      'text-halign': 'center',
+      'font-weight': 'bold',
+    },
+  },
+  // DNS Record styles
+  {
+    selector: 'node[type="dns-record"]',
+    style: {
+      shape: 'round-rectangle',
+      label: 'data(label)',
+      'font-size': '18px',
+      'text-wrap': 'wrap',
+      'text-max-width': 80,
+      'text-valign': 'center',
+      'text-margin-y': 0,
+      'width': 210,
+      'height': 40,
+      'background-color': '#c89dd8',
+      'border-color': '#a975c0',
+      color: '#fff',
+      'text-outline-color': '#a975c0',
+      'text-outline-width': 3,
+      'text-outline-opacity': 1,
+      'border-width': 2,
+    },
+  },
+  // External IP styles
+  {
+    selector: 'node[type="external-ip"]',
+    style: {
+      'background-color': '#34495e',
+      'shape': 'diamond',
+      'border-width': 2,
+      'border-color': '#2c3e50',
+      'color': '#ffffff',
+      'text-valign': 'center',
+      'text-halign': 'center',
+      'font-size': '12px',
     },
   },
   // Edge styles
@@ -209,7 +261,7 @@ const stylesheet = [
       'taxi-radius': '30',
       'taxi-turn': '50%',
       'edge-distances': 'node-position',
-      label: '',
+      // label: '',
       'font-size': '8px',
       'edge-text-rotation': 'autorotate',
     },
@@ -226,7 +278,7 @@ const stylesheet = [
       'taxi-radius': '30',
       'taxi-turn': '50%',
       'edge-distances': 'node-position',
-      label: '',
+      // label: '',
       'font-size': '8px',
       'edge-text-rotation': 'autorotate',
     },
@@ -243,7 +295,7 @@ const stylesheet = [
       'taxi-radius': '30',
       'taxi-turn': '160px',
       'edge-distances': 'node-position',
-      label: 'data(label)',
+      // label: 'data(label)',
       'font-size': '8px',
       'edge-text-rotation': 'autorotate',
     },
@@ -255,8 +307,61 @@ const stylesheet = [
       'control-point-step-size': '14px',
       'line-color': '#c2cfdb',
       'target-arrow-color': '#a0b3c4',
-      label: 'data(label)',
+      // label: 'data(label)',
       'font-size': '12px',
+    },
+  },
+  // DNS-related edge styles
+  {
+    selector: 'edge[type="dns-resolution-edge"]',
+    style: {
+      'curve-style': 'straight', // Render as straight lines
+      'line-style': 'solid',
+      'target-arrow-shape': 'triangle',
+      'line-color': '#9370DB',
+      'target-arrow-color': '#9370DB',
+      'width': 2,
+      // label: 'data(label)',
+      'font-size': '8px',
+    },
+  },
+  {
+    selector: 'edge[type="dns-record-to-npm-edge"]',
+    style: {
+      'curve-style': 'straight', // Render as straight lines
+      'line-style': 'solid',
+      'target-arrow-shape': 'triangle',
+      'line-color': '#27ae60',
+      'target-arrow-color': '#27ae60',
+      'width': 2,
+      // label: 'data(label)',
+      'font-size': '8px',
+    },
+  },
+  {
+    selector: 'edge[type="dns-provider-to-record-edge"]',
+    style: {
+      'curve-style': 'straight',
+      'line-style': 'solid',
+      'target-arrow-shape': 'triangle',
+      'line-color': '#FF6347',
+      'target-arrow-color': '#FF6347',
+      'width': 2,
+      // label: 'data(label)',
+      'font-size': '8px',
+    },
+  },
+  {
+    selector: 'edge[type="dns-management-edge"]',
+    style: {
+      'curve-style': 'straight',
+      'line-style': 'solid',
+      'target-arrow-shape': 'triangle',
+      'line-color': '#FF6347',
+      'target-arrow-color': '#FF6347',
+      'width': 2,
+      // label: 'data(label)',
+      'font-size': '8px',
     },
   },
 ];
@@ -267,6 +372,73 @@ const layout = {
   spacingFactor: 1.2,
   nodeSep: 60,
   rankSep: 120,
+};
+
+// Function to apply minimal auto-layout within individual host containers
+// Only adjusts X-axis positioning while preserving Y-axis positions
+const applyHostContainerLayouts = (cy: cytoscape.Core) => {
+  // Get all host nodes
+  const hostNodes = cy.nodes('[type="host"]');
+
+  hostNodes.forEach((hostNode) => {
+    // Get target node types that need horizontal alignment
+    const composeGroups = hostNode.children('[type="compose-group"]');
+    const standaloneContainers = hostNode.children('[type="container"]');
+    const logicalContainers = hostNode.children('[type="logical-container"]');
+    const remotePortNodes = hostNode.children('[type="remote-port"]');
+
+    // Combine all target nodes for horizontal arrangement
+    const targetNodes = composeGroups.children().union(standaloneContainers).union(logicalContainers).union(remotePortNodes);
+
+    if (targetNodes.length === 0) return;
+
+    // Get the host's bounding box for X-axis calculations
+    const hostBB = hostNode.boundingBox();
+    const padding = 20;
+    const availableWidth = hostBB.w - (padding * 2);
+
+    // Calculate horizontal spacing for even distribution
+    const nodeSpacing = targetNodes.length > 1 ? availableWidth / (targetNodes.length + 1) : availableWidth / 2;
+
+    if (hostNode.children('node[type="npm"]').length === 0) {
+      // Arrange target nodes horizontally while preserving Y positions
+      targetNodes.forEach((node, index) => {
+        const currentPosition = node.position();
+        const newX = hostBB.x1 + padding + nodeSpacing * (index + 1);
+
+        // Only modify X position, keep Y position unchanged
+        node.position({
+          x: newX,
+          y: currentPosition.y
+        });
+      });
+    } else {
+      // targetNodes.forEach((node, index) => {
+      //   const currentPosition = node.position();
+      //   const newX = hostBB.x1 + padding + nodeSpacing * (index + 1);
+
+      //   node.position({
+      //     x: newX,
+      //     y: currentPosition.y
+      //   });
+      // });
+    }
+
+    const domainNodes = hostNode.children('[type="domain"]');
+    const domainNodeSpacing = domainNodes.length > 1 ? (availableWidth - padding *2 ) / (domainNodes.length + 1) : availableWidth / 2;
+
+    domainNodes.forEach((node, index) => {
+      const currentPosition = node.position();
+      const newX = hostBB.x1 + padding + domainNodeSpacing * (index + 1);
+
+      node.position({
+        x: newX,
+        y: currentPosition.y
+      });
+    });
+  });
+
+  // No need to call cy.fit() as we're making minimal changes
 };
 
 export default function TopologySection() {
@@ -320,6 +492,14 @@ export default function TopologySection() {
                 cy={(cy) => {
                   cy.maxZoom(2);
                   cy.minZoom(0.2);
+
+                  // Apply auto-layout within host containers after main layout
+                  cy.ready(() => {
+                    // Add a small delay to ensure the main layout is complete
+                    setTimeout(() => {
+                      applyHostContainerLayouts(cy);
+                    }, 100);
+                  });
                 }}
               />
             )}
