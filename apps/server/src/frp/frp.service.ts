@@ -8,7 +8,7 @@ import * as ini from 'ini';
 import * as toml from '@iarna/toml';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContextService } from '../context/context.service';
-import { ActivityLogService } from '../activity-log/activity-log.service';
+import { ActivityLogService, ActivityCategory } from '../activity-log/activity-log.service';
 
 type HostWithCreds = Host & {
   password?: string;
@@ -29,36 +29,41 @@ export class FrpService {
     private readonly activityLog: ActivityLogService,
   ) {}
 
-  async syncFrpFromHost(hostId: string): Promise<void> {
+  async syncFrpFromHost(hostId: string, phase: 'parse' | 'link' = 'parse'): Promise<void> {
     const existingOpId = this.contextService.getOpId();
     if (existingOpId) {
-      return this.runSyncLogic(hostId);
+      return this.runSyncLogic(hostId, undefined, phase);
     } else {
-      const opLog = await this.operationLogService.create({ title: `Sync FRP Config from host ${hostId}` });
-      return this.contextService.run(opLog.id, () => this.runSyncLogic(hostId, opLog.id));
+      const opLog = await this.operationLogService.create({
+        title: `Sync FRP Config from host ${hostId} (${phase} phase)`
+      });
+      return this.contextService.run(opLog.id, () => this.runSyncLogic(hostId, opLog.id, phase));
     }
   }
 
-  private async runSyncLogic(hostId: string, opId?: string): Promise<void> {
+  private async runSyncLogic(hostId: string, opId?: string, phase: 'parse' | 'link' = 'parse'): Promise<void> {
     let isFailed = false;
     try {
       const host = await this.getHostWithCreds(hostId);
       if (!host) throw new Error(`Host not found: ${hostId}`);
 
-      this.operationLogService.log('system', `Starting FRP sync for host ${host.name}`, hostId);
+      this.operationLogService.log('system', `Starting FRP sync for host ${host.name} (${phase} phase)`, hostId);
       const containers = await this.prisma.container.findMany({ where: { hostId } });
       const frpsContainers = containers.filter((c: any) => c.imageName?.includes('frps') || c.name.includes('frps'));
       const frpcContainers = containers.filter((c: any) => c.imageName?.includes('frpc') || c.name.includes('frpc'));
 
       this.operationLogService.log('info', `Found ${frpsContainers.length} frps and ${frpcContainers.length} frpc containers.`, hostId);
 
+      // Always sync FRPS configs (they don't have dependencies)
       for (const container of frpsContainers) {
         await this.syncFrpsConfig(host, container.id);
       }
+
+      // For FRPC configs, behavior depends on phase
       for (const container of frpcContainers) {
-        await this.syncFrpcConfig(host, container.id);
+        await this.syncFrpcConfig(host, container.id, phase);
       }
-      this.operationLogService.log('system', 'FRP sync finished.', hostId);
+      this.operationLogService.log('system', `FRP sync finished (${phase} phase).`, hostId);
 
     } catch (err) {
       isFailed = true;
@@ -137,7 +142,7 @@ export class FrpService {
 
     // Log activity
     await this.activityLog.create({
-      category: 'FRP_CONFIGURATION',
+      category: ActivityCategory.FRP_CONFIGURATION,
       action: existingFrpsConfig ? 'frps_config_updated' : 'frps_config_created',
       resourceType: 'frps_config',
       resourceId: inspectData.Id,
@@ -158,9 +163,19 @@ export class FrpService {
     });
 
     await this.updateContainerWithWebServerPort(containerDbId, config);
+
+    // Trigger immediate dependency resolution for pending FRPC proxies that might match this FRPS
+    // This ensures that if an FRPS is discovered after FRPC, the linking happens immediately
+    this.operationLogService.log('info', `Triggering dependency resolution for newly discovered FRPS (bind_port: ${normalizedNewValues.bindPort})`);
+    try {
+      await this.resolvePendingProxiesForFrps(host.address, normalizedNewValues.bindPort);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.operationLogService.log('error', `Failed to resolve pending proxies for FRPS: ${errorMessage}`);
+    }
   }
 
-  private async syncFrpcConfig(host: HostWithCreds, containerDbId: string) {
+  private async syncFrpcConfig(host: HostWithCreds, containerDbId: string, phase: 'parse' | 'link' = 'parse') {
     this.operationLogService.log('info', `Processing frpc container: ${containerDbId}`);
     const inspectData = await this.getInspectData(host, containerDbId);
     if (!inspectData) return;
@@ -187,16 +202,26 @@ export class FrpService {
       return;
     }
 
-    const frpsHost = await this.prisma.host.findFirst({ where: { address: serverAddr } });
-    if (!frpsHost) {
-      this.operationLogService.log('error', `Could not find frps host with address: ${serverAddr}`);
-      return;
-    }
+    // Phase-dependent logic for FRPS config resolution
+    let frpsConfig: any = null;
 
-    const frpsConfig = await this.prisma.frpsConfig.findFirst({ where: { hostId: frpsHost.id, bindPort: serverPort } });
-    if (!frpsConfig) {
-      this.operationLogService.log('error', `Could not find frps config on host ${frpsHost.name} with bind_port ${serverPort}`);
-      return;
+    if (phase === 'parse') {
+      // In parse phase, we don't require FRPS config to exist yet
+      // We'll store the server info for later linking
+      this.operationLogService.log('info', `Parse phase: storing FRPC config with pending server ${serverAddr}:${serverPort}`);
+    } else {
+      // In link phase, we try to find the FRPS config
+      const frpsHost = await this.prisma.host.findFirst({ where: { address: serverAddr } });
+      if (!frpsHost) {
+        this.operationLogService.log('error', `Could not find frps host with address: ${serverAddr}`);
+        return;
+      }
+
+      frpsConfig = await this.prisma.frpsConfig.findFirst({ where: { hostId: frpsHost.id, bindPort: serverPort } });
+      if (!frpsConfig) {
+        this.operationLogService.log('error', `Could not find frps config on host ${frpsHost.name} with bind_port ${serverPort}`);
+        return;
+      }
     }
 
     let proxies: any[] = [];
@@ -247,38 +272,65 @@ export class FrpService {
         customDomains: existingFrpcProxy.customDomains || [],
       } : undefined;
 
-      await this.prisma.frpcProxy.upsert({
-        where: { id: `${inspectData.Id}-${proxyConfig.name}` },
-        create: {
-          id: `${inspectData.Id}-${proxyConfig.name}`,
-          hostId: host.id,
-          containerId: inspectData.Id,
-          name: proxyConfig.name,
-          type: normalizedNewValues.type,
-          localIp: normalizedNewValues.localIp,
-          localPort: normalizedNewValues.localPort,
-          remotePort: normalizedNewValues.remotePort,
-          subdomain: normalizedNewValues.subdomain,
-          customDomains: normalizedNewValues.customDomains,
-          rawConfig: proxyConfig,
-          lastSyncedAt: new Date(),
-          frpsConfigId: frpsConfig.id,
-        },
-        update: {
-          type: normalizedNewValues.type,
-          localIp: normalizedNewValues.localIp,
-          localPort: normalizedNewValues.localPort,
-          remotePort: normalizedNewValues.remotePort,
-          subdomain: normalizedNewValues.subdomain,
-          customDomains: normalizedNewValues.customDomains,
-          rawConfig: proxyConfig,
-          lastSyncedAt: new Date(),
-        },
-      });
+      // Create/update proxy with phase-appropriate data
+      const baseProxyData = {
+        hostId: host.id,
+        containerId: inspectData.Id,
+        name: proxyConfig.name,
+        type: normalizedNewValues.type,
+        localIp: normalizedNewValues.localIp,
+        localPort: normalizedNewValues.localPort,
+        remotePort: normalizedNewValues.remotePort,
+        subdomain: normalizedNewValues.subdomain,
+        customDomains: normalizedNewValues.customDomains,
+        rawConfig: proxyConfig,
+        lastSyncedAt: new Date(),
+      };
+
+      if (phase === 'parse') {
+        // In parse phase, store with pending status and server info
+        await this.prisma.frpcProxy.upsert({
+          where: { id: `${inspectData.Id}-${proxyConfig.name}` },
+          create: {
+            id: `${inspectData.Id}-${proxyConfig.name}`,
+            ...baseProxyData,
+            syncStatus: 'pending',
+            pendingServerAddr: serverAddr,
+            pendingServerPort: serverPort,
+            frpsConfigId: null,
+          },
+          update: {
+            ...baseProxyData,
+            syncStatus: 'pending',
+            pendingServerAddr: serverAddr,
+            pendingServerPort: serverPort,
+            lastLinkAttempt: null,
+            linkErrorMessage: null,
+          },
+        });
+      } else {
+        // In link phase, create with actual FRPS config ID
+        await this.prisma.frpcProxy.upsert({
+          where: { id: `${inspectData.Id}-${proxyConfig.name}` },
+          create: {
+            id: `${inspectData.Id}-${proxyConfig.name}`,
+            ...baseProxyData,
+            syncStatus: 'linked',
+            frpsConfigId: frpsConfig.id,
+          },
+          update: {
+            ...baseProxyData,
+            syncStatus: 'linked',
+            frpsConfigId: frpsConfig.id,
+            lastLinkAttempt: new Date(),
+            linkErrorMessage: null,
+          },
+        });
+      }
 
       // Log activity for each proxy
       await this.activityLog.create({
-        category: 'FRP_CONFIGURATION',
+        category: ActivityCategory.FRP_CONFIGURATION,
         action: existingFrpcProxy ? 'frpc_proxy_updated' : 'frpc_proxy_created',
         resourceType: 'frpc_proxy',
         resourceId: `${inspectData.Id}-${proxyConfig.name}`,
@@ -312,6 +364,221 @@ export class FrpService {
       frps: frpsConfigs,
       frpc: frpcProxies,
     };
+  }
+
+  /**
+   * Phase 2: Resolve FRP dependencies after all hosts have been discovered
+   */
+  async resolveFrpDependencies(): Promise<{
+    resolvedCount: number;
+    failedCount: number;
+    totalPending: number;
+  }> {
+    const existingOpId = this.contextService.getOpId();
+    if (existingOpId) {
+      return this.runDependencyResolution();
+    } else {
+      const opLog = await this.operationLogService.create({
+        title: 'Resolve FRP Dependencies'
+      });
+      return this.contextService.run(opLog.id, () => this.runDependencyResolution(opLog.id));
+    }
+  }
+
+  private async runDependencyResolution(opId?: string): Promise<{
+    resolvedCount: number;
+    failedCount: number;
+    totalPending: number;
+  }> {
+    let isFailed = false;
+    let resolvedCount = 0;
+    let failedCount = 0;
+    let totalPending = 0;
+
+    try {
+      this.operationLogService.log('system', 'Starting FRP dependency resolution...');
+
+      const pendingProxies = await this.prisma.frpcProxy.findMany({
+        where: { syncStatus: 'pending' }
+      });
+
+      totalPending = pendingProxies.length;
+      this.operationLogService.log('info', `Found ${totalPending} pending FRPC proxies to resolve`);
+
+      // Log details of pending proxies for debugging
+      for (const proxy of pendingProxies) {
+        this.operationLogService.log('info', `Pending proxy: ${proxy.name} -> ${proxy.pendingServerAddr}:${proxy.pendingServerPort}`);
+      }
+
+      for (const proxy of pendingProxies) {
+        try {
+          this.operationLogService.log('info', `Attempting to link proxy: ${proxy.name}`);
+          const success = await this.linkFrpcToFrps(proxy);
+          if (success) {
+            resolvedCount++;
+            this.operationLogService.log('info', `✅ Successfully linked proxy: ${proxy.name}`);
+          } else {
+            failedCount++;
+            this.operationLogService.log('error', `❌ Failed to link proxy: ${proxy.name}`);
+          }
+        } catch (error) {
+          failedCount++;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.operationLogService.log('error', `Failed to link proxy ${proxy.name}: ${errorMessage}`);
+        }
+      }
+
+      this.operationLogService.log('system', `FRP dependency resolution completed. Resolved: ${resolvedCount}, Failed: ${failedCount}`);
+
+    } catch (err) {
+      isFailed = true;
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.operationLogService.log('error', `FRP dependency resolution failed: ${errorMessage}`);
+    } finally {
+      if (opId) {
+        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+      }
+    }
+
+    return {
+      resolvedCount,
+      failedCount,
+      totalPending
+    };
+  }
+
+  /**
+   * Link a pending FRPC proxy to its FRPS config
+   */
+  private async linkFrpcToFrps(proxy: any): Promise<boolean> {
+    this.operationLogService.log('info', `🔗 Linking proxy ${proxy.name}: ${proxy.pendingServerAddr}:${proxy.pendingServerPort}`);
+
+    if (!proxy.pendingServerAddr || !proxy.pendingServerPort) {
+      const errorMsg = 'Missing server address or port information';
+      this.operationLogService.log('error', `❌ ${proxy.name}: ${errorMsg}`);
+      await this.prisma.frpcProxy.update({
+        where: { id: proxy.id },
+        data: {
+          syncStatus: 'failed',
+          lastLinkAttempt: new Date(),
+          linkErrorMessage: errorMsg
+        }
+      });
+      return false;
+    }
+
+    // Find the FRPS host
+    this.operationLogService.log('info', `🔍 Looking for FRPS host: ${proxy.pendingServerAddr}`);
+    const frpsHost = await this.prisma.host.findFirst({
+      where: { address: proxy.pendingServerAddr }
+    });
+
+    if (!frpsHost) {
+      const errorMsg = `FRPS host not found: ${proxy.pendingServerAddr}`;
+      this.operationLogService.log('error', `❌ ${proxy.name}: ${errorMsg}`);
+      await this.prisma.frpcProxy.update({
+        where: { id: proxy.id },
+        data: {
+          syncStatus: 'failed',
+          lastLinkAttempt: new Date(),
+          linkErrorMessage: errorMsg
+        }
+      });
+      return false;
+    }
+
+    this.operationLogService.log('info', `✅ Found FRPS host: ${frpsHost.name} [${frpsHost.id}]`);
+
+    // Find the FRPS config
+    this.operationLogService.log('info', `🔍 Looking for FRPS config on host ${frpsHost.name} with bind_port ${proxy.pendingServerPort}`);
+    const frpsConfig = await this.prisma.frpsConfig.findFirst({
+      where: {
+        hostId: frpsHost.id,
+        bindPort: proxy.pendingServerPort
+      }
+    });
+
+    if (!frpsConfig) {
+      // Get available FRPS configs for debugging
+      const availableConfigs = await this.prisma.frpsConfig.findMany({
+        where: { hostId: frpsHost.id },
+        select: { id: true, bindPort: true }
+      });
+
+      const errorMsg = `FRPS config not found on host ${frpsHost.name} with bind_port ${proxy.pendingServerPort}`;
+      this.operationLogService.log('error', `❌ ${proxy.name}: ${errorMsg}`);
+      this.operationLogService.log('info', `Available FRPS configs on ${frpsHost.name}: ${availableConfigs.map(c => `port ${c.bindPort} (${c.id})`).join(', ') || 'none'}`);
+
+      await this.prisma.frpcProxy.update({
+        where: { id: proxy.id },
+        data: {
+          syncStatus: 'failed',
+          lastLinkAttempt: new Date(),
+          linkErrorMessage: errorMsg
+        }
+      });
+      return false;
+    }
+
+    this.operationLogService.log('info', `✅ Found FRPS config: ${frpsConfig.id} (bind_port: ${frpsConfig.bindPort})`);
+
+    // Successfully link the proxy
+    await this.prisma.frpcProxy.update({
+      where: { id: proxy.id },
+      data: {
+        frpsConfigId: frpsConfig.id,
+        syncStatus: 'linked',
+        lastLinkAttempt: new Date(),
+        linkErrorMessage: null
+      }
+    });
+
+    this.operationLogService.log('info', `🎉 Successfully linked FRPC proxy ${proxy.name} to FRPS config ${frpsConfig.id}`);
+    return true;
+  }
+
+  /**
+   * Resolve pending FRPC proxies that match a specific FRPS server
+   * This is called immediately when an FRPS config is discovered
+   */
+  private async resolvePendingProxiesForFrps(serverAddr: string, bindPort: number): Promise<void> {
+    this.operationLogService.log('info', `🔍 Looking for pending FRPC proxies targeting ${serverAddr}:${bindPort}`);
+
+    const matchingProxies = await this.prisma.frpcProxy.findMany({
+      where: {
+        syncStatus: 'pending',
+        pendingServerAddr: serverAddr,
+        pendingServerPort: bindPort
+      }
+    });
+
+    if (matchingProxies.length === 0) {
+      this.operationLogService.log('info', `No pending FRPC proxies found for ${serverAddr}:${bindPort}`);
+      return;
+    }
+
+    this.operationLogService.log('info', `Found ${matchingProxies.length} pending FRPC proxies for ${serverAddr}:${bindPort}`);
+
+    let resolvedCount = 0;
+    let failedCount = 0;
+
+    for (const proxy of matchingProxies) {
+      try {
+        this.operationLogService.log('info', `🔗 Attempting immediate link for proxy: ${proxy.name}`);
+        const success = await this.linkFrpcToFrps(proxy);
+        if (success) {
+          resolvedCount++;
+        } else {
+          failedCount++;
+        }
+      } catch (error) {
+        failedCount++;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.operationLogService.log('error', `Failed to immediately link proxy ${proxy.name}: ${errorMessage}`);
+      }
+    }
+
+    this.operationLogService.log('info', `Immediate resolution for ${serverAddr}:${bindPort} completed. Resolved: ${resolvedCount}, Failed: ${failedCount}`);
   }
 
   private async updateContainerWithWebServerPort(containerDbId: string, config: any) {
@@ -430,5 +697,348 @@ export class FrpService {
       return null;
     }
     return stdout;
+  }
+
+  /**
+   * Validate FRP topology integrity and return health status
+   */
+  async validateFrpTopology(): Promise<{
+    totalFrpcProxies: number;
+    linkedProxies: number;
+    pendingProxies: number;
+    failedProxies: number;
+    orphanedProxies: number;
+    issues: string[];
+    isHealthy: boolean;
+  }> {
+    const allProxies = await this.prisma.frpcProxy.findMany({
+      include: {
+        frps: true
+      }
+    });
+
+    const linkedProxies = allProxies.filter(p => p.syncStatus === 'linked' && p.frpsConfigId);
+    const pendingProxies = allProxies.filter(p => p.syncStatus === 'pending');
+    const failedProxies = allProxies.filter(p => p.syncStatus === 'failed');
+    const orphanedProxies = allProxies.filter(p => p.frpsConfigId && !p.frps);
+
+    const issues: string[] = [];
+
+    // Check for stale pending proxies (pending for more than 1 hour)
+    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+    const stalePending = pendingProxies.filter(p =>
+      p.lastLinkAttempt && p.lastLinkAttempt < staleThreshold
+    );
+    if (stalePending.length > 0) {
+      issues.push(`${stalePending.length} FRPC proxies have been pending for over 1 hour`);
+    }
+
+    // Check for failed proxies
+    if (failedProxies.length > 0) {
+      issues.push(`${failedProxies.length} FRPC proxies failed to link to FRPS configs`);
+    }
+
+    // Check for orphaned proxies
+    if (orphanedProxies.length > 0) {
+      issues.push(`${orphanedProxies.length} FRPC proxies reference non-existent FRPS configs`);
+    }
+
+    // Check for missing server addresses
+    const missingServerInfo = allProxies.filter(p =>
+      p.syncStatus === 'pending' && (!p.pendingServerAddr || !p.pendingServerPort)
+    );
+    if (missingServerInfo.length > 0) {
+      issues.push(`${missingServerInfo.length} FRPC proxies are missing server address information`);
+    }
+
+    const isHealthy = issues.length === 0 && failedProxies.length === 0 && orphanedProxies.length === 0;
+
+    return {
+      totalFrpcProxies: allProxies.length,
+      linkedProxies: linkedProxies.length,
+      pendingProxies: pendingProxies.length,
+      failedProxies: failedProxies.length,
+      orphanedProxies: orphanedProxies.length,
+      issues,
+      isHealthy
+    };
+  }
+
+  /**
+   * Heal broken FRP relationships and retry failed connections
+   */
+  async healFrpRelationships(): Promise<{
+    retriedCount: number;
+    healedCount: number;
+    cleanedCount: number;
+    errors: string[];
+  }> {
+    const existingOpId = this.contextService.getOpId();
+    if (existingOpId) {
+      return this.runHealingLogic();
+    } else {
+      const opLog = await this.operationLogService.create({
+        title: 'Heal FRP Relationships'
+      });
+      return this.contextService.run(opLog.id, () => this.runHealingLogic(opLog.id));
+    }
+  }
+
+  private async runHealingLogic(opId?: string): Promise<{
+    retriedCount: number;
+    healedCount: number;
+    cleanedCount: number;
+    errors: string[];
+  }> {
+    let isFailed = false;
+    const errors: string[] = [];
+    let retriedCount = 0;
+    let healedCount = 0;
+    let cleanedCount = 0;
+
+    try {
+      this.operationLogService.log('system', 'Starting FRP relationship healing...');
+
+      // 1. Retry failed proxies
+      const failedProxies = await this.prisma.frpcProxy.findMany({
+        where: { syncStatus: 'failed' }
+      });
+
+      this.operationLogService.log('info', `Found ${failedProxies.length} failed FRPC proxies to retry`);
+
+      for (const proxy of failedProxies) {
+        try {
+          retriedCount++;
+          // Reset to pending status and clear error message
+          await this.prisma.frpcProxy.update({
+            where: { id: proxy.id },
+            data: {
+              syncStatus: 'pending',
+              linkErrorMessage: null,
+              lastLinkAttempt: null
+            }
+          });
+
+          // Try to link again
+          const success = await this.linkFrpcToFrps(proxy);
+          if (success) {
+            healedCount++;
+            this.operationLogService.log('info', `Successfully healed FRPC proxy ${proxy.name}`);
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          errors.push(`Failed to heal proxy ${proxy.name}: ${errorMessage}`);
+        }
+      }
+
+      // 2. Clean up orphaned proxies (proxies with non-existent FRPS configs)
+      const orphanedProxies = await this.prisma.frpcProxy.findMany({
+        where: {
+          frpsConfigId: { not: null },
+          frps: null
+        }
+      });
+
+      if (orphanedProxies.length > 0) {
+        this.operationLogService.log('info', `Found ${orphanedProxies.length} orphaned FRPC proxies to clean up`);
+
+        for (const proxy of orphanedProxies) {
+          try {
+            await this.prisma.frpcProxy.update({
+              where: { id: proxy.id },
+              data: {
+                frpsConfigId: null,
+                syncStatus: 'pending',
+                linkErrorMessage: 'FRPS config was deleted, reset to pending'
+              }
+            });
+            cleanedCount++;
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            errors.push(`Failed to clean orphaned proxy ${proxy.name}: ${errorMessage}`);
+          }
+        }
+      }
+
+      this.operationLogService.log('system',
+        `FRP healing completed. Retried: ${retriedCount}, Healed: ${healedCount}, Cleaned: ${cleanedCount}, Errors: ${errors.length}`
+      );
+
+    } catch (err) {
+      isFailed = true;
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.operationLogService.log('error', `FRP healing failed: ${errorMessage}`);
+      errors.push(errorMessage);
+    } finally {
+      if (opId) {
+        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+      }
+    }
+
+    return {
+      retriedCount,
+      healedCount,
+      cleanedCount,
+      errors
+    };
+  }
+
+  /**
+   * Get comprehensive FRP sync statistics and metrics
+   */
+  async getFrpSyncMetrics(): Promise<{
+    overview: {
+      totalFrpsConfigs: number;
+      totalFrpcProxies: number;
+      healthyProxies: number;
+      unhealthyProxies: number;
+      healthPercentage: number;
+    };
+    syncStatus: {
+      linked: number;
+      pending: number;
+      failed: number;
+    };
+    recentActivity: {
+      lastSyncTime?: Date;
+      syncFrequency: string;
+      recentErrors: Array<{
+        proxyName: string;
+        errorMessage: string;
+        timestamp: Date;
+      }>;
+    };
+    performance: {
+      averageLinkTime?: number;
+      successRate: number;
+      stalePendingCount: number;
+    };
+  }> {
+    // Get basic counts
+    const [frpsConfigs, frpcProxies] = await Promise.all([
+      this.prisma.frpsConfig.count(),
+      this.prisma.frpcProxy.findMany({
+        select: {
+          id: true,
+          name: true,
+          syncStatus: true,
+          lastLinkAttempt: true,
+          linkErrorMessage: true,
+          lastSyncedAt: true
+        },
+        orderBy: { lastLinkAttempt: 'desc' }
+      })
+    ]);
+
+    const linkedProxies = frpcProxies.filter(p => p.syncStatus === 'linked');
+    const pendingProxies = frpcProxies.filter(p => p.syncStatus === 'pending');
+    const failedProxies = frpcProxies.filter(p => p.syncStatus === 'failed');
+
+    const healthyProxies = linkedProxies.length;
+    const unhealthyProxies = pendingProxies.length + failedProxies.length;
+    const healthPercentage = frpcProxies.length > 0
+      ? Math.round((healthyProxies / frpcProxies.length) * 100)
+      : 100;
+
+    // Calculate performance metrics
+    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+    const stalePendingCount = pendingProxies.filter(p =>
+      p.lastLinkAttempt && p.lastLinkAttempt < staleThreshold
+    ).length;
+
+    const totalAttempts = frpcProxies.filter(p => p.lastLinkAttempt).length;
+    const successRate = totalAttempts > 0
+      ? Math.round((linkedProxies.length / totalAttempts) * 100)
+      : 100;
+
+    // Get recent errors
+    const recentErrors = failedProxies
+      .filter(p => p.linkErrorMessage && p.lastLinkAttempt)
+      .slice(0, 5)
+      .map(p => ({
+        proxyName: p.name,
+        errorMessage: p.linkErrorMessage!,
+        timestamp: p.lastLinkAttempt!
+      }));
+
+    // Get last sync time
+    const lastSyncTime = frpcProxies
+      .filter(p => p.lastLinkAttempt)
+      .sort((a, b) => b.lastLinkAttempt!.getTime() - a.lastLinkAttempt!.getTime())[0]?.lastLinkAttempt;
+
+    return {
+      overview: {
+        totalFrpsConfigs: frpsConfigs,
+        totalFrpcProxies: frpcProxies.length,
+        healthyProxies,
+        unhealthyProxies,
+        healthPercentage
+      },
+      syncStatus: {
+        linked: linkedProxies.length,
+        pending: pendingProxies.length,
+        failed: failedProxies.length
+      },
+      recentActivity: {
+        lastSyncTime: lastSyncTime || undefined,
+        syncFrequency: 'On container discovery',
+        recentErrors
+      },
+      performance: {
+        successRate,
+        stalePendingCount
+      }
+    };
+  }
+
+  /**
+   * Get detailed FRP sync logs for debugging
+   */
+  async getFrpSyncLogs(limit: number = 50): Promise<Array<{
+    id: string;
+    title: string;
+    status: string;
+    createdAt: Date;
+    completedAt?: Date;
+    duration?: number;
+    entries: Array<{
+      level: string;
+      message: string;
+      timestamp: Date;
+      hostId?: string;
+    }>;
+  }>> {
+    // Get recent FRP-related operation logs
+    const operationLogs = await this.prisma.operationLog.findMany({
+      where: {
+        title: {
+          contains: 'FRP'
+        }
+      },
+      include: {
+        entries: {
+          orderBy: { timestamp: 'asc' }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit
+    });
+
+    return operationLogs.map(log => ({
+      id: log.id,
+      title: log.title,
+      status: log.status,
+      createdAt: log.createdAt,
+      completedAt: log.endTime || undefined,
+      duration: log.endTime
+        ? log.endTime.getTime() - log.createdAt.getTime()
+        : undefined,
+      entries: log.entries.map(entry => ({
+        level: entry.stream,
+        message: entry.content,
+        timestamp: entry.timestamp,
+        hostId: entry.hostId || undefined
+      }))
+    }));
   }
 }

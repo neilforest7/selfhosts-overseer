@@ -8,7 +8,13 @@
     "start:dev": "ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init --skip-seed",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "migrate:frp-relationships": "tsx scripts/migrate-frp-relationships.ts",
+    "migrate:frp-relationships:dry-run": "tsx scripts/migrate-frp-relationships.ts --dry-run",
+    "validate:frp-topology": "tsx scripts/validate-frp-topology.ts",
+    "test:frp-discovery-order": "tsx scripts/test-frp-discovery-order.ts",
+    "debug:frp-state": "tsx scripts/debug-frp-state.ts",
+    "debug:frp-state:test-resolution": "tsx scripts/debug-frp-state.ts --test-resolution"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",

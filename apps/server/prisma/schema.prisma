@@ -174,20 +174,28 @@ model FrpsConfig {
 }
 
 model FrpcProxy {
-  id            String     @id @default(cuid())
-  hostId        String
-  containerId   String
-  frpsConfigId  String
-  name          String
-  type          String
-  localIp       String
-  localPort     Int
-  remotePort    Int
-  subdomain     String?
-  customDomains String[]
-  rawConfig     Json?
-  lastSyncedAt  DateTime?
-  frps          FrpsConfig @relation(fields: [frpsConfigId], references: [id], onDelete: Cascade)
+  id                String     @id @default(cuid())
+  hostId            String
+  containerId       String
+  frpsConfigId      String?    // Made optional to support pending state
+  name              String
+  type              String
+  localIp           String
+  localPort         Int
+  remotePort        Int
+  subdomain         String?
+  customDomains     String[]
+  rawConfig         Json?
+  lastSyncedAt      DateTime?
+
+  // Two-phase sync support fields
+  syncStatus        String     @default("pending") // 'pending' | 'linked' | 'failed'
+  pendingServerAddr String?    // Temporary storage for FRPS server address
+  pendingServerPort Int?       // Temporary storage for FRPS server port
+  lastLinkAttempt   DateTime?  // Track when last link attempt was made
+  linkErrorMessage  String?    // Store error message if linking fails
+
+  frps              FrpsConfig? @relation(fields: [frpsConfigId], references: [id], onDelete: Cascade)
 }
 
 model OperationLog {

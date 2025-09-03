@@ -160,8 +160,8 @@ export class ContainerDiscoveryService {
       // to prevent accidental deletion of containers. Only specific compose operations
       // should delete containers, and only for their own projects.
 
-      // Sync FRP configurations
-      await this.frpService.syncFrpFromHost(host.id);
+      // Sync FRP configurations (parse phase only)
+      await this.frpService.syncFrpFromHost(host.id, 'parse');
 
       // Sync reverse proxy routes
       await this.reverseProxyService.syncRoutesFromHost(host.id);

@@ -9,6 +9,7 @@ import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContainersService } from '../containers/containers.service';
 import { OperationLog } from '@prisma/client';
 import { ContextService } from '../context/context.service';
+import { FrpService } from '../frp/frp.service';
 
 export interface ExecRequest {
   command: string;
@@ -28,6 +29,7 @@ export class TasksService {
     private readonly contextService: ContextService, // Injected
     @Inject(forwardRef(() => ContainersService))
     private readonly containersService: ContainersService,
+    private readonly frpService: FrpService,
   ) {}
 
   async exec(req: ExecRequest): Promise<OperationLog | null> {
@@ -136,6 +138,20 @@ export class TasksService {
       );
     }
     await Promise.all(workers);
+
+    // Phase 2: Resolve FRP dependencies after all hosts have been processed
+    // Run dependency resolution even if some individual hosts failed, as long as at least one succeeded
+    if (command === 'internal:discover_containers') {
+      try {
+        this.operationLogService.log('system', 'Starting FRP dependency resolution phase...');
+        const result = await this.frpService.resolveFrpDependencies();
+        this.operationLogService.log('system', `FRP dependency resolution completed. Resolved: ${result.resolvedCount}, Failed: ${result.failedCount}, Total: ${result.totalPending}`);
+      } catch (error) {
+        anyFailed = true;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.operationLogService.log('error', `FRP dependency resolution failed: ${errorMessage}`);
+      }
+    }
 
     this.operationLogService.log('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
 

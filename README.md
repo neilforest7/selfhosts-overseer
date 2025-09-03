@@ -8,6 +8,7 @@
 - 容器管理：发现/元数据、启动命令重建、Compose 配置查看、更新/重启（CLI 默认“先备份，失败回滚”）、每日 00:45 更新检查
 - 观测：一键安装 Node Exporter、Promtail（可选 cAdvisor），Grafana 预置面板
 - NPM 拓扑：读取各 VPS 的 Nginx Proxy Manager 数据，自动生成“域名 → NPM → 服务”的动态网络拓扑图，并能精确展示 FRP 穿透的完整链路，动态显示隧道密度。
+- FRP 管理：两阶段同步系统确保 FRP 拓扑生成不受主机发现顺序影响；自动解析 FRPS/FRPC 配置、建立依赖关系、提供健康检查与自愈能力。
 - 自动化：告警→n8n Webhook→回调执行；AI Agent 工具函数（查询/诊断/执行）
 
 ## 最近改进与补充
@@ -46,6 +47,7 @@
 - 远程执行：并发命令/脚本、rsync 分发、实时输出
 - 观测：Grafana 主机/容器（cAdvisor）/日志（Loki）与 NPM 路由概览
 - 拓扑：通过动态网络视图，洞察“域名→NPM→FRP→服务”的完整流量链路与依赖关系。
+- FRP 同步：支持任意主机发现顺序，自动解析配置依赖，提供健康监控与故障自愈。
 
 ## Grafana 预置
 - Dashboards：`infra/observability/grafana/dashboards/*.json`
@@ -84,4 +86,15 @@
 ## 目录与文档
 - 目录：`apps/web`、`apps/server`、`packages/shared`、`infra/observability`、`docs`、`.cursor/rules`
 - 详细说明：`docs/PROJECT_SPEC.md`
+
+### FRP 系统文档
+- [FRP 两阶段同步系统](docs/frp-two-phase-sync.md) - 系统架构与实现原理
+- [FRP API 规范](docs/frp-api-spec.md) - 详细的 API 接口文档
+- [FRP 迁移指南](docs/frp-migration-guide.md) - 从旧系统迁移的步骤
+- [FRP 故障排除](docs/frp-troubleshooting.md) - 常见问题与解决方案
+
+### 其他文档
+- [活动日志系统](docs/activity-log-system.md) - 系统活动记录
+- [DNS API 文档](docs/DNS_API.md) - DNS 管理接口
+- [级联删除与清理](docs/CASCADE_DELETE_AND_CLEANUP.md) - 数据清理策略
 - 规则：`.cursor/rules/*`（含 shadcn/ui 原生风格与脚手架约定）

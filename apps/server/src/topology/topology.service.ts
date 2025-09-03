@@ -172,6 +172,9 @@ export class TopologyService {
     );
 
     frpcProxies.forEach(proxy => {
+      // Skip proxies that haven't been linked to an FRPS config yet
+      if (!proxy.frpsConfigId) return;
+
       const frpsContainer = frpsConfigIdToContainer.get(proxy.frpsConfigId);
       if (frpsContainer) {
         const portNodeId = `port-${proxy.remotePort}-on-${frpsContainer.id}`;
