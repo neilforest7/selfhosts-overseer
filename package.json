@@ -9,19 +9,25 @@
   ],
   "scripts": {
     "dev": "concurrently -k -n web,server -c green,blue \"npm --workspace apps/web run dev\" \"npm --workspace apps/server run start:dev\"",
-    "build": "npm --workspace apps/web run build && npm --workspace apps/server run build && npm --workspace packages/shared run build",
-    "start": "npm --workspace apps/server run start"
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:server": "npm --workspace apps/server run start:dev",
+    "build": "npm --workspace packages/shared run build && npm --workspace apps/server run build && npm --workspace apps/web run build",
+    "build:web": "npm --workspace apps/web run build",
+    "build:server": "npm --workspace apps/server run build",
+    "build:shared": "npm --workspace packages/shared run build",
+    "start": "npm --workspace apps/server run start:prod",
+    "db:generate": "npm --workspace apps/server run prisma:generate",
+    "db:push": "npm --workspace apps/server run prisma:push",
+    "db:migrate": "npm --workspace apps/server run prisma:migrate",
+    "lint": "npm --workspace apps/web run lint && npm --workspace apps/server run lint",
+    "type-check": "npm --workspace apps/web run type-check && npm --workspace apps/server run type-check && npm --workspace packages/shared run type-check"
   },
   "devDependencies": {
-    "autoprefixer": "^10.4.20",
     "concurrently": "^8.2.2",
-    "postcss": "^8.4.41",
-    "tailwindcss": "^3.4.10"
+    "typescript": "^5.5.4"
   },
   "engines": {
     "node": ">=18.17.0"
   },
-  "dependencies": {
-    "immer": "^10.1.1"
-  }
+  "dependencies": {}
 }

@@ -31,12 +31,13 @@
 - 网络：控制平面可直连各 VPS 的 SSH(22)；仅暴露 443；Agentless 为默认
 - 可选轻量 Agent（Go）：出站长连接至控制平面，提供高并发与弱网稳态（默认不启）
 
-### 四、技术栈清单
-- 前端：Next.js 15、TypeScript、Tailwind CSS、shadcn/ui、React Query、React Flow、ECharts
-- 后端：NestJS（Fastify）、TypeScript、BullMQ（Redis）、Prisma、PostgreSQL 15+
-- 观测：Prometheus、VictoriaMetrics、Loki、Grafana、（可选）cAdvisor
-- 自动化：n8n（HTTP/Webhook 双向）、AI Agent（HTTP/函数调用工具）
-- 运行与网络：OpenSSH 客户端、rsync/scp、Caddy/Traefik（可选反向代理与证书）
+### 四、技术栈清单（实际实现）
+- **前端**：Next.js 15、TypeScript、Tailwind CSS、shadcn/ui、React Query、Cytoscape.js、ECharts、Socket.IO Client
+- **后端**：NestJS（Fastify）、TypeScript、BullMQ（Redis）、Prisma、PostgreSQL 15+、Socket.IO、json-rules-engine
+- **观测**：Prometheus、VictoriaMetrics、Loki、Grafana、（可选）cAdvisor
+- **自动化**：json-rules-engine（规则引擎）、BullMQ（任务调度）、node-cron（定时任务）
+- **工具库**：bcrypt（加密）、ssh2（SSH 连接）、ini/yaml（配置解析）、dns2（DNS 解析）、crypto（加密工具）
+- **运行与网络**：OpenSSH 客户端、rsync/scp、Docker、Docker Compose
 
 ### 五、核心能力说明
 1) 资产与拓扑
@@ -104,19 +105,23 @@
    - SSH 私钥无口令，控制平面以只读卷挂载并启用 StrictHostKeyChecking；首次指纹需显式导入
    - 仅保留最小操作日志（任务发起/目标/结果），用于排障
 
-### 六、数据模型（核心）
-- `Host`：id、name、address、sshUser、port?、tags[]、sshOptions(Json?)、sshAuthMethod('password'|'privateKey')、sshPassword?、sshPrivateKey?、sshPrivateKeyPassphrase?、createdAt、updatedAt
-- `Container`：id、hostId、containerId、name、state?、status?、restartCount?、imageName?、imageTag?、repoDigest?、remoteDigest?、updateAvailable、updateCheckedAt?、createdAt、startedAt?、isComposeManaged、composeProject?、composeService?、composeWorkingDir?、composeGroupKey?、composeFolderName?、composeConfigFiles(Json?)、runCommand?、ports(Json?)、mounts(Json?)、networks(Json?)、labels(Json?)
-- `ComposeProject`（可选缓存）：id、project、workingDir、configFiles[]、effectiveConfigHash?、lastSyncedAt?
-- `AlertRule`/`AlertEvent`：阈值触发与事件负载（用于发送到 n8n）
-- `ReverseProxyRoute`：id、hostId、provider('npm')、type('http'|'stream'|'redirect')、vpsName?、domain、forwardHost?、forwardPort?、enabled、certificateId?、certExpiresAt?、rawAdvancedConfig?、lastSyncedAt?
-- `Certificate`：id、provider、cn、sans[]、issuer?、notBefore?、notAfter?、autoRenew、lastSyncedAt?、createdAt
-- `HostNpmConfig`：hostId(id)、enabled、dbType('sqlite'|'mysql')、connectionMode('container-local')、containerName?、sqlitePath（默认 `/data/database.sqlite`）、mysqlUseContainerEnv（从容器 `DB_MYSQL_*` 读取）、updatedAt
-- `FrpsConfig`：id、hostId、containerId、bindPort?、vhostHttpPort?、vhostHttpsPort?、subdomainHost?、rawConfig(Json?)、lastSyncedAt?
-- `FrpcProxy`：id、hostId、containerId、frpsConfigId、name、type('tcp'|'udp'|'http'|'https'|'stcp'|'xtcp')、localIp、localPort、remotePort、subdomain?、customDomains[]、rawConfig(Json?)、lastSyncedAt?
-- **`Action`**: id、name、description?、taskType、taskPayload(Json?)、createdAt、updatedAt
-- **`Trigger`**: id、actionId、type('CRON'|'WEBHOOK'|'EVENT')、config(Json)、isEnabled
-- **`Notification`**: id、actionId、channelType('EMAIL'|'SLACK'|'WEBHOOK')、config(Json)、notifyOn('SUCCESS'|'FAILURE'|'ALWAYS')
+### 六、数据模型（实际实现）
+- **`Host`**：id、name、address、sshUser、port?、tags[]、sshOptions(Json?)、sshAuthMethod、sshPassword?、sshPrivateKey?、sshPrivateKeyPassphrase?、role(local|remote)、status(ONLINE|OFFLINE|UNKNOWN)、lastOnlineAt?、lastOfflineAt?、lastConnectivityCheck?、createdAt、updatedAt
+- **`Container`**：id、hostId、containerId、name、state?、status?、restartCount?、imageName?、imageTag?、repoDigest?、remoteDigest?、updateAvailable、updateCheckedAt?、createdAt、startedAt?、isComposeManaged、composeProject?、composeService?、composeWorkingDir?、composeGroupKey?、composeFolderName?、composeConfigFiles(Json?)、runCommand?、ports(Json?)、mounts(Json?)、networks(Json?)、labels(Json?)
+- **`ComposeProject`**：id、project、workingDir、configFiles[]、effectiveConfigHash?、lastSyncedAt?
+- **`AutomationRule`**：id、name、description?、isEnabled、ruleJson(Json)、createdAt、updatedAt、operations[]
+- **`OperationLog`**：id、type、status(PENDING|RUNNING|COMPLETED|ERROR)、startedAt?、finishedAt?、automationRuleId?、entries[]
+- **`OperationLogEntry`**：id、timestamp、stream、content、operationLogId、hostId?
+- **`ReverseProxyRoute`**：id、hostId、provider('npm')、type('http'|'stream'|'redirect')、vpsName?、domain、forwardHost?、forwardPort?、enabled、certificateId?、certExpiresAt?、rawAdvancedConfig?、lastSyncedAt?
+- **`Certificate`**：id、provider、cn、sans[]、issuer?、notBefore?、notAfter?、autoRenew、lastSyncedAt?、createdAt
+- **`HostNpmConfig`**：hostId、enabled、dbType('sqlite'|'mysql')、connectionMode('container-local')、containerName?、sqlitePath?、mysqlUseContainerEnv?、updatedAt
+- **`FrpsConfig`**：id、hostId、containerId、bindPort?、vhostHttpPort?、vhostHttpsPort?、subdomainHost?、rawConfig(Json?)、lastSyncedAt?、proxies[]
+- **`FrpcProxy`**：id、hostId、containerId、frpsConfigId、name、type、localIp、localPort、remotePort、subdomain?、customDomains[]、rawConfig(Json?)、lastSyncedAt?
+- **`DnsProvider`**：id、name、displayName、isEnabled、apiConfig(Json)、rateLimitPerMinute、timeoutSeconds、createdAt、updatedAt、dnsRecords[]
+- **`DnsRecord`**：id、providerId、domain、type、name、value、ttl?、priority?、isEnabled、lastSyncedAt?、createdAt、updatedAt
+- **`ActivityLog`**：id、hostId、category、action、details?、metadata(Json?)、timestamp
+- **`SystemLog`**：id、category、level、stream、source?、hostId?、hostLabel?、content、metadata(Json?)、ts
+- **`AppSetting`**：key、value（存储应用配置的键值对）
 
 ### 七、自动化中心 (Automation Center)
 为了实现强大的自动化能力，系统对“动作”、“触发器”和“通知”进行了明确的区分，构建了一个灵活的自动化流程编排引擎。
@@ -134,23 +139,63 @@
 
 这种设计将“做什么”、“何时做”以及“如何通知”彻底解耦，使得自动化流程的管理和扩展变得清晰、可靠且极其灵活。
 
-### 八、API 概览（对前端、n8n、AI Agent）
-- Hosts：GET/POST/PATCH/DELETE `/api/v1/hosts`；POST `/api/v1/hosts/:id/test-connection`
-- **自动化中心**:
-  - Actions: GET/POST/PATCH/DELETE `/api/v1/actions`
-  - Triggers: GET/POST/PATCH/DELETE `/api/v1/actions/:actionId/triggers`
-  - Notifications: GET/POST/PATCH/DELETE `/api/v1/actions/:actionId/notifications`
-  - 手动执行: POST `/api/v1/actions/:id/run`
-  - Webhook 触发: POST `/api/v1/trigger/:triggerId`
-- **执行与操作日志**:
-  - GET `/api/v1/operations`（获取所有操作历史记录）
-  - GET `/api/v1/operations/:id`（获取单次操作的详情和日志）
-  - 回显：Socket.IO 事件 `joinTask` 订阅 `task:{taskId}` 接收 `stdout|stderr|system|info|error|end`
-- 日志：GET `/api/v1/logs/application|system|docker`
-- 容器：GET `/api/v1/containers`（支持 hostId/hostName/q/updateAvailable/composeManaged）；POST `discover|check-updates|:id/update|:id/restart|compose/operate|refresh-status|cleanup-duplicates|purge`
-- 反向代理：GET `/api/v1/reverse-proxy/routes?hostId=`；证书：GET `/api/v1/certificates`
-- FRP：GET `/api/v1/frp/configs`；POST `/api/v1/frp/sync/:hostId`
-- 设置：GET/PUT `/api/v1/settings`；健康：GET `/api/v1/health`
+### 八、API 概览（完整实现的端点）
+- **主机管理**：
+  - GET/POST/PATCH/DELETE `/api/v1/hosts`
+  - POST `/api/v1/hosts/:id/test-connection`、`/check-connectivity`
+  - GET `/api/v1/hosts/:id/connectivity`
+  - POST `/api/v1/hosts/check-all-connectivity`、`/cleanup/orphaned-routes`
+  - GET `/api/v1/hosts/connectivity/stats`
+- **容器管理**：
+  - GET `/api/v1/containers`（支持 hostId/hostName/q/updateAvailable/composeManaged）
+  - POST `/api/v1/containers/discover`、`/check-updates`、`/check-compose-updates`
+  - POST `/api/v1/containers/:id/update`、`/:id/restart`、`/:id/start`、`/:id/stop`、`/:id/check-update`
+  - PATCH/DELETE `/api/v1/containers/:id/manual-port`
+  - POST `/api/v1/containers/compose/operate`、`/compose/reactivate`
+  - GET `/api/v1/containers/compose/down-projects`
+  - POST `/api/v1/containers/refresh-status`、`/cleanup-duplicates`、`/purge`、`/test-credentials`
+- **自动化规则**：
+  - GET/POST/PATCH/DELETE `/api/v1/automations`
+  - GET `/api/v1/automations/:id`
+  - POST `/api/v1/automations/:id/test`（测试规则）
+- **活动日志**：
+  - GET `/api/v1/activity-logs`（支持多种过滤参数）
+  - GET `/api/v1/activity-logs/recent`、`/stats`、`/cleanup/stats`
+  - GET `/api/v1/activity-logs/resource/:resourceType/:resourceId`
+  - POST `/api/v1/activity-logs/cleanup`
+- **任务与操作日志**：
+  - GET `/api/v1/operations`、`/operations/:id`
+  - POST `/api/v1/operations`、`/tasks/exec`
+- **日志系统**：
+  - GET `/api/v1/logs/application`、`/system`、`/docker`
+  - WebSocket: `joinLogs` 事件订阅实时日志流
+- **DNS 管理**（完整实现）：
+  - GET/POST/PUT/DELETE `/api/v1/dns/providers`、`/providers/:id`
+  - GET `/api/v1/dns/providers/available`、`/providers/:id/discovery-stats`
+  - POST `/api/v1/dns/providers/:id/test`、`/:id/discover`
+  - GET/POST/PUT/DELETE `/api/v1/dns/records`、`/records/:id`
+  - POST `/api/v1/dns/records/:id/resolve`、`/records/batch-resolve`
+  - GET `/api/v1/dns/records/:id/resolutions`、`/resolutions`、`/stats`、`/health`
+  - POST `/api/v1/dns/cleanup`
+- **网络拓扑与反向代理**：
+  - GET `/api/v1/topology/graph-data`
+  - GET `/api/v1/reverse-proxy/routes`、`/certificates`
+  - POST `/api/v1/reverse-proxy/sync/:hostId`、`/sync-and-cleanup/:hostId`、`/cleanup/orphaned-routes`
+- **FRP 管理**：
+  - GET `/api/v1/frp/configs`、`/health`、`/metrics`、`/logs`
+  - POST `/api/v1/frp/sync/:hostId`、`/resolve-dependencies`、`/heal`
+- **DIUN 集成**：
+  - POST `/diun/notify`、`/diun/check-image`
+- **设置与健康**：
+  - GET/PUT `/api/v1/settings`
+  - GET `/api/v1/health`
+- **WebSocket 事件**：
+  - `joinTask` → 订阅任务执行日志
+  - `joinLogs` → 订阅系统日志流
+  - `joinActivityLog` → 订阅活动日志
+  - `joinConnectivity` → 订阅连接状态更新
+
+详细的 API 文档参见 `docs/API_DOCUMENTATION.md`
 
 ### 九、部署与运行
 - 形态：单机 Docker Compose（默认）

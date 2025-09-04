@@ -3,12 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "start": "node dist/main",
     "start:prod": "node dist/main",
     "build": "tsc -p tsconfig.json",
     "start:dev": "ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts",
+    "lint": "eslint src/**/*.ts",
+    "type-check": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init --skip-seed",
     "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
     "migrate:frp-relationships": "tsx scripts/migrate-frp-relationships.ts",
     "migrate:frp-relationships:dry-run": "tsx scripts/migrate-frp-relationships.ts --dry-run",
     "validate:frp-topology": "tsx scripts/validate-frp-topology.ts",
@@ -29,8 +36,7 @@
     "@nestjs/schedule": "^3.0.4",
     "@nestjs/websockets": "^10.3.0",
     "@prisma/client": "^5.17.0",
-    "@types/express": "^5.0.3",
-    "@types/js-yaml": "^4.0.9",
+
     "axios": "^1.11.0",
     "bullmq": "^5.7.10",
     "class-transformer": "^0.5.1",
@@ -50,11 +56,23 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
     "@types/ini": "^4.1.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.30",
     "@types/sqlite3": "^3.1.11",
+    "@types/supertest": "^6.0.2",
     "@types/tar-stream": "^3.1.4",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
     "prisma": "^5.17.0",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.1.2",
     "ts-node-dev": "^2.0.0",
+    "tsx": "^4.7.1",
     "typescript": "^5.5.4"
   }
 }

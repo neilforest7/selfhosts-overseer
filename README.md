@@ -25,18 +25,56 @@
 - 运行：OpenSSH 客户端、rsync/scp；可选反代 Caddy/Traefik
 
 ## 前置条件（Prerequisites）
-- 控制平面主机：Linux x86_64（建议 4 vCPU / 8 GB RAM / 100–200 GB 磁盘）
-- Docker + Compose 插件
-- SSH 私钥（无口令）可直连各 VPS 的 22 端口
-- 可选：n8n Webhook/Token、AI Agent API、NPM 容器
+- **控制平面主机**：Linux x86_64（建议 4 vCPU / 8 GB RAM / 100–200 GB 磁盘）
+- **运行环境**：Node.js >= 18.17.0、Docker + Compose 插件
+- **网络访问**：SSH 私钥可直连
+- **可选组件**：NPM 容器、FRP 服务、DNS 提供商 API
 
-## 快速开始（Compose）
-1) 准备 `.env` 与 SSH 私钥（权限 0600，容器内以只读卷挂载）
-2) 启动：`docker compose up -d`
-3) 登录控制台（443） → 设置默认项：
+## 快速开始
+
+### 开发环境
+```bash
+# 1. 克隆项目
+git clone <repository-url>
+cd selfhost-serv-agent
+
+# 2. 安装依赖
+npm install
+
+# 3. 配置环境变量
+cp apps/server/.env.example apps/server/.env
+# 编辑 .env 文件，配置数据库连接等
+
+# 4. 启动开发服务器
+npm run dev
+```
+
+### 生产部署（Docker Compose）
+```bash
+# 1. 准备环境文件
+cp .env.example .env
+# 编辑 .env 文件
+
+# 2. 准备 SSH 私钥（权限 0600）
+chmod 600 /path/to/ssh/private/key
+
+# 3. 启动服务
+docker compose up -d
+
+# 4. 访问控制台
+# 前端：http://localhost:3000
+# 后端 API：http://localhost:3001/api/v1/
+# WebSocket：ws://localhost:3001
+```
+
+### 初始配置
+访问前端界面后，进行以下配置：
+1. **设置 → 调度与并发**：
    - SSH 并发：30（10–100）
    - 命令超时：100s（10–900s）
    - 容器版本检查：每日 00:45
+2. **添加主机**：配置 VPS 连接信息
+3. **可选 NPM 配置**：在主机编辑页面启用 NPM 读取
 
 ## 核心配置（前端可改）
 - 设置 → 调度与并发：并发/超时/版本检查时点
@@ -55,14 +93,58 @@
 - Datasources：`infra/observability/grafana/provisioning/datasources/vm_loki.yml`
 - 预置：System Overview、Host Detail、Container Overview/Detail（cAdvisor）、Logs Explorer、NPM Routes Overview
 
-## API 概览
-- Hosts：GET `/api/v1/hosts`
-- 执行：POST `/api/v1/tasks/exec`；WS `/api/v1/tasks/{taskRunId}/stream`；GET `/api/v1/tasks/{taskRunId}`
-- 观测：GET `/api/v1/metrics/query?vmQuery=...&range=...`；GET `/api/v1/logs/search?query=...&start=...&end=...`
-- 容器：GET `/api/v1/containers?hostId=&q=&isCompose=&updateAvailable=`；GET `/api/v1/containers/{id}`；GET `/api/v1/containers/{id}/run-command`；GET `/api/v1/containers/{id}/compose-config`；POST `/api/v1/containers/{id}/restart|check-update|update`
-- 反向代理与拓扑：GET `/api/v1/proxies/routes?hostId=&domain=&type=`；POST `/api/v1/proxies/sync?hostId=`；GET `/api/v1/topology/graph-data`
-- Compose：GET `/api/v1/compose/projects?hostId=`；GET `/api/v1/compose/projects/{project}/services`；POST `/api/v1/compose/projects/{project}/services/{service}/update`
-- 更多细节见 `docs/PROJECT_SPEC.md` 与 `.cursor/rules/api-overview.mdc`
+## 开发指南
+
+### 项目结构
+```
+selfhost-serv-agent/
+├── apps/
+│   ├── web/                 # Next.js 前端应用
+│   └── server/              # NestJS 后端应用
+├── packages/
+│   └── shared/              # 共享类型和工具
+├── infra/
+│   └── observability/       # 监控配置（Grafana、Prometheus 等）
+├── docs/                    # 项目文档
+└── .cursor/rules/           # 开发规范和约定
+```
+
+### 开发工作流
+```bash
+# 启动开发环境
+npm run dev                  # 同时启动前后端
+npm run dev:web             # 仅启动前端 (端口 3000)
+npm run dev:server          # 仅启动后端 (端口 3001)
+
+# 数据库操作
+npm run db:generate         # 生成 Prisma 客户端
+npm run db:push            # 推送 schema 到数据库
+npm run db:migrate         # 创建迁移
+
+# 代码检查
+npm run lint               # ESLint 检查所有包
+npm run type-check         # TypeScript 类型检查所有包
+
+# 构建
+npm run build              # 构建所有应用 (shared → server → web)
+npm run build:web          # 仅构建前端
+npm run build:server       # 仅构建后端
+
+# 测试
+npm --workspace apps/server run test              # 运行后端测试
+npm --workspace apps/server run test:coverage     # 运行测试并生成覆盖率报告
+```
+
+### API 概览
+- **主机管理**：`GET/POST/PATCH/DELETE /api/v1/hosts`
+- **容器管理**：`GET /api/v1/containers`、`POST /api/v1/containers/discover`
+- **任务执行**：`POST /api/v1/tasks/exec`
+- **自动化规则**：`GET/POST/PATCH/DELETE /api/v1/automations`
+- **操作日志**：`GET /api/v1/operations`
+- **网络拓扑**：`GET /api/v1/topology/graph-data`
+- **设置管理**：`GET/PUT /api/v1/settings`
+
+详细 API 文档见 `docs/API_DOCUMENTATION.md`
 
 ## Docker 操作命令一览
   ┌──────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────┐
@@ -78,23 +160,83 @@
   └──────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────┘
 
 
-## 路线图
-- M0：资产/连通性、并发执行、采集器安装、Grafana 预置、容器发现/重启/镜像拉取、运行参数/Compose 查看
-- M1：告警→n8n 回调执行；容器更新（Compose/CLI，默认备份+失败回滚）；定时更新检查
-- M2：可选轻量 Agent、批量更新稳定性优化；cAdvisor 面板；容器回滚/固定 digest 策略
+## 故障排除
 
-## 目录与文档
-- 目录：`apps/web`、`apps/server`、`packages/shared`、`infra/observability`、`docs`、`.cursor/rules`
-- 详细说明：`docs/PROJECT_SPEC.md`
+### 常见问题
 
-### FRP 系统文档
-- [FRP 两阶段同步系统](docs/frp-two-phase-sync.md) - 系统架构与实现原理
-- [FRP API 规范](docs/frp-api-spec.md) - 详细的 API 接口文档
-- [FRP 迁移指南](docs/frp-migration-guide.md) - 从旧系统迁移的步骤
-- [FRP 故障排除](docs/frp-troubleshooting.md) - 常见问题与解决方案
+**1. SSH 连接失败**
+```bash
+# 检查 SSH 私钥权限
+chmod 600 /path/to/private/key
 
-### 其他文档
+# 测试 SSH 连接
+ssh -i /path/to/private/key user@host
+
+# 检查 SSH 配置
+cat ~/.ssh/config
+```
+
+**2. 容器发现失败**
+- 确保目标主机 Docker 服务正常运行
+- 检查 SSH 用户是否有 Docker 权限
+- 验证网络连接和防火墙设置
+
+**3. WebSocket 连接问题**
+- 检查浏览器控制台错误
+- 确认后端服务正常运行
+- 验证端口 3001 是否可访问
+
+**4. 数据库连接错误**
+```bash
+# 检查数据库状态
+docker compose ps postgres
+
+# 查看数据库日志
+docker compose logs postgres
+
+# 重置数据库
+npm run db:push
+```
+
+### 日志查看
+```bash
+# 应用日志
+docker compose logs web
+docker compose logs server
+
+# 系统日志
+journalctl -u docker
+```
+
+## 文档索引
+
+### 核心文档
+- [项目规范](docs/PROJECT_SPEC.md) - 完整的项目规范和架构说明
+- [API 文档](docs/API_DOCUMENTATION.md) - 详细的 API 接口文档
+- [开发规范](.cursor/rules/) - 代码规范和开发约定
+
+### 功能文档
 - [活动日志系统](docs/activity-log-system.md) - 系统活动记录
 - [DNS API 文档](docs/DNS_API.md) - DNS 管理接口
 - [级联删除与清理](docs/CASCADE_DELETE_AND_CLEANUP.md) - 数据清理策略
-- 规则：`.cursor/rules/*`（含 shadcn/ui 原生风格与脚手架约定）
+
+### 部署与运维
+- [Grafana 配置](infra/observability/grafana/) - 监控面板配置
+- [Docker 配置](infra/dev/docker-compose.yml) - 容器编排配置
+
+## 贡献指南
+
+1. **Fork 项目**并创建功能分支
+2. **遵循代码规范**（见 `.cursor/rules/`）
+3. **编写测试**并确保通过
+4. **提交 Pull Request**
+
+### 代码规范
+- 使用 TypeScript 严格模式
+- 遵循 ESLint 和 Prettier 配置
+- 组件使用 shadcn/ui 原生风格
+- API 遵循 RESTful 设计原则
+
+## 许可证
+
+[MIT License](LICENSE)

@@ -3,9 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "next dev -p 3012",
+    "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start -p 3012"
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -28,7 +30,6 @@
     "@types/cytoscape": "^3.21.9",
     "@types/cytoscape-dagre": "^2.3.3",
     "@types/react-cytoscapejs": "^1.2.5",
-    "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -36,8 +37,7 @@
     "cytoscape": "^3.33.1",
     "cytoscape-dagre": "^2.5.0",
     "lucide-react": "^0.452.0",
-    "next": "latest",
-    "postcss": "^8.4.41",
+    "next": "^15.0.0",
     "react": "^18.3.1",
     "react-cytoscapejs": "^2.0.0",
     "react-dom": "^18.3.1",
@@ -52,6 +52,10 @@
     "@types/node": "^20.11.30",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^15.0.0",
+    "postcss": "^8.4.41",
     "tailwind-merge": "^2.5.2",
     "tailwindcss": "^3.4.10",
     "tailwindcss-animate": "^1.0.7",
