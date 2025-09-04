@@ -77,7 +77,7 @@ export default function ContainersSection() {
   }, [qc]);
 
   // Helper function to monitor operation status
-  const monitorOperationStatus = async (taskId: string): Promise<void> => {
+  const monitorOperationStatus = async (taskId: string, operationName: string = '操作'): Promise<void> => {
     const maxAttempts = 30; // Maximum 30 attempts (30 seconds)
     let attempts = 0;
 
@@ -89,11 +89,11 @@ export default function ContainersSection() {
         const operation = await response.json();
 
         if (operation.status === 'COMPLETED') {
-          toast.success('容器状态已更新');
+          toast.success(`${operationName}完成`);
           await refreshContainers(true);
           return;
         } else if (operation.status === 'ERROR') {
-          toast.error('容器状态刷新失败');
+          toast.error(`${operationName}失败`);
           return;
         }
 
@@ -107,7 +107,7 @@ export default function ContainersSection() {
     }
 
     // If we reach here, either max attempts reached or error occurred
-    toast.warning('容器状态刷新超时，请手动检查结果');
+    toast.warning(`${operationName}超时，请手动检查结果`);
     await refreshContainers(true);
   };
 
@@ -326,12 +326,6 @@ export default function ContainersSection() {
       toast.info(`开始容器发现：${hostName}`);
     },
     onSuccess: async (data: any, variables) => {
-      if (data.taskId) {
-        await fetchTasks();
-        selectTask(data.taskId);
-        setOpen(true);
-      }
-
       let hostName: string;
       if (Array.isArray(variables)) {
         const hostNames = variables.map(id =>
@@ -344,13 +338,21 @@ export default function ContainersSection() {
         hostName = hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables;
       }
 
-      if (typeof data?.upserted === 'number') {
-        toast.success(`发现完成（${hostName}）：新增/更新 ${data.upserted} 个`);
+      if (data.taskId) {
+        await fetchTasks();
+        selectTask(data.taskId);
+        setOpen(true);
+        // Monitor the operation completion
+        await monitorOperationStatus(data.taskId, `容器发现（${hostName}）`);
       } else {
-        toast.success(`发现完成（${hostName}）`);
+        // Fallback for operations that don't return taskId
+        if (typeof data?.upserted === 'number') {
+          toast.success(`发现完成（${hostName}）：新增/更新 ${data.upserted} 个`);
+        } else {
+          toast.success(`发现完成（${hostName}）`);
+        }
+        await refreshContainers(true);
       }
-      // 使用优化的刷新函数
-      await refreshContainers(true);
     },
     onError: (err: any, variables) => {
       let hostName: string;
@@ -384,19 +386,22 @@ export default function ContainersSection() {
       toast.info(`开始检查镜像更新：${hostName}`);
     },
     onSuccess: async (data: any, variables) => {
+      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
       if (data.taskId) {
         await fetchTasks();
         selectTask(data.taskId);
         setOpen(true);
-      }
-      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
-      if (typeof data?.updated === 'number') {
-        toast.success(`检查完成（${hostName}）：可更新 ${data.updated} 个`);
+        // Monitor the operation completion
+        await monitorOperationStatus(data.taskId, `检查镜像更新（${hostName}）`);
       } else {
-        toast.success(`检查完成（${hostName}）`);
+        // Fallback for operations that don't return taskId
+        if (typeof data?.updated === 'number') {
+          toast.success(`检查完成（${hostName}）：可更新 ${data.updated} 个`);
+        } else {
+          toast.success(`检查完成（${hostName}）`);
+        }
+        await refreshContainers(true);
       }
-      // 使用优化的刷新函数
-      await refreshContainers(true);
     },
     onError: (err: any, variables) => {
       const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
@@ -416,34 +421,19 @@ export default function ContainersSection() {
       return r.json();
     },
     onMutate: ({ project, operation }) => {
-      toast.info(`Compose ${operation} 已触发：${project}`);
+      toast.info(`正在执行 Compose ${operation}：${project}`);
     },
     onSuccess: async (data: any, { project, operation }) => {
       if (data.taskId) {
         await fetchTasks();
         selectTask(data.taskId);
         setOpen(true);
-      }
-      if (typeof data?.code === 'number') {
-        toast.success(`Compose 操作完成：${project}（退出码 ${data.code}）`);
+        // Monitor the operation completion
+        await monitorOperationStatus(data.taskId, `Compose ${operation} ${project}`);
       } else {
-        toast.success(`Compose 操作完成：${project}`);
-      }
-      // 立即刷新容器状态
-      await qc.invalidateQueries({ queryKey: ['containers'] });
-
-      if (operation === 'down' || operation === 'up') {
-        // compose down/up 需要更频繁的刷新，因为容器被物理删除/创建
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 500);
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1500);
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 6000);
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 10000);
-      } else {
-        // 其他操作的正常刷新频率
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 3000);
-        setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
+        // Fallback for operations that don't return taskId
+        toast.success(`Compose ${operation} 完成：${project}`);
+        await refreshContainers(true);
       }
     },
     onError: (err: any, { project, operation }) => {
@@ -871,15 +861,21 @@ export default function ContainersSection() {
                           </>
                         ) : (
                           <>
-                            <DropdownMenuItem onClick={async ()=>{ 
+                            <DropdownMenuItem onClick={async ()=>{
                               const opId = await startOperation(`重启 ${first.name}`);
-                              toast.info(`已触发重启：${first.name}`);
+                              toast.info(`正在重启：${first.name}`);
                               try {
                                 const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                 if (!r.ok) throw new Error(await r.text());
-                                toast.success(`重启请求已受理：${first.name}`);
+                                const result = await r.json();
+                                if (result.taskId) {
+                                  await monitorOperationStatus(result.taskId, `重启 ${first.name}`);
+                                } else {
+                                  toast.success(`重启完成：${first.name}`);
+                                  await refreshContainers(true);
+                                }
                               } catch (e: any) {
-                                toast.error(`重启触发失败：${first.name} - ${e?.message || '未知错误'}`);
+                                toast.error(`重启失败：${first.name} - ${e?.message || '未知错误'}`);
                               }
                             }}>重启容器</DropdownMenuItem>
                                 {(() => {
@@ -889,19 +885,21 @@ export default function ContainersSection() {
                                   return (
                                     <>
                                       {!running && (
-                                        <DropdownMenuItem onClick={async ()=>{ 
+                                        <DropdownMenuItem onClick={async ()=>{
                                           const opId = await startOperation(`启动 ${first.name}`);
-                                          toast.info(`已触发启动：${first.name}`);
+                                          toast.info(`正在启动：${first.name}`);
                                           try {
                                             const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                             if (!r.ok) throw new Error(await r.text());
-                                            toast.success(`启动请求已受理：${first.name}`);
-                                            // 立即刷新并延迟刷新确保状态更新
-                                            qc.invalidateQueries({ queryKey: ['containers'] });
-                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 2000);
-                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
+                                            const result = await r.json();
+                                            if (result.taskId) {
+                                              await monitorOperationStatus(result.taskId, `启动 ${first.name}`);
+                                            } else {
+                                              toast.success(`启动完成：${first.name}`);
+                                              await refreshContainers(true);
+                                            }
                                           } catch (e: any) {
-                                            toast.error(`启动触发失败：${first.name} - ${e?.message || '未知错误'}`);
+                                            toast.error(`启动失败：${first.name} - ${e?.message || '未知错误'}`);
                                           }
                                         }}>启动容器</DropdownMenuItem>
                                       )}
@@ -915,39 +913,43 @@ export default function ContainersSection() {
                                   return (
                                     <>
                                       {running && (
-                                        <DropdownMenuItem onClick={async ()=>{ 
+                                        <DropdownMenuItem onClick={async ()=>{
                                           const opId = await startOperation(`停止 ${first.name}`);
-                                          toast.info(`已触发停止：${first.name}`);
+                                          toast.info(`正在停止：${first.name}`);
                                           try {
                                             const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
                                             if (!r.ok) throw new Error(await r.text());
-                                            toast.success(`停止请求已受理：${first.name}`);
-                                            // 立即刷新并延迟刷新确保状态更新
-                                            qc.invalidateQueries({ queryKey: ['containers'] });
-                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 2000);
-                                            setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
+                                            const result = await r.json();
+                                            if (result.taskId) {
+                                              await monitorOperationStatus(result.taskId, `停止 ${first.name}`);
+                                            } else {
+                                              toast.success(`停止完成：${first.name}`);
+                                              await refreshContainers(true);
+                                            }
                                           } catch (e: any) {
-                                            toast.error(`停止触发失败：${first.name} - ${e?.message || '未知错误'}`);
+                                            toast.error(`停止失败：${first.name} - ${e?.message || '未知错误'}`);
                                           }
                                         }}>停止容器</DropdownMenuItem>
                                       )}
                                     </>
                                   );
                                 })()}
-                            <DropdownMenuItem onClick={async ()=>{ 
+                            <DropdownMenuItem onClick={async ()=>{
                               const i = first;
                               const opId = await startOperation(`更新 ${i.name}`);
-                              toast.info(`已触发更新：${i.name}`);
+                              toast.info(`正在更新：${i.name}`);
                               try {
                                 const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId }) });
                                 if (!r.ok) throw new Error(await r.text());
-                                toast.success(`更新请求已受理：${i.name}`);
-                                // 立即刷新并延迟刷新确保状态更新
-                                qc.invalidateQueries({ queryKey: ['containers'] });
-                                setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 2000);
-                                setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 5000);
+                                const result = await r.json();
+                                if (result.taskId) {
+                                  await monitorOperationStatus(result.taskId, `更新 ${i.name}`);
+                                } else {
+                                  toast.success(`更新完成：${i.name}`);
+                                  await refreshContainers(true);
+                                }
                               } catch (e: any) {
-                                toast.error(`更新触发失败：${i.name} - ${e?.message || '未知错误'}`);
+                                toast.error(`更新失败：${i.name} - ${e?.message || '未知错误'}`);
                               }
                             }}>更新容器</DropdownMenuItem>
                           </>
@@ -971,16 +973,19 @@ export default function ContainersSection() {
                               });
                               if (!r.ok) throw new Error('检查失败');
                               const result = await r.json();
-                              if (result.updated > 0) {
-                                toast.success(`${title} 组有 ${result.updated} 个容器可更新`);
-                              } else if (result.error) {
-                                toast.warning(`${title} 组检查失败: ${result.error}`);
+                              if (result.taskId) {
+                                await monitorOperationStatus(result.taskId, `检查 ${title} 组更新`);
                               } else {
-                                toast.success(`${title} 组所有容器已是最新版本`);
+                                // Fallback for operations that don't return taskId
+                                if (result.updated > 0) {
+                                  toast.success(`${title} 组有 ${result.updated} 个容器可更新`);
+                                } else if (result.error) {
+                                  toast.warning(`${title} 组检查失败: ${result.error}`);
+                                } else {
+                                  toast.success(`${title} 组所有容器已是最新版本`);
+                                }
+                                await refreshContainers(true);
                               }
-                              // 立即刷新容器状态
-                              qc.invalidateQueries({ queryKey: ['containers'] });
-                              setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
                             } catch (e: any) {
                               toast.error(`检查 ${title} 组更新失败: ${e?.message || '未知错误'}`);
                             }
@@ -995,16 +1000,19 @@ export default function ContainersSection() {
                               });
                               if (!r.ok) throw new Error('检查失败');
                               const result = await r.json();
-                              if (result.updated > 0) {
-                                toast.success(`${first.name} 有更新可用`);
-                              } else if (result.error) {
-                                toast.warning(`${first.name} 检查失败: ${result.error}`);
+                              if (result.taskId) {
+                                await monitorOperationStatus(result.taskId, `检查 ${first.name} 更新`);
                               } else {
-                                toast.success(`${first.name} 已是最新版本`);
+                                // Fallback for operations that don't return taskId
+                                if (result.updated > 0) {
+                                  toast.success(`${first.name} 有更新可用`);
+                                } else if (result.error) {
+                                  toast.warning(`${first.name} 检查失败: ${result.error}`);
+                                } else {
+                                  toast.success(`${first.name} 已是最新版本`);
+                                }
+                                await refreshContainers(true);
                               }
-                              // 立即刷新容器状态
-                              qc.invalidateQueries({ queryKey: ['containers'] });
-                              setTimeout(() => qc.invalidateQueries({ queryKey: ['containers'] }), 1000);
                             } catch (e: any) {
                               toast.error(`检查 ${first.name} 更新失败: ${e?.message || '未知错误'}`);
                             }

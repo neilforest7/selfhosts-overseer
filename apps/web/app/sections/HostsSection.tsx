@@ -85,19 +85,22 @@ export default function HostsSection() {
     return list.every((h) => selected[h.id]);
   }, [hostsQuery.data, selected]);
 
-  const testConnection = async (id: string) => {
+  const testConnection = async (id: string, hostName: string) => {
     setTesting(prev => ({ ...prev, [id]: true }));
     try {
+      toast.info(`正在测试连接：${hostName}`);
+
       const r = await fetch(`http://localhost:3001/api/v1/hosts/${id}/test-connection`, { method: 'POST' });
       const data = await r.json().catch(()=>({ ok:false }));
+
       if (data.ok) {
-        toast.success('连通性正常');
+        toast.success(`连通性正常：${hostName}`);
       } else {
         const detail = (data.stderr || data.stdout || '').toString().slice(0, 200);
-        toast.error(`连通性失败: ${detail || '请检查地址/端口/认证方式'}`);
+        toast.error(`连通性失败：${hostName} - ${detail || '请检查地址/端口/认证方式'}`);
       }
     } catch (error) {
-      toast.error('测试连接时发生错误');
+      toast.error(`测试连接时发生错误：${hostName}`);
     } finally {
       setTesting(prev => ({ ...prev, [id]: false }));
     }
@@ -214,7 +217,7 @@ export default function HostsSection() {
                   <HostStatusIndicator
                     status={connectivity?.status || h.status || 'UNKNOWN'}
                     responseTime={connectivity?.responseTime}
-                    lastChecked={connectivity?.lastChecked || h.lastConnectivityCheck}
+                    lastChecked={connectivity?.lastChecked || h.lastConnectivityCheck || undefined}
                     lastOnline={connectivity?.lastOnline}
                     lastOffline={connectivity?.lastOffline}
                     errorMessage={connectivity?.errorMessage}
@@ -235,7 +238,7 @@ export default function HostsSection() {
                 </TableCell>
                 <TableCell className="text-right space-x-2">
                   {/* <Button variant="secondary" onClick={()=>{ setEditing(h); setDialogOpen(true); }}>修改凭据</Button> */}
-                  <Button variant="secondary" onClick={()=>testConnection(h.id)} disabled={testing[h.id]}>
+                  <Button variant="secondary" onClick={()=>testConnection(h.id, h.name)} disabled={testing[h.id]}>
                     {testing[h.id] ? '测试中...' : '测试连接'}
                   </Button>
                   <Button onClick={() => { setEditing(h); setDialogOpen(true); }}>编辑</Button>
