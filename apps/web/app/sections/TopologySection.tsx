@@ -24,17 +24,18 @@ const stylesheet = [
   {
     selector: 'node[type="group"]',
     style: {
-      'background-color': '#f0f4f8',
+      'background-color': '#cce6ed',
       'border-color': '#a0b3c4',
       'border-width': 2,
       'border-style': 'dashed',
       label: 'data(label)',
       'text-valign': 'top',
       'text-halign': 'center',
-      'padding-top': '10px',
-      'font-size': '26px',
+      'padding-top': '40px',
+      'padding-bottom': '40px',
+      'font-size': '36px',
       'font-weight': 'bold',
-      color: '#717889',
+      color: '#cce6ed',
     },
   },
   // Host node styles (as containers for other nodes)
@@ -47,12 +48,34 @@ const stylesheet = [
       'border-width': 6,
       'border-style': 'dotted',
       label: 'data(label)',
-      'text-valign': 'top',
+      'text-valign': 'center',
       'text-halign': 'center',
       'padding-top': '16px',
-      'font-size': '24px',
+      'font-size': '36px',
       'font-weight': 'bold',
-      color: '#65657d',
+      color: '#ffffff',
+    },
+  },
+  // Default node styles
+  {
+    selector: 'node[type!="group"][type!="host"][type!="compose-group"][type!="remote-port"][type!="logical-container"][type!="domain"]',
+    style: {
+      width: 180,
+      height: 40,
+      shape: 'round-rectangle',
+      label: 'data(label)',
+      'font-size': '18px',
+      'text-wrap': 'wrap',
+      'text-max-width': 120,
+      'text-valign': 'center',
+      'text-margin-y': 0,
+      color: '#fff',
+      'background-color': '#3498db',
+      'border-color': '#2980b9',
+      'text-outline-color': '#2980b9',
+      'text-outline-width': 3,
+      'text-outline-opacity': 1,
+      'border-width': 2,
     },
   },
   // Compose group styles
@@ -67,8 +90,8 @@ const stylesheet = [
       label: 'data(label)',
       'text-valign': 'top',
       'text-halign': 'center',
-      'padding-top': '5px',
-      'font-size': '10px',
+      'padding-top': '20px',
+      'font-size': '16px',
       color: '#6686a8',
     },
   },
@@ -132,51 +155,44 @@ const stylesheet = [
       'border-width': 2,
     },
   },
-  {
-    selector: 'node[type!="group"][type!="host"][type!="compose-group"][type!="remote-port"][type!="logical-container"][type!="domain"]',
-    style: {
-      width: 80,
-      height: 80,
-      label: 'data(label)',
-      'font-size': '18px',
-      'text-wrap': 'wrap',
-      'text-max-width': 80,
-      'text-valign': 'center',
-      'text-margin-y': 0,
-      color: '#fff',
-      'background-color': '#3498db',
-      'border-color': '#2980b9',
-      'text-outline-color': '#2980b9',
-      'text-outline-width': 3,
-      'text-outline-opacity': 1,
-      'border-width': 2,
-    },
-  },
+  // Container type styles
+  // NPM
   {
     selector: 'node[type="npm"]',
-    style: { 
+    style: {
+      shape: 'ellipse', 
+      'width': '120px', // 大圆圈
+      'height': '120px',
       'background-color': '#2ecc71', 
       'border-color': '#27ae60',
       'text-outline-color': '#27ae60',
       'font-size': '24px',
     },
   },
+  // frps
   {
     selector: 'node[type="frps"]',
     style: { 
+      shape: 'ellipse', 
+      'width': '120px', // 大圆圈
+      'height': '120px',
       'background-color': '#e67e22',
       'border-color': '#d35400', 
       'text-outline-color': '#d35400',
-      'font-size': '24px',
+      'font-size': '36px',
     },
   },
+  // frpc
   {
     selector: 'node[type="frpc"]',
     style: {
+      shape: 'ellipse', 
+      'width': '120px', // 大圆圈
+      'height': '120px',
       'background-color': '#f1c40f',
       'border-color': '#f39c12',
       'text-outline-color': '#f39c12',
-      'font-size': '24px',
+      'font-size': '36px',
     },
   },
   // DNS Provider styles
@@ -185,8 +201,8 @@ const stylesheet = [
     style: {
       'background-color': '#FF6347', // 鲜橙色
       'shape': 'ellipse', // 圆圈形状
-      'width': '80px', // 大圆圈
-      'height': '80px',
+      'width': '120px', // 大圆圈
+      'height': '120px',
       'border-width': 3,
       'border-color': '#FF4500',
       'color': '#FFFFFF',
@@ -395,7 +411,25 @@ const applyHostContainerLayouts = (cy: cytoscape.Core) => {
     // Get the host's bounding box for X-axis calculations
     const hostBB = hostNode.boundingBox();
     const padding = 20;
-    const availableWidth = hostBB.w - (padding * 2);
+
+    // Calculate available width based on actual content widths
+    // Width A: Sum of widths of all target nodes (compose-group, container, logical-container, remote-port)
+    const allTargetNodes = composeGroups.union(standaloneContainers).union(logicalContainers).union(remotePortNodes);
+    const widthA = allTargetNodes.reduce((sum, node) => {
+      return sum + node.boundingBox().w + padding;
+    }, 0);
+
+    // Width B: Sum of widths of all domain nodes that are children of the host
+    const hostDomainNodes = hostNode.children('[type="domain"]');
+    const widthB = hostDomainNodes.reduce((sum, node) => {
+      return sum + node.boundingBox().w + padding;
+    }, 0);
+
+    // Use the maximum of these two widths as the basis for availableWidth
+    const contentBasedWidth = Math.max(widthA, widthB);
+    hostNode.style({ 'width': contentBasedWidth, 'height': hostBB.h });
+
+    const availableWidth = contentBasedWidth > 0 ? contentBasedWidth : hostBB.w - (padding * 2);
 
     // Calculate horizontal spacing for even distribution
     const nodeSpacing = targetNodes.length > 1 ? availableWidth / (targetNodes.length + 1) : availableWidth / 2;
@@ -412,16 +446,22 @@ const applyHostContainerLayouts = (cy: cytoscape.Core) => {
           y: currentPosition.y
         });
       });
+      // targetNodes.layout({
+      //   name: 'circle'
+      // }).run();
     } else {
-      // targetNodes.forEach((node, index) => {
-      //   const currentPosition = node.position();
-      //   const newX = hostBB.x1 + padding + nodeSpacing * (index + 1);
+      targetNodes.forEach((node, index) => {
+        const currentPosition = node.position();
+        const newX = hostBB.x1 + padding + nodeSpacing * (index + 1);
 
-      //   node.position({
-      //     x: newX,
-      //     y: currentPosition.y
-      //   });
-      // });
+        node.position({
+          x: newX,
+          y: currentPosition.y
+        });
+      });
+      // targetNodes.layout({
+      //   name: 'circle'
+      // }).run();
     }
 
     const domainNodes = hostNode.children('[type="domain"]');
@@ -436,9 +476,28 @@ const applyHostContainerLayouts = (cy: cytoscape.Core) => {
         y: currentPosition.y
       });
     });
+
+    const frpNodes = hostNode.children('[type="frpc"]').union(hostNode.children('[type="frps"]'));
+    const npmNodes = hostNode.children('[type="npm"]');
+    const centerPosNode = frpNodes.union(npmNodes)
+    centerPosNode.forEach((node, index) => {
+      const currentPosition = node.position();
+      node.position({
+        x: hostBB.x1+hostBB.w/2,
+        y: currentPosition.y,
+      });
+    });
   });
 
   // No need to call cy.fit() as we're making minimal changes
+};
+
+const applyHostContainerLayouts2 = (cy: cytoscape.Core) => {
+  cy.nodes("node[id='group-dns']").children().layout({
+    name: 'concentric',
+      fit: false,
+  });
+  // cy.fit();
 };
 
 export default function TopologySection() {
@@ -490,15 +549,14 @@ export default function TopologySection() {
                 layout={layout}
                 style={{ width: '100%', height: '100%' }}
                 cy={(cy) => {
-                  cy.maxZoom(2);
-                  cy.minZoom(0.2);
-
+                  cy.maxZoom(3);
+                  cy.minZoom(0.05);
                   // Apply auto-layout within host containers after main layout
                   cy.ready(() => {
                     // Add a small delay to ensure the main layout is complete
                     setTimeout(() => {
-                      applyHostContainerLayouts(cy);
-                    }, 100);
+                      applyHostContainerLayouts2(cy);
+                    }, 400);
                   });
                 }}
               />
