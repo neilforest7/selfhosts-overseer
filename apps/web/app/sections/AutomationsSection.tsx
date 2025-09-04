@@ -4,12 +4,13 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, MoreHorizontal, Trash2, Pencil, PlayCircle, AlertCircle } from 'lucide-react';
+import { PlusCircle, MoreHorizontal, Trash2, Pencil, PlayCircle, AlertCircle, Play } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { CreateEditAutomationRuleDialog } from './CreateEditAutomationRuleDialog';
+import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 
 // Matches the Prisma model and the backend response
 export type AutomationRule = {
@@ -37,6 +38,7 @@ export default function AutomationsSection() {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedRule, setSelectedRule] = useState<AutomationRule | null>(null);
+  const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
 
   const { data: rules = [], isLoading } = useQuery<AutomationRule[]>({
     queryKey: ['automationRules'],
@@ -46,12 +48,12 @@ export default function AutomationsSection() {
   const mutationOptions = {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['automationRules'] });
-      toast.success('Automation rule saved successfully');
+      toast.success('自动化规则保存成功');
       setIsDialogOpen(false);
       setSelectedRule(null);
     },
     onError: (error: Error) => {
-      toast.error('Failed to save rule', { description: error.message });
+      toast.error('保存规则失败', { description: error.message });
     },
   };
 
@@ -66,13 +68,25 @@ export default function AutomationsSection() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => fetch(`/api/v1/automations/${id}`, { method: 'DELETE' }),
-     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['automationRules'] });
-      toast.success('Automation rule deleted');
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/v1/automations/${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        throw new Error('删除失败');
+      }
+      return response;
     },
-    onError: (error: Error) => {
-      toast.error('Failed to delete rule', { description: error.message });
+    onMutate: (id: string) => {
+      const rule = rules.find(r => r.id === id);
+      toast.info(`正在删除规则：${rule?.name || id}`);
+    },
+    onSuccess: (_, id) => {
+      const rule = rules.find(r => r.id === id);
+      queryClient.invalidateQueries({ queryKey: ['automationRules'] });
+      toast.success(`规则删除成功：${rule?.name || id}`);
+    },
+    onError: (error: Error, id) => {
+      const rule = rules.find(r => r.id === id);
+      toast.error(`删除规则失败：${rule?.name || id}`, { description: error.message });
     },
   });
 
@@ -85,17 +99,53 @@ export default function AutomationsSection() {
   };
   
   const handleToggle = (rule: AutomationRule) => {
-    updateMutation.mutate({ id: rule.id, data: { isEnabled: !rule.isEnabled } });
+    const newState = !rule.isEnabled;
+    toast.info(`正在${newState ? '启用' : '禁用'}规则：${rule.name}`);
+    updateMutation.mutate({
+      id: rule.id,
+      data: { isEnabled: newState }
+    });
+  };
+
+  const handleTestRule = async (rule: AutomationRule) => {
+    try {
+      const opId = await startOperation(`测试规则 ${rule.name}`);
+      toast.info(`正在测试规则：${rule.name}`);
+
+      const response = await fetch(`/api/v1/automations/${rule.id}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opId })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || '测试执行失败');
+      }
+
+      const result = await response.json();
+      if (result.taskId) {
+        await fetchTasks();
+        selectTask(result.taskId);
+        setOpen(true);
+        toast.success(`规则测试已启动：${rule.name}`);
+      } else {
+        toast.success(`规则测试完成：${rule.name}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      toast.error(`规则测试失败：${rule.name}`, { description: errorMessage });
+    }
   };
 
   return (
     <>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Automation Rules</CardTitle>
+          <CardTitle>自动化规则</CardTitle>
           <Button onClick={() => { setSelectedRule(null); setIsDialogOpen(true); }}>
             <PlusCircle className="mr-2 h-4 w-4" />
-            New Rule
+            新建规则
           </Button>
         </CardHeader>
         <CardContent>
@@ -103,16 +153,16 @@ export default function AutomationsSection() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[80px]">Enabled</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Stats</TableHead>
-                  <TableHead>Last Modified</TableHead>
-                  <TableHead className="w-[100px]">Actions</TableHead>
+                  <TableHead className="w-[80px]">启用</TableHead>
+                  <TableHead>名称</TableHead>
+                  <TableHead>统计</TableHead>
+                  <TableHead>最后修改</TableHead>
+                  <TableHead className="w-[100px]">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? ( <TableRow><TableCell colSpan={5} className="h-24 text-center">Loading...</TableCell></TableRow> ) 
-                : rules.length === 0 ? ( <TableRow><TableCell colSpan={5} className="h-24 text-center">No automation rules found.</TableCell></TableRow> ) 
+                {isLoading ? ( <TableRow><TableCell colSpan={5} className="h-24 text-center">加载中...</TableCell></TableRow> )
+                : rules.length === 0 ? ( <TableRow><TableCell colSpan={5} className="h-24 text-center">暂无自动化规则</TableCell></TableRow> )
                 : (
                   rules.map((rule) => (
                     <TableRow key={rule.id}>
@@ -141,8 +191,14 @@ export default function AutomationsSection() {
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setSelectedRule(rule); setIsDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-600" onClick={() => deleteMutation.mutate(rule.id)}><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleTestRule(rule)}
+                              disabled={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending}
+                            >
+                              <Play className="mr-2 h-4 w-4" />测试规则
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setSelectedRule(rule); setIsDialogOpen(true); }}><Pencil className="mr-2 h-4 w-4" />编辑</DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600" onClick={() => deleteMutation.mutate(rule.id)}><Trash2 className="mr-2 h-4 w-4" />删除</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

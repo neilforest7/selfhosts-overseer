@@ -12,6 +12,7 @@ import {
 import { AutomationsService } from './automations.service';
 import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
 import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
+import { TestAutomationRuleDto } from './dto/test-automation-rule.dto';
 
 @Controller('/api/v1/automations')
 export class AutomationsController {
@@ -42,5 +43,11 @@ export class AutomationsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
     return this.automationsService.remove(id);
+  }
+
+  @Post(':id/test')
+  @HttpCode(HttpStatus.OK)
+  test(@Param('id') id: string, @Body() data: TestAutomationRuleDto) {
+    return this.automationsService.testRule(id, data);
   }
 }

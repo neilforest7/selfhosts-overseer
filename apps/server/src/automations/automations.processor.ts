@@ -69,6 +69,9 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
     } else if (job.name === 'automation-rule') {
       const { ruleId } = job.data;
       await this.executeRule(ruleId);
+    } else if (job.name === 'test-automation-rule') {
+      const { ruleId, opId, customFacts } = job.data;
+      await this.testRule(ruleId, opId, customFacts);
     }
   }
 
@@ -103,6 +106,74 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
     } else {
       this.logger.debug(`Rule ${rule.name} did not trigger any events.`);
     }
+  }
+
+  private async testRule(ruleId: string, opId: string, customFacts?: Record<string, any>): Promise<void> {
+    return this.contextService.run(opId, async () => {
+      let isFailed = false;
+      try {
+        this.operationLogService.log('info', `开始测试自动化规则 ${ruleId}`);
+
+        const rule = await this.prisma.automationRule.findUnique({
+          where: { id: ruleId },
+        });
+
+        if (!rule) {
+          throw new Error(`Rule ${ruleId} not found`);
+        }
+
+        this.operationLogService.log('info', `规则名称: ${rule.name}`);
+        this.operationLogService.log('info', `规则状态: ${rule.isEnabled ? '启用' : '禁用'}`);
+
+        const engine = this.createConfiguredEngine();
+        const ruleJson = rule.ruleJson as unknown as RuleJson;
+
+        // Log the rule configuration
+        this.operationLogService.log('info', `规则配置: ${JSON.stringify(ruleJson, null, 2)}`);
+
+        const event = { ...ruleJson.event };
+        event.params = { ...event.params, __ruleId: rule.id, __ruleName: rule.name, __testMode: true };
+
+        engine.addRule({
+          conditions: ruleJson.conditions,
+          event,
+        });
+
+        // Use custom facts if provided, otherwise gather real facts
+        const facts = customFacts || await this.gatherFacts();
+        this.operationLogService.log('info', `使用的事实数据: ${JSON.stringify(facts, null, 2)}`);
+
+        const { events } = await engine.run(facts);
+
+        this.operationLogService.log('info', `规则评估完成，触发了 ${events.length} 个事件`);
+
+        if (events.length > 0) {
+          for (const event of events) {
+            this.operationLogService.log('info', `触发事件: ${JSON.stringify(event, null, 2)}`);
+
+            // In test mode, we don't actually execute the actions, just log what would happen
+            if (event.params?.__testMode) {
+              this.operationLogService.log('info', `[测试模式] 将执行动作: ${event.type}`);
+              this.operationLogService.log('info', `[测试模式] 动作参数: ${JSON.stringify(event.params, null, 2)}`);
+            } else {
+              // If not in test mode, execute normally
+              await this.handleEvent(event);
+            }
+          }
+        } else {
+          this.operationLogService.log('info', '规则条件未满足，未触发任何事件');
+        }
+
+        this.operationLogService.log('info', '规则测试完成');
+      } catch (error) {
+        isFailed = true;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Error testing rule ${ruleId}: ${errorMessage}`, (error as Error).stack);
+        this.operationLogService.log('error', `测试失败: ${errorMessage}`);
+      } finally {
+        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+      }
+    });
   }
 
   private async evaluateRules(): Promise<void> {

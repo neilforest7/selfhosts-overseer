@@ -1,15 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, TriggerType } from '@prisma/client';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { AUTOMATION_QUEUE_NAME } from './automations.processor';
+import { TestAutomationRuleDto } from './dto/test-automation-rule.dto';
+import { OperationLogService } from '../operation-log/operation-log.service';
+import { ContextService } from '../context/context.service';
 
 @Injectable()
 export class AutomationsService {
   constructor(
     private prisma: PrismaService,
     @InjectQueue(AUTOMATION_QUEUE_NAME) private readonly automationsQueue: Queue,
+    private operationLogService: OperationLogService,
+    private contextService: ContextService,
   ) {}
 
   async create(data: Prisma.AutomationRuleCreateInput) {
@@ -79,5 +84,39 @@ export class AutomationsService {
     return this.prisma.automationRule.findMany({
       where: { isEnabled: true },
     });
+  }
+
+  async testRule(id: string, data: TestAutomationRuleDto) {
+    // Find the rule
+    const rule = await this.prisma.automationRule.findUnique({
+      where: { id },
+    });
+
+    if (!rule) {
+      throw new Error(`Automation rule with id ${id} not found`);
+    }
+
+    // Create operation log for tracking
+    const opLog = await this.operationLogService.create({
+      title: `测试自动化规则: ${rule.name}`,
+      triggerType: TriggerType.MANUAL,
+      automationRuleId: rule.id,
+      triggerContext: {
+        testMode: true,
+        customFacts: data.customFacts || null,
+      },
+    });
+
+    // Queue the test execution as a background job
+    await this.automationsQueue.add('test-automation-rule', {
+      ruleId: id,
+      opId: opLog.id,
+      customFacts: data.customFacts,
+    });
+
+    return {
+      taskId: opLog.id,
+      message: `规则测试已启动: ${rule.name}`,
+    };
   }
 }
