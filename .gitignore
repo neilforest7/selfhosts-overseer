@@ -29,3 +29,40 @@ gha-creds-*.json
 gha-creds-*.json
 .vscode/settings.json
 .augment/
+
+# Security - SSH keys and sensitive files
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.pem
+*.key
+*.p12
+*.pfx
+
+# IDE and editor files
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Log files
+*.log
+server.log
+debug.log
+error.log
+
+# AI assistant files
+CLAUDE.md
+GEMINI.md
+OPENAI.md
+ANTHROPIC.md
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.backup
+.DS_Store
+Thumbs.db
