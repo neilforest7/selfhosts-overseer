@@ -24,18 +24,20 @@ const stylesheet = [
   {
     selector: 'node[type="group"]',
     style: {
-      'background-color': '#cce6ed',
-      'border-color': '#a0b3c4',
+      'background-color': '#f1f1f1',
+      'border-color': '#c8d1d8',
       'border-width': 2,
       'border-style': 'dashed',
       label: 'data(label)',
       'text-valign': 'top',
-      'text-halign': 'center',
+      'text-halign': 'left',
       'padding-top': '40px',
       'padding-bottom': '40px',
-      'font-size': '36px',
+      'font-size': '64px',
       'font-weight': 'bold',
-      color: '#cce6ed',
+      color: '#f1f1f1',
+      'text-outline-color': '#c8d1d8',
+      'text-outline-width': 4,
     },
   },
   // Host node styles (as containers for other nodes)
@@ -43,17 +45,37 @@ const stylesheet = [
     selector: 'node[type="host"]',
     style: {
       shape: 'rectangle',
-      'background-color': '#e3e6f0',
-      'border-color': '#ccccd8',
-      'border-width': 6,
+      'background-color': '#cdd1df',
+      'border-color': '#aab4d4',
+      'border-width': 2,
       'border-style': 'dotted',
       label: 'data(label)',
       'text-valign': 'center',
       'text-halign': 'center',
       'padding-top': '16px',
-      'font-size': '36px',
+      'font-size': '240px',
       'font-weight': 'bold',
       color: '#ffffff',
+    },
+  },
+  // DNS group styles
+  {
+    selector: 'node[id="group-dns"]',
+    style: {
+      'background-color': '#f1f1f1',
+      'border-color': '#c8d1d8',
+      'border-width': 2,
+      'border-style': 'dashed',
+      label: 'data(label)',
+      'text-valign': 'top',
+      'text-halign': 'left',
+      'padding-top': '40px',
+      'padding-bottom': '40px',
+      'font-size': '64px',
+      'font-weight': 'bold',
+      color: '#f1f1f1',
+      'text-outline-color': '#c8d1d8',
+      'text-outline-width': 4,
     },
   },
   // Default node styles
@@ -90,9 +112,11 @@ const stylesheet = [
       label: 'data(label)',
       'text-valign': 'top',
       'text-halign': 'center',
-      'padding-top': '20px',
-      'font-size': '16px',
-      color: '#6686a8',
+      'padding-top': '28px',
+      'font-size': '28px',
+      'text-outline-color': '#6686a8',
+      'text-outline-width': 4,
+      color: '#fff',
     },
   },
   // Remote port styles
@@ -127,7 +151,6 @@ const stylesheet = [
       'text-valign': 'center',
       'text-outline-color': '#2980b9',
       'text-outline-width': 2,
-      'text-outline-opacity': 1,
       color: '#fff',
       width: 80,
       height: 80,
@@ -206,6 +229,8 @@ const stylesheet = [
       'border-width': 3,
       'border-color': '#FF4500',
       'color': '#FFFFFF',
+      'text-outline-color': '#FF4500',
+      'font-size': '36px',
       'text-valign': 'center',
       'text-halign': 'center',
       'font-weight': 'bold',
@@ -217,17 +242,17 @@ const stylesheet = [
     style: {
       shape: 'round-rectangle',
       label: 'data(label)',
-      'font-size': '18px',
+      'font-size': '24px',
       'text-wrap': 'wrap',
       'text-max-width': 80,
       'text-valign': 'center',
       'text-margin-y': 0,
       'width': 210,
       'height': 40,
-      'background-color': '#c89dd8',
-      'border-color': '#a975c0',
+      'background-color': '#bd6ca4',
+      'border-color': '#873b56',
       color: '#fff',
-      'text-outline-color': '#a975c0',
+      'text-outline-color': '#873b56',
       'text-outline-width': 3,
       'text-outline-opacity': 1,
       'border-width': 2,
@@ -251,13 +276,13 @@ const stylesheet = [
   {
     selector: 'edge',
     style: {
-      width: 2,
+      width: 6,
       'line-color': '#a0b3c4',
       'target-arrow-color': '#a0b3c4',
       'target-arrow-shape': 'triangle',
       'curve-style': 'round-taxi',
       'taxi-direction':'vertical',
-      'taxi-radius':'30',
+      'taxi-radius':'50',
       'taxi-turn':'40%',
       'edge-distances':'node-position',
       label: 'data(label)',
@@ -268,13 +293,13 @@ const stylesheet = [
   {
     selector: 'edge[type="exposes-edge"]',
     style: {
-      width: 2,
+      width: 6,
       'line-color': '#a0b3c4',
       'target-arrow-color': '#a0b3c4',
       'target-arrow-shape': 'triangle',
       'curve-style': 'round-taxi',
       'taxi-direction': 'vertical',
-      'taxi-radius': '30',
+      'taxi-radius': '50',
       'taxi-turn': '50%',
       'edge-distances': 'node-position',
       // label: '',
@@ -285,13 +310,13 @@ const stylesheet = [
   {
     selector: 'edge[type="opens-edge"]',
     style: {
-      width: 2,
+      width: 6,
       'line-color': '#e74c3c',
-      'target-arrow-color': '#a0b3c4',
+      'target-arrow-color': '#e74c3c',
       'target-arrow-shape': 'triangle',
       'curve-style': 'round-taxi',
       'taxi-direction': 'vertical',
-      'taxi-radius': '30',
+      'taxi-radius': '80',
       'taxi-turn': '50%',
       'edge-distances': 'node-position',
       // label: '',
@@ -302,13 +327,13 @@ const stylesheet = [
   {
     selector: 'edge[type="frpc-edge"]',
     style: {
-      width: 2,
-      'line-color': '#e7b93c',
-      'target-arrow-color': '#a0b3c4',
+      width: 6,
+      'line-color': '#e5a717',
+      'target-arrow-color': '#e5a717',
       'target-arrow-shape': 'triangle',
       'curve-style': 'round-taxi',
       'taxi-direction': 'vertical',
-      'taxi-radius': '30',
+      'taxi-radius': '80',
       'taxi-turn': '160px',
       'edge-distances': 'node-position',
       // label: 'data(label)',
@@ -319,12 +344,16 @@ const stylesheet = [
   {
     selector: 'edge[type="tunnel-edge"]',
     style: {
-      'curve-style': 'bezier',
+      'curve-style': 'round-taxi',
       'control-point-step-size': '14px',
-      'line-color': '#c2cfdb',
-      'target-arrow-color': '#a0b3c4',
+      'line-color': '#e5a717',
+      'target-arrow-color': '#e5a717',
       // label: 'data(label)',
       'font-size': '12px',
+      'taxi-direction': 'vertical',
+      'taxi-radius': '80',
+      'taxi-turn': '160px',
+
     },
   },
   // DNS-related edge styles
@@ -336,7 +365,7 @@ const stylesheet = [
       'target-arrow-shape': 'triangle',
       'line-color': '#9370DB',
       'target-arrow-color': '#9370DB',
-      'width': 2,
+      'width': 6,
       // label: 'data(label)',
       'font-size': '8px',
     },
@@ -344,12 +373,16 @@ const stylesheet = [
   {
     selector: 'edge[type="dns-record-to-npm-edge"]',
     style: {
-      'curve-style': 'straight', // Render as straight lines
+      'curve-style': 'round-taxi',
+      'taxi-direction': 'vertical',
+      'taxi-radius': '80',
+      'taxi-turn': '200px',
+      // Render as straight lines
       'line-style': 'solid',
       'target-arrow-shape': 'triangle',
       'line-color': '#27ae60',
       'target-arrow-color': '#27ae60',
-      'width': 2,
+      'width': 4,
       // label: 'data(label)',
       'font-size': '8px',
     },
@@ -357,25 +390,31 @@ const stylesheet = [
   {
     selector: 'edge[type="dns-provider-to-record-edge"]',
     style: {
-      'curve-style': 'straight',
+      'curve-style': 'round-taxi',
       'line-style': 'solid',
       'target-arrow-shape': 'triangle',
       'line-color': '#FF6347',
       'target-arrow-color': '#FF6347',
-      'width': 2,
+      'width': 4,
       // label: 'data(label)',
+      'taxi-direction': 'verticle',
+      'taxi-radius': '90',
+      'taxi-turn': '120px',
       'font-size': '8px',
     },
   },
   {
     selector: 'edge[type="dns-management-edge"]',
     style: {
-      'curve-style': 'straight',
+      'curve-style': 'round-taxi',
+      'taxi-direction': 'vertical',
+      'taxi-radius': '80',
+      'taxi-turn': '160px',
       'line-style': 'solid',
       'target-arrow-shape': 'triangle',
       'line-color': '#FF6347',
       'target-arrow-color': '#FF6347',
-      'width': 2,
+      'width': 6,
       // label: 'data(label)',
       'font-size': '8px',
     },
@@ -391,7 +430,7 @@ const layout = {
 };
 
 // Function to apply minimal auto-layout within individual host containers
-// Only adjusts X-axis positioning while preserving Y-axis positions
+// Arranges target nodes horizontally and positions domain nodes above them
 const applyHostContainerLayouts = (cy: cytoscape.Core) => {
   // Get all host nodes
   const hostNodes = cy.nodes('[type="host"]');
@@ -410,7 +449,7 @@ const applyHostContainerLayouts = (cy: cytoscape.Core) => {
 
     // Get the host's bounding box for X-axis calculations
     const hostBB = hostNode.boundingBox();
-    const padding = 20;
+    const padding = 60;
 
     // Calculate available width based on actual content widths
     // Width A: Sum of widths of all target nodes (compose-group, container, logical-container, remote-port)
@@ -430,74 +469,665 @@ const applyHostContainerLayouts = (cy: cytoscape.Core) => {
     hostNode.style({ 'width': contentBasedWidth, 'height': hostBB.h });
 
     const availableWidth = contentBasedWidth > 0 ? contentBasedWidth : hostBB.w - (padding * 2);
-
     // Calculate horizontal spacing for even distribution
     const nodeSpacing = targetNodes.length > 1 ? availableWidth / (targetNodes.length + 1) : availableWidth / 2;
 
-    if (hostNode.children('node[type="npm"]').length === 0) {
-      // Arrange target nodes horizontally while preserving Y positions
-      targetNodes.forEach((node, index) => {
-        const currentPosition = node.position();
-        const newX = hostBB.x1 + padding + nodeSpacing * (index + 1);
+    // Arrange target nodes horizontally with consistent Y-alignment
+    const targetNodePositions: { [key: string]: { x: number; y: number } } = {};
 
-        // Only modify X position, keep Y position unchanged
-        node.position({
-          x: newX,
-          y: currentPosition.y
-        });
-      });
-      // targetNodes.layout({
-      //   name: 'circle'
-      // }).run();
-    } else {
-      targetNodes.forEach((node, index) => {
-        const currentPosition = node.position();
-        const newX = hostBB.x1 + padding + nodeSpacing * (index + 1);
+    // Calculate a consistent Y position for all target nodes (use the average Y position)
+    let totalY = 0;
+    let validYCount = 0;
+    targetNodes.forEach((node) => {
+      const pos = node.position();
+      if (pos && typeof pos.y === 'number' && !isNaN(pos.y)) {
+        totalY += pos.y;
+        validYCount++;
+      }
+    });
+    const consistentY = validYCount > 0 ? totalY / validYCount : hostBB.y1 + hostBB.h * 0.7;
 
-        node.position({
-          x: newX,
-          y: currentPosition.y
-        });
-      });
-      // targetNodes.layout({
-      //   name: 'circle'
-      // }).run();
-    }
+    targetNodes.forEach((node, index) => {
+      const newX = hostBB.x1 + padding + nodeSpacing * (index + 1);
 
-    const domainNodes = hostNode.children('[type="domain"]');
-    const domainNodeSpacing = domainNodes.length > 1 ? (availableWidth - padding *2 ) / (domainNodes.length + 1) : availableWidth / 2;
+      // Store the new position for later use in domain positioning
+      targetNodePositions[node.id()] = { x: newX, y: consistentY };
 
-    domainNodes.forEach((node, index) => {
-      const currentPosition = node.position();
-      const newX = hostBB.x1 + padding + domainNodeSpacing * (index + 1);
-
+      // Set both X position and consistent Y position for horizontal alignment
       node.position({
         x: newX,
-        y: currentPosition.y
+        y: consistentY
       });
     });
 
-    const frpNodes = hostNode.children('[type="frpc"]').union(hostNode.children('[type="frps"]'));
-    const npmNodes = hostNode.children('[type="npm"]');
-    const centerPosNode = frpNodes.union(npmNodes)
-    centerPosNode.forEach((node, index) => {
-      const currentPosition = node.position();
-      node.position({
-        x: hostBB.x1+hostBB.w/2,
-        y: currentPosition.y,
-      });
+    // Position domain nodes: connected ones above targets, unconnected ones grouped together
+    const connectedDomainNodes: any[] = [];
+    const unconnectedDomainNodes: any[] = [];
+
+    hostDomainNodes.forEach((domainNode) => {
+      // Find edges from this domain node to target nodes within the same host
+      const connectedEdges = domainNode.connectedEdges();
+      const connectedTargetNodes = connectedEdges.targets().intersection(targetNodes);
+
+      if (connectedTargetNodes.length > 0) {
+        connectedDomainNodes.push({ node: domainNode, targets: connectedTargetNodes });
+      } else {
+        unconnectedDomainNodes.push(domainNode);
+      }
     });
+
+    // Position connected domain nodes above their corresponding target nodes
+    connectedDomainNodes.forEach(({ node: domainNode, targets: connectedTargetNodes }) => {
+      // Use the first connected target node's X position for alignment
+      const firstTargetNode = connectedTargetNodes[0];
+      const targetPosition = targetNodePositions[firstTargetNode.id()];
+
+      if (targetPosition) {
+        const currentDomainPosition = domainNode.position();
+
+        // Align domain node's X coordinate with the target node's X coordinate
+        // Keep the domain node's Y coordinate unchanged
+        domainNode.position({
+          x: targetPosition.x,
+          y: currentDomainPosition.y
+        });
+      }
+    });
+
+    // Position unconnected domain nodes grouped together horizontally
+    if (unconnectedDomainNodes.length > 0) {
+      // Calculate spacing for unconnected domain nodes
+      const domainSpacing = unconnectedDomainNodes.length > 1 ?
+        availableWidth / (unconnectedDomainNodes.length + 1) :
+        availableWidth / 2;
+
+      unconnectedDomainNodes.forEach((domainNode, index) => {
+        const currentDomainPosition = domainNode.position();
+        const newX = hostBB.x1 + padding + domainSpacing * (index + 1);
+
+        domainNode.position({
+          x: newX,
+          y: currentDomainPosition.y - hostBB.h * 0.1
+        });
+      });
+    }
   });
 
-  // No need to call cy.fit() as we're making minimal changes
+  // Apply specific container type positioning rules after shrinking
+  applySpecificContainerPositioning(cy);
+
+  // Apply DNS group layout (separate from host containers)
+  applyDnsGroupLayout(cy);
+  
+  // Shrink host containers to fit tightly around their child nodes
+  shrinkHostContainers(cy);
+
+  // Shrink group containers to fit around repositioned host containers
+  shrinkGroupContainers(cy);
+
+  // Apply viewport management to center and fit all nodes properly
+  applyViewportCentering(cy);
 };
 
-const applyHostContainerLayouts2 = (cy: cytoscape.Core) => {
-  cy.nodes("node[id='group-dns']").children().layout({
-    name: 'concentric',
-      fit: false,
+// Function to apply specific container type positioning rules after shrinking
+const applySpecificContainerPositioning = (cy: cytoscape.Core) => {
+  const hostNodes = cy.nodes('[type="host"]');
+  const containerPadding = 20; // Padding from host edges
+
+  hostNodes.forEach((hostNode) => {
+    // Add comprehensive null checks before calling boundingBox()
+    if (!hostNode || typeof hostNode.boundingBox !== 'function' || !hostNode.children) return;
+
+    let hostBB;
+    try {
+      hostBB = hostNode.boundingBox();
+    } catch (error) {
+      console.warn('Error getting bounding box for host node:', error);
+      return;
+    }
+
+    // Validate the bounding box object
+    if (!hostBB ||
+        typeof hostBB.x1 !== 'number' ||
+        typeof hostBB.x2 !== 'number' ||
+        typeof hostBB.y1 !== 'number' ||
+        typeof hostBB.y2 !== 'number' ||
+        typeof hostBB.w !== 'number' ||
+        typeof hostBB.h !== 'number' ||
+        isNaN(hostBB.x1) || isNaN(hostBB.x2) || isNaN(hostBB.y1) || isNaN(hostBB.y2) ||
+        isNaN(hostBB.w) || isNaN(hostBB.h)) {
+      console.warn('Invalid bounding box for host node:', hostBB);
+      return;
+    }
+
+    const children = hostNode.children();
+
+    // Get specific container types
+    const allComposeGroups = children.filter('[type="compose-group"]');
+    const standaloneNpmContainers = children.filter('[type="npm"]');
+    const frpcContainers = children.filter('[type="frpc"]');
+    const frpsContainers = children.filter('[type="frps"]');
+
+    // 1. Identify NPM-containing compose groups and standalone NPM containers
+    const npmContainingComposeGroups: any[] = [];
+    const finalStandaloneNpmContainers: any[] = [];
+
+    // Check each compose group to see if it contains NPM containers
+    allComposeGroups.forEach((composeGroup) => {
+      if (!composeGroup || !composeGroup.children) return;
+
+      const npmInGroup = composeGroup.children('[type="npm"]');
+      if (npmInGroup.length > 0) {
+        npmContainingComposeGroups.push(composeGroup);
+        console.log(`Found compose group ${composeGroup.id()} containing ${npmInGroup.length} NPM container(s)`);
+      }
+    });
+
+    // Check for standalone NPM containers (not part of any compose group)
+    standaloneNpmContainers.forEach((npmContainer) => {
+      if (!npmContainer || !npmContainer.parent) {
+        finalStandaloneNpmContainers.push(npmContainer);
+        return;
+      }
+
+      // Check if this NPM container's parent is a compose group
+      const parent = npmContainer.parent();
+      if (!parent || parent.data('type') !== 'compose-group') {
+        finalStandaloneNpmContainers.push(npmContainer);
+        console.log(`Found standalone NPM container ${npmContainer.id()}`);
+      }
+    });
+
+    console.log(`NPM positioning analysis:`, {
+      npmContainingComposeGroups: npmContainingComposeGroups.length,
+      standaloneNpmContainers: finalStandaloneNpmContainers.length,
+      frpcContainers: frpcContainers.length
+    });
+
+    // 1. Position NPM-containing compose groups, standalone NPM containers, and FRPC containers at top center
+    const topUnits = [...npmContainingComposeGroups, ...finalStandaloneNpmContainers, ...frpcContainers];
+
+    if (topUnits.length > 0) {
+      const topY = hostBB.y1 - containerPadding - 300;
+      const centerX = hostBB.x1 + (hostBB.w / 2);
+
+      console.log(`Positioning ${topUnits.length} units at top center of host`);
+
+      if (topUnits.length === 1) {
+        // Single unit - center it
+        const unit = topUnits[0];
+        console.log(`Centering single unit ${unit.id()} at (${centerX}, ${topY})`);
+
+        unit.position({
+          x: centerX,
+          y: topY
+        });
+      } else {
+        // Multiple units - distribute them horizontally around center
+        const spacing = Math.min(120, hostBB.w / (topUnits.length + 1));
+        topUnits.forEach((unit, index) => {
+          const offsetX = (index - (topUnits.length - 1) / 2) * spacing;
+          const finalX = centerX + offsetX;
+
+          console.log(`Positioning unit ${unit.id()} at (${finalX}, ${topY})`);
+
+          unit.position({
+            x: finalX,
+            y: topY
+          });
+        });
+      }
+    }
+
+    // 2. Position FRPS containers at bottom center
+    if (frpsContainers.length > 0) {
+      const bottomY = hostBB.y2 - containerPadding;
+      const centerX = hostBB.x1 + (hostBB.w / 2);
+
+      if (frpsContainers.length === 1) {
+        // Single container - center it
+        frpsContainers[0].position({
+          x: centerX,
+          y: bottomY
+        });
+      } else {
+        // Multiple containers - distribute them horizontally around center
+        const spacing = Math.min(100, hostBB.w / (frpsContainers.length + 1));
+        frpsContainers.forEach((container, index) => {
+          const offsetX = (index - (frpsContainers.length - 1) / 2) * spacing;
+          container.position({
+            x: centerX + offsetX,
+            y: bottomY
+          });
+        });
+      }
+    }
+
+    // Note: DNS provider container layout is now handled separately in applyDnsGroupLayout()
   });
-  // cy.fit();
+};
+
+// Function to apply DNS group layout - organize DNS records into two rows
+const applyDnsGroupLayout = (cy: cytoscape.Core) => {
+  // Find the DNS group container
+  const dnsGroupNode = cy.nodes('[id="group-dns"]');
+
+  if (dnsGroupNode.length === 0) {
+    console.log('No DNS group found, skipping DNS layout');
+    return;
+  }
+
+  console.log('Processing DNS group layout');
+
+  // Get DNS providers and DNS records within the DNS group
+  const dnsProviders = dnsGroupNode.children('[type="dns-provider"]');
+  const dnsRecords = dnsGroupNode.children('[type="dns-record"]');
+
+  console.log('DNS group contents:', {
+    dnsProviders: dnsProviders.length,
+    dnsRecords: dnsRecords.length
+  });
+
+  if (dnsRecords.length === 0) {
+    console.log('No DNS records found in DNS group');
+    return;
+  }
+
+  // Separate DNS records by connectivity
+  const connectedRecords: any[] = [];
+  const unconnectedRecords: any[] = [];
+
+  dnsRecords.forEach((record) => {
+    if (!record || typeof record.outgoers !== 'function') {
+      console.warn('Invalid DNS record node:', record);
+      return;
+    }
+
+    try {
+      // Check for outgoing edges (downstream connections)
+      const outgoingEdges = record.outgoers('edge');
+      console.log(`DNS record ${record.id()} has ${outgoingEdges.length} outgoing edges`);
+
+      if (outgoingEdges.length > 0) {
+        connectedRecords.push(record);
+      } else {
+        unconnectedRecords.push(record);
+      }
+
+      
+    } catch (error) {
+      console.warn('Error checking outgoing edges for DNS record:', error);
+      unconnectedRecords.push(record); // Default to unconnected if error
+    }
+  });
+
+  console.log('DNS record classification:', {
+    connected: connectedRecords.length,
+    unconnected: unconnectedRecords.length
+  });
+
+  // Get the DNS group bounding box for positioning
+  let dnsGroupBB;
+  try {
+    dnsGroupBB = dnsGroupNode.boundingBox();
+  } catch (error) {
+    console.warn('Error getting DNS group bounding box:', error);
+    return;
+  }
+
+  if (!dnsGroupBB) {
+    console.warn('Invalid DNS group bounding box');
+    return;
+  }
+
+  const recordSpacing = 240; // Horizontal spacing between records
+  const rowSpacing = 160; // Vertical spacing between rows
+  const containerPadding = 20; // Padding from group edges
+
+  // Calculate positioning within the DNS group
+  const upperRowY = dnsGroupBB.y1 + containerPadding;
+  const lowerRowY = dnsGroupBB.y1 + containerPadding + rowSpacing;
+  const startX = dnsGroupBB.x1 + containerPadding;
+
+  // Position unconnected records in upper row
+  if (unconnectedRecords.length > 0) {
+    console.log('Positioning unconnected DNS records in upper row');
+    unconnectedRecords.forEach((record, index) => {
+      try {
+        const newX = startX + (index * recordSpacing);
+        console.log(`Positioning unconnected DNS record ${record.id()} at (${newX}, ${upperRowY})`);
+
+        record.position({
+          x: newX,
+          y: upperRowY
+        });
+      } catch (error) {
+        console.warn('Error positioning unconnected DNS record:', error);
+      }
+    });
+  }
+
+  // Position connected records in lower row
+  if (connectedRecords.length > 0) {
+    console.log('Positioning connected DNS records in lower row');
+    connectedRecords.forEach((record, index) => {
+      try {
+        const newX = startX + (index * recordSpacing);
+        console.log(`Positioning connected DNS record ${record.id()} at (${newX}, ${lowerRowY})`);
+
+        record.position({
+          x: newX,
+          y: lowerRowY
+        });
+      } catch (error) {
+        console.warn('Error positioning connected DNS record:', error);
+      }
+    });
+
+  }
+
+  // Position DNS providers based on connected records
+  if (connectedRecords.length > 0) {
+    let centerX: number = 0;
+
+    // Calculate center X position for DNS provider positioning
+    try {
+      // calculate middle x for provider positioning
+      const totalX = connectedRecords.reduce((acc, record) => acc + record.position().x, 0);
+      centerX = totalX / connectedRecords.length;
+    } catch (error) {
+      console.warn('Error calculating DNS provider center position:', error);
+      centerX = dnsGroupBB.x1 + (dnsGroupBB.w / 2); // Fallback to group center
+    }
+
+    dnsProviders.forEach((prov) => {
+      try {
+        prov.position({
+          x: centerX,
+          y: prov.position().y - rowSpacing * 6
+        });
+      } catch (error) {
+        console.warn('Error positioning DNS provider:', error);
+      }
+    });
+  }
+
+  console.log('DNS group layout completed');
+};
+
+// Function to resize host containers to fit tightly around their child nodes
+const shrinkHostContainers = (cy: cytoscape.Core) => {
+  const hostNodes = cy.nodes('[type="host"]').union(cy.nodes('[type="dns-group"]'));
+  const minPadding = 30; // Minimal padding around child nodes
+
+  hostNodes.forEach((hostNode) => {
+    // Add null check for hostNode
+    if (!hostNode || !hostNode.children) return;
+
+    const children = hostNode.children();
+
+    if (children.length === 0) return;
+
+    // Calculate the bounding box of all child nodes
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let validChildrenCount = 0;
+
+    children.forEach((child) => {
+      // Add comprehensive null checks before calling boundingBox()
+      if (!child || typeof child.boundingBox !== 'function') {
+        console.warn('Invalid child node detected, skipping:', child);
+        return;
+      }
+
+      try {
+        const childBB = child.boundingBox();
+
+        // Validate the bounding box object
+        if (!childBB ||
+            typeof childBB.x1 !== 'number' ||
+            typeof childBB.x2 !== 'number' ||
+            typeof childBB.y1 !== 'number' ||
+            typeof childBB.y2 !== 'number' ||
+            isNaN(childBB.x1) || isNaN(childBB.x2) || isNaN(childBB.y1) || isNaN(childBB.y2)) {
+          console.warn('Invalid bounding box for child node:', childBB);
+          return;
+        }
+
+        minX = Math.min(minX, childBB.x1);
+        maxX = Math.max(maxX, childBB.x2);
+        minY = Math.min(minY, childBB.y1);
+        maxY = Math.max(maxY, childBB.y2);
+        validChildrenCount++;
+      } catch (error) {
+        console.warn('Error getting bounding box for child node:', error);
+      }
+    });
+
+    // Only proceed if we have valid children with bounding boxes
+    if (validChildrenCount === 0 || minX === Infinity || maxX === -Infinity || minY === Infinity || maxY === -Infinity) {
+      console.warn('No valid child nodes found for host container shrinking');
+      return;
+    }
+
+    // Calculate the new host dimensions with minimal padding
+    const newWidth = (maxX - minX) + (minPadding * 2);
+    const newHeight = (maxY - minY) + (minPadding * 2);
+
+    // Calculate the new host center position
+    const newCenterX = (minX + maxX) / 2;
+    const newCenterY = (minY + maxY) / 2;
+
+    // Validate the calculated values before applying
+    if (isNaN(newWidth) || isNaN(newHeight) || isNaN(newCenterX) || isNaN(newCenterY)) {
+      console.warn('Invalid calculated dimensions for host container:', { newWidth, newHeight, newCenterX, newCenterY });
+      return;
+    }
+
+    try {
+      // Update host node size and position
+      hostNode.style({
+        'width': newWidth,
+        'height': newHeight
+      });
+
+      hostNode.position({
+        x: newCenterX,
+        y: newCenterY
+      });
+    } catch (error) {
+      console.warn('Error updating host node style or position:', error);
+    }
+  });
+};
+
+// Function to organize child nodes within group containers
+const shrinkGroupContainers = (cy: cytoscape.Core) => {
+  const groupNodes = cy.nodes('[type="group"]');
+  const childSpacing = 25; // Minimal spacing between child nodes (shoulder-to-shoulder)
+
+  console.log(`Processing ${groupNodes.length} group containers for child node organization`);
+
+  groupNodes.forEach((groupNode) => {
+    // Add comprehensive null checks
+    if (!groupNode || !groupNode.children) {
+      console.warn('Invalid group node detected, skipping:', groupNode);
+      return;
+    }
+
+    const hostChildren = groupNode.children('[type="host"]');
+
+    if (hostChildren.length === 0) {
+      console.log(`Group ${groupNode.id()} has no host children, skipping`);
+      return;
+    }
+
+    console.log(`Organizing ${hostChildren.length} child nodes in group ${groupNode.id()}`);
+
+    // Step 1: Calculate average Y position for horizontal alignment
+    let totalY = 0;
+    let validChildrenCount = 0;
+
+    hostChildren.forEach((child) => {
+      if (!child || typeof child.position !== 'function') {
+        console.warn('Invalid child node detected, skipping:', child);
+        return;
+      }
+
+      try {
+        const pos = child.position();
+        if (pos && typeof pos.y === 'number' && !isNaN(pos.y)) {
+          totalY += pos.y;
+          validChildrenCount++;
+        }
+      } catch (error) {
+        console.warn('Error getting child position:', error);
+      }
+    });
+
+    if (validChildrenCount === 0) {
+      console.warn(`No valid child positions found in group ${groupNode.id()}`);
+      return;
+    }
+
+    const averageY = totalY / validChildrenCount;
+    console.log(`Calculated average Y position: ${averageY} for group ${groupNode.id()}`);
+
+    // Step 2: Calculate total width needed for all children with spacing
+    let totalWidth = 0;
+    const childWidths: number[] = [];
+
+    hostChildren.forEach((child) => {
+      if (!child || typeof child.boundingBox !== 'function') return;
+
+      try {
+        const childBB = child.boundingBox();
+        if (childBB && typeof childBB.w === 'number' && !isNaN(childBB.w)) {
+          childWidths.push(childBB.w);
+          totalWidth += childBB.w;
+        }
+      } catch (error) {
+        console.warn('Error getting child bounding box:', error);
+        childWidths.push(200); // Default width fallback
+        totalWidth += 200;
+      }
+    });
+
+    // Add spacing between children (n-1 gaps for n children)
+    const totalSpacing = (hostChildren.length - 1) * childSpacing;
+    const totalArrangementWidth = totalWidth + totalSpacing;
+
+    console.log(`Total arrangement width: ${totalArrangementWidth} (${totalWidth} content + ${totalSpacing} spacing)`);
+
+    // Step 3: Calculate starting X position to center around X=0
+    const startX = -(totalArrangementWidth / 2);
+    console.log(`Starting X position: ${startX} to center around X=0`);
+
+    // Step 4: Position each child node
+    let currentX = startX;
+
+    hostChildren.forEach((child, index) => {
+      if (!child || typeof child.position !== 'function') return;
+
+      try {
+        const childWidth = childWidths[index] || 200;
+        const childCenterX = currentX + (childWidth / 2);
+
+        console.log(`Positioning child ${index} (${child.id()}) at X=${childCenterX}, Y=${averageY}`);
+
+        child.position({
+          x: childCenterX,
+          y: averageY
+        });
+
+        // Move to next position
+        currentX += childWidth + childSpacing;
+      } catch (error) {
+        console.warn('Error positioning child node:', error);
+      }
+    });
+
+    console.log(`Completed organization of group ${groupNode.id()}`);
+  });
+
+  console.log('Group container child organization completed');
+};
+
+// Function to apply viewport management for optimal topology viewing
+const applyViewportCentering = (cy: cytoscape.Core) => {
+  console.log('Applying viewport centering for optimal topology viewing');
+
+  try {
+    // Get all nodes to ensure we're working with the complete topology
+    const allNodes = cy.nodes();
+    const mainGroupIds = ['group-dns', 'group-local-network', 'group-public-cloud'];
+    const mainGroups = cy.nodes().filter(node => mainGroupIds.includes(node.id()));
+
+    console.log(`Total nodes: ${allNodes.length}, Main groups found: ${mainGroups.length}`);
+
+    if (allNodes.length === 0) {
+      console.warn('No nodes found for viewport centering');
+      return;
+    }
+
+    // Method 1: Use cy.fit() with padding to ensure all nodes are visible with good spacing
+    const padding = 80; // Padding around the edges for better visual balance
+
+    console.log(`Applying cy.fit() with ${padding}px padding`);
+    cy.fit(allNodes, padding);
+
+    // Small delay to ensure fit operation is complete, then center the viewport
+    setTimeout(() => {
+      try {
+        console.log('Applying cy.center() for optimal centering');
+        cy.center(allNodes);
+
+        // Log the final viewport state for debugging
+        const extent = cy.extent();
+        const zoom = cy.zoom();
+        const pan = cy.pan();
+
+        console.log('Viewport centering completed:', {
+          extent: {
+            x1: extent.x1,
+            y1: extent.y1,
+            x2: extent.x2,
+            y2: extent.y2,
+            width: extent.x2 - extent.x1,
+            height: extent.y2 - extent.y1
+          },
+          zoom: zoom,
+          pan: { x: pan.x, y: pan.y }
+        });
+
+        // Optional: Fine-tune zoom level if needed
+        const currentZoom = cy.zoom();
+        if (currentZoom > 2) {
+          console.log('Zoom level too high, adjusting to 1.5');
+          cy.zoom(1.5);
+          cy.center(allNodes);
+        } else if (currentZoom < 0.3) {
+          console.log('Zoom level too low, adjusting to 0.5');
+          cy.zoom(0.5);
+          cy.center(allNodes);
+        }
+        cy.fit();
+      } catch (error) {
+        console.warn('Error during center operation:', error);
+      }
+    }, 100);
+
+  } catch (error) {
+    console.warn('Error during viewport centering:', error);
+
+    // Fallback: Simple fit operation
+    try {
+      console.log('Applying fallback cy.fit()');
+      cy.fit();
+    } catch (fallbackError) {
+      console.warn('Fallback fit operation also failed:', fallbackError);
+    }
+  }
 };
 
 export default function TopologySection() {
@@ -555,7 +1185,7 @@ export default function TopologySection() {
                   cy.ready(() => {
                     // Add a small delay to ensure the main layout is complete
                     setTimeout(() => {
-                      applyHostContainerLayouts2(cy);
+                      applyHostContainerLayouts(cy);
                     }, 400);
                   });
                 }}

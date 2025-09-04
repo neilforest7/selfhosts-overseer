@@ -258,7 +258,7 @@ export class TopologyService {
               id: `edge-frps-${frpsContainer.id}-to-frpc-${frpcContainer.id}-${frpcProxy.name}`,
               source: `container-${frpsContainer.id}`,
               target: `container-${frpcContainer.id}`,
-              label: `${frpcProxy.name}`,
+              // label: `${frpcProxy.name}`,
               type: 'tunnel-edge',
             },
           });
@@ -573,7 +573,7 @@ export class TopologyService {
         group: 'nodes',
         data: {
           id: dnsRecordNodeId,
-          label: `${record.domain} (${record.recordType})`,
+          label: `${record.domain}`,
           parent: 'group-dns', // Place DNS record nodes in DNS group
           type: 'dns-record',
           dnsData: {
@@ -634,7 +634,7 @@ export class TopologyService {
             id: edgeId,
             source: providerNodeId,
             target: dnsRecordNodeId,
-            label: 'manages',
+            // label: 'manages',
             type: 'dns-provider-to-record-edge',
             dnsData: {
               provider: record.provider.displayName,
