@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CryptoService } from '../security/crypto.service';
 import { z } from 'zod';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { HttpProxyAgent } from 'http-proxy-agent';
 import fetch from 'node-fetch';
 
 const SettingsSchema = z.object({
@@ -23,6 +23,10 @@ const SettingsSchema = z.object({
   dockerCredentialsEnabled: z.boolean().default(false),
   dockerCredentialsUsername: z.string().optional().default(''),
   dockerCredentialsPersonalAccessToken: z.string().optional().default(''),
+  // GHCR (GitHub Container Registry) 凭证配置
+  ghcrCredentialsEnabled: z.boolean().default(false),
+  ghcrUsername: z.string().optional().default(''),
+  ghcrPersonalAccessToken: z.string().optional().default(''),
   // 连接性检查配置
   connectivityCheckInterval: z.number().int().min(60).max(3600).default(300), // 5 minutes default
   connectivityCheckTimeout: z.number().int().min(5).max(60).default(10), // 10 seconds default
@@ -32,6 +36,13 @@ const SettingsSchema = z.object({
   // DNS 解析配置
   dnsResolutionFrequencyMinutes: z.number().int().min(5).max(1440).default(60), // 1 hour default, range: 5 minutes to 24 hours
   dnsSkipNonAddressRecords: z.boolean().default(false), // Skip non-standard records (only resolve A, AAAA, CNAME) during resolution
+  // Registry API 配置
+  registryApiEnabled: z.boolean().default(true), // 启用 Registry API 检查
+  registryApiTimeoutSeconds: z.number().int().min(10).max(120).default(30), // Registry API 请求超时时间
+  registryApiRetries: z.number().int().min(1).max(5).default(3), // Registry API 重试次数
+  registryApiConcurrency: z.number().int().min(1).max(20).default(5), // 批量检查并发数
+  registryApiFallbackEnabled: z.boolean().default(true), // 启用 docker pull 回退机制
+  registryApiCacheEnabled: z.boolean().default(true), // 启用 token 缓存
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -40,7 +51,10 @@ export type Settings = z.infer<typeof SettingsSchema>;
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
 
   private async readAll(): Promise<Settings> {
     const rows = await this.prisma.appSetting.findMany();
@@ -70,6 +84,175 @@ export class SettingsService {
       return defaults;
     }
     return this.readAll();
+  }
+
+  /**
+   * 获取解密后的 GHCR 凭证
+   */
+  async getDecryptedGhcrCredentials(): Promise<{
+    enabled: boolean;
+    username: string;
+    personalAccessToken: string;
+  }> {
+    const settings = await this.get();
+
+    return {
+      enabled: settings.ghcrCredentialsEnabled,
+      username: settings.ghcrUsername || '',
+      personalAccessToken: settings.ghcrPersonalAccessToken
+        ? (this.crypto.decryptString(settings.ghcrPersonalAccessToken) || '')
+        : '',
+    };
+  }
+
+  /**
+   * 设置加密的 GHCR 凭证
+   */
+  async setGhcrCredentials(credentials: {
+    enabled: boolean;
+    username: string;
+    personalAccessToken: string;
+  }): Promise<void> {
+    const currentSettings = await this.get();
+
+    const encryptedToken = credentials.personalAccessToken
+      ? this.crypto.encryptString(credentials.personalAccessToken)
+      : '';
+
+    const updatedSettings = {
+      ...currentSettings,
+      ghcrCredentialsEnabled: credentials.enabled,
+      ghcrUsername: credentials.username,
+      ghcrPersonalAccessToken: encryptedToken || '',
+    };
+
+    await this.writeAll(updatedSettings);
+  }
+
+  /**
+   * 测试 GHCR 连接和凭证有效性
+   */
+  async testGhcrConnectivity(credentials: {
+    username: string;
+    personalAccessToken: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    details?: any;
+  }> {
+    const startTime = Date.now();
+
+    try {
+      // 测试 GHCR 认证
+      const authUrl = 'https://ghcr.io/token?service=ghcr.io&scope=repository:library/hello-world:pull';
+
+      // 创建基本认证头部
+      const auth = Buffer.from(`${credentials.username}:${credentials.personalAccessToken}`).toString('base64');
+
+      const response = await fetch(authUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'User-Agent': 'SelfHost-Serv-Agent/1.0',
+        },
+      });
+
+      const responseTime = Date.now() - startTime;
+
+      if (response.ok) {
+        const data = await response.json() as any;
+
+        if (data.token) {
+          this.logger.log(`GHCR connectivity test successful for user: ${credentials.username}`);
+
+          return {
+            success: true,
+            message: `GHCR 连接成功 (${responseTime}ms)`,
+            details: {
+              username: credentials.username,
+              responseTime,
+              tokenReceived: true,
+            },
+          };
+        } else {
+          return {
+            success: false,
+            message: 'GHCR 认证失败：未收到有效 token',
+            details: {
+              username: credentials.username,
+              responseTime,
+              response: data,
+            },
+          };
+        }
+      } else {
+        const errorText = await response.text().catch(() => 'Unknown error');
+
+        if (response.status === 401) {
+          return {
+            success: false,
+            message: 'GHCR 认证失败：用户名或 Personal Access Token 无效',
+            details: {
+              username: credentials.username,
+              responseTime,
+              status: response.status,
+              error: errorText,
+            },
+          };
+        } else if (response.status === 403) {
+          return {
+            success: false,
+            message: 'GHCR 认证失败：Personal Access Token 权限不足，请确保包含 read:packages 权限',
+            details: {
+              username: credentials.username,
+              responseTime,
+              status: response.status,
+              error: errorText,
+            },
+          };
+        } else {
+          return {
+            success: false,
+            message: `GHCR 连接失败：${response.status} ${response.statusText}`,
+            details: {
+              username: credentials.username,
+              responseTime,
+              status: response.status,
+              error: errorText,
+            },
+          };
+        }
+      }
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      this.logger.error(`GHCR connectivity test failed: ${errorMessage}`);
+
+      // 分析错误类型并提供更友好的错误信息
+      let friendlyMessage = 'GHCR 连接失败';
+
+      if (errorMessage.includes('ENOTFOUND')) {
+        friendlyMessage = '无法解析 ghcr.io 域名，请检查网络连接';
+      } else if (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('timeout')) {
+        friendlyMessage = '连接 GHCR 超时，请检查网络连接或代理设置';
+      } else if (errorMessage.includes('ECONNREFUSED')) {
+        friendlyMessage = 'GHCR 服务器拒绝连接';
+      } else {
+        friendlyMessage = `GHCR 连接错误: ${errorMessage}`;
+      }
+
+      return {
+        success: false,
+        message: friendlyMessage,
+        details: {
+          username: credentials.username,
+          responseTime,
+          error: errorMessage,
+          errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+        },
+      };
+    }
   }
 
   async update(partial: Partial<Settings>): Promise<Settings> {

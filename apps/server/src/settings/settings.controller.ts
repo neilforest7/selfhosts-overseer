@@ -24,5 +24,37 @@ export class SettingsController {
   }): Promise<{ success: boolean; message: string; details?: any }> {
     return this.settingsService.testDockerHubConnectivity(body);
   }
+
+  @Post('test-ghcr-connectivity')
+  async testGhcrConnectivity(@Body() body: {
+    username: string;
+    personalAccessToken: string;
+  }): Promise<{ success: boolean; message: string; details?: any }> {
+    return this.settingsService.testGhcrConnectivity(body);
+  }
+
+  @Put('ghcr-credentials')
+  async updateGhcrCredentials(@Body() body: {
+    enabled: boolean;
+    username: string;
+    personalAccessToken: string;
+  }): Promise<{ success: boolean; message: string }> {
+    await this.settingsService.setGhcrCredentials(body);
+    return { success: true, message: 'GHCR 凭证已更新' };
+  }
+
+  @Get('ghcr-credentials')
+  async getGhcrCredentials(): Promise<{
+    enabled: boolean;
+    username: string;
+    hasToken: boolean;
+  }> {
+    const credentials = await this.settingsService.getDecryptedGhcrCredentials();
+    return {
+      enabled: credentials.enabled,
+      username: credentials.username,
+      hasToken: !!credentials.personalAccessToken,
+    };
+  }
 }
 

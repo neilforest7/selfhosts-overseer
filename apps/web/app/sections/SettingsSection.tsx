@@ -16,9 +16,9 @@ import AddToHomeScreen from '@/components/AddToHomeScreen';
 
 
 
-type Settings = { 
-  sshConcurrency: number; 
-  commandTimeoutSeconds: number; 
+type Settings = {
+  sshConcurrency: number;
+  commandTimeoutSeconds: number;
   containerUpdateCheckCron: string;
   dockerProxyEnabled: boolean;
   dockerProxyHost: string;
@@ -29,6 +29,9 @@ type Settings = {
   dockerCredentialsEnabled: boolean;
   dockerCredentialsUsername: string;
   dockerCredentialsPersonalAccessToken: string;
+  ghcrCredentialsEnabled: boolean;
+  ghcrUsername: string;
+  ghcrPersonalAccessToken: string;
 };
 
 export default function SettingsSection() {
@@ -58,6 +61,11 @@ export default function SettingsSection() {
   const [dockerCredentialsUsername, setDockerCredentialsUsername] = useState('');
   const [dockerCredentialsPersonalAccessToken, setDockerCredentialsPersonalAccessToken] = useState('');
 
+  // GHCR 凭证设置状态
+  const [ghcrCredentialsEnabled, setGhcrCredentialsEnabled] = useState(false);
+  const [ghcrUsername, setGhcrUsername] = useState('');
+  const [ghcrPersonalAccessToken, setGhcrPersonalAccessToken] = useState('');
+
   // 代理验证和测试状态
   const [proxyValidation, setProxyValidation] = useState<{
     isValid: boolean;
@@ -86,6 +94,11 @@ export default function SettingsSection() {
         setDockerCredentialsEnabled(sQuery.data.dockerCredentialsEnabled || false);
         setDockerCredentialsUsername(sQuery.data.dockerCredentialsUsername || '');
         setDockerCredentialsPersonalAccessToken(sQuery.data.dockerCredentialsPersonalAccessToken || '');
+
+        // 初始化 GHCR 凭证设置
+        setGhcrCredentialsEnabled(sQuery.data.ghcrCredentialsEnabled || false);
+        setGhcrUsername(sQuery.data.ghcrUsername || '');
+        setGhcrPersonalAccessToken(sQuery.data.ghcrPersonalAccessToken || '');
     }
   }, [sQuery.data]);
 
@@ -484,6 +497,93 @@ export default function SettingsSection() {
         </div>
       </div>
 
+      <Separator />
+
+      {/* GHCR 凭证设置 */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-medium">GHCR 凭证设置</h3>
+
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="ghcr-credentials-enabled"
+            checked={ghcrCredentialsEnabled}
+            onCheckedChange={(checked) => setGhcrCredentialsEnabled(checked === true)}
+          />
+          <Label htmlFor="ghcr-credentials-enabled">启用 GitHub Container Registry (GHCR) 凭证</Label>
+        </div>
+
+        <div className={`grid gap-4 max-w-md ml-6 transition-opacity duration-200 ${ghcrCredentialsEnabled ? 'opacity-100' : 'opacity-50'}`}>
+          <div className="grid gap-2">
+            <Label htmlFor="ghcr-username">GitHub 用户名 *</Label>
+            <Input
+              id="ghcr-username"
+              type="text"
+              placeholder="例如：yourusername"
+              value={ghcrUsername}
+              onChange={(e) => setGhcrUsername(e.target.value)}
+              disabled={!ghcrCredentialsEnabled}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="ghcr-token">GitHub Personal Access Token *</Label>
+            <Input
+              id="ghcr-token"
+              type="password"
+              placeholder="输入 GitHub Personal Access Token"
+              value={ghcrPersonalAccessToken}
+              onChange={(e) => setGhcrPersonalAccessToken(e.target.value)}
+              disabled={!ghcrCredentialsEnabled}
+            />
+            <div className="text-xs text-muted-foreground">
+              需要包含 <code className="bg-muted px-1 py-0.5 rounded">read:packages</code> 权限
+            </div>
+          </div>
+
+          {!ghcrCredentialsEnabled && (
+            <div className="text-xs text-muted-foreground italic">
+              启用 GHCR 凭证后可配置以上选项
+            </div>
+          )}
+
+          {ghcrCredentialsEnabled && ghcrUsername && ghcrPersonalAccessToken && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const response = await fetch('http://localhost:3001/api/v1/settings/test-ghcr-connectivity', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        username: ghcrUsername,
+                        personalAccessToken: ghcrPersonalAccessToken
+                      })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok && result.success) {
+                      toast.success('GHCR 连接成功');
+                    } else {
+                      toast.error(`GHCR 凭证测试失败: ${result.message}`);
+                    }
+                  } catch (error) {
+                    toast.error('GHCR 凭证测试失败: 网络错误或服务不可用');
+                  }
+                }}
+              >
+                测试 GHCR 连接
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                点击测试 GHCR 认证是否成功
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
         <Separator />
       
         <div className="flex gap-2">
@@ -499,7 +599,10 @@ export default function SettingsSection() {
               dockerProxyLocalOnly,
               dockerCredentialsEnabled,
               dockerCredentialsUsername: dockerCredentialsUsername.trim(),
-              dockerCredentialsPersonalAccessToken: dockerCredentialsPersonalAccessToken.trim()
+              dockerCredentialsPersonalAccessToken: dockerCredentialsPersonalAccessToken.trim(),
+              ghcrCredentialsEnabled,
+              ghcrUsername: ghcrUsername.trim(),
+              ghcrPersonalAccessToken: ghcrPersonalAccessToken.trim()
         })} 
             disabled={save.isPending}
           >
@@ -522,6 +625,11 @@ export default function SettingsSection() {
                 setDockerCredentialsEnabled(sQuery.data.dockerCredentialsEnabled || false);
                 setDockerCredentialsUsername(sQuery.data.dockerCredentialsUsername || '');
                 setDockerCredentialsPersonalAccessToken(sQuery.data.dockerCredentialsPersonalAccessToken || '');
+
+                // 重置 GHCR 凭证设置
+                setGhcrCredentialsEnabled(sQuery.data.ghcrCredentialsEnabled || false);
+                setGhcrUsername(sQuery.data.ghcrUsername || '');
+                setGhcrPersonalAccessToken(sQuery.data.ghcrPersonalAccessToken || '');
           } 
             }}
           >
