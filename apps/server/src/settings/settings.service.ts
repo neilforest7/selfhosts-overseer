@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { z } from 'zod';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import { HttpProxyAgent } from 'http-proxy-agent';
+import fetch from 'node-fetch';
 
 const SettingsSchema = z.object({
   sshConcurrency: z.number().int().min(10).max(100).default(30),
@@ -35,6 +38,8 @@ export type Settings = z.infer<typeof SettingsSchema>;
 
 @Injectable()
 export class SettingsService {
+  private readonly logger = new Logger(SettingsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   private async readAll(): Promise<Settings> {
@@ -76,6 +81,109 @@ export class SettingsService {
     // This avoids circular dependencies while still allowing settings to take effect
 
     return merged;
+  }
+
+  async testDockerHubConnectivity(config: {
+    proxyHost: string;
+    proxyPort: number;
+    proxyUsername?: string;
+    proxyPassword?: string;
+  }): Promise<{ success: boolean; message: string; details?: any }> {
+    const startTime = Date.now();
+
+    try {
+      this.logger.log(`Testing Docker Hub connectivity through proxy ${config.proxyHost}:${config.proxyPort}`);
+
+      // 构建代理 URL
+      let proxyUrl = `http://`;
+      if (config.proxyUsername && config.proxyPassword) {
+        proxyUrl += `${encodeURIComponent(config.proxyUsername)}:${encodeURIComponent(config.proxyPassword)}@`;
+      }
+      proxyUrl += `${config.proxyHost}:${config.proxyPort}`;
+
+      // 创建代理 agent
+      const agent = new HttpsProxyAgent(proxyUrl);
+
+      // 测试 Docker Hub API 连接
+      const dockerHubApiUrl = 'https://registry-1.docker.io/v2/';
+
+      const response = await fetch(dockerHubApiUrl, {
+        method: 'GET',
+        agent,
+        timeout: 10000, // 10 seconds timeout
+        headers: {
+          'User-Agent': 'SelfHost-Serv-Agent/1.0',
+        },
+      });
+
+      const responseTime = Date.now() - startTime;
+
+      if (response.ok || response.status === 401) {
+        // 401 is expected for Docker Hub API without authentication
+        // This means we successfully reached Docker Hub through the proxy
+        this.logger.log(`Docker Hub connectivity test successful (${responseTime}ms)`);
+
+        return {
+          success: true,
+          message: `Docker Hub 连接成功 (响应时间: ${responseTime}ms)`,
+          details: {
+            proxyHost: config.proxyHost,
+            proxyPort: config.proxyPort,
+            responseTime,
+            statusCode: response.status,
+            statusText: response.statusText,
+          },
+        };
+      } else {
+        this.logger.warn(`Docker Hub connectivity test failed with status ${response.status}`);
+
+        return {
+          success: false,
+          message: `Docker Hub 连接失败: HTTP ${response.status} ${response.statusText}`,
+          details: {
+            proxyHost: config.proxyHost,
+            proxyPort: config.proxyPort,
+            responseTime,
+            statusCode: response.status,
+            statusText: response.statusText,
+          },
+        };
+      }
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      this.logger.error(`Docker Hub connectivity test failed: ${errorMessage}`);
+
+      // 分析错误类型并提供更友好的错误信息
+      let friendlyMessage = '连接失败';
+
+      if (errorMessage.includes('ECONNREFUSED')) {
+        friendlyMessage = '代理服务器拒绝连接，请检查代理地址和端口是否正确';
+      } else if (errorMessage.includes('ENOTFOUND')) {
+        friendlyMessage = '无法解析代理服务器地址，请检查代理主机名是否正确';
+      } else if (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('timeout')) {
+        friendlyMessage = '连接超时，请检查代理服务器是否可达或网络连接';
+      } else if (errorMessage.includes('407')) {
+        friendlyMessage = '代理服务器需要身份验证，请检查用户名和密码';
+      } else if (errorMessage.includes('ECONNRESET')) {
+        friendlyMessage = '连接被重置，可能是代理服务器配置问题';
+      } else {
+        friendlyMessage = `连接错误: ${errorMessage}`;
+      }
+
+      return {
+        success: false,
+        message: friendlyMessage,
+        details: {
+          proxyHost: config.proxyHost,
+          proxyPort: config.proxyPort,
+          responseTime,
+          error: errorMessage,
+          errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+        },
+      };
+    }
   }
 }
 

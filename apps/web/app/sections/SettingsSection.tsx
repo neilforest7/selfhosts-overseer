@@ -8,6 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import AddToHomeScreen from '@/components/AddToHomeScreen';
 
@@ -55,6 +58,19 @@ export default function SettingsSection() {
   const [dockerCredentialsUsername, setDockerCredentialsUsername] = useState('');
   const [dockerCredentialsPersonalAccessToken, setDockerCredentialsPersonalAccessToken] = useState('');
 
+  // 代理验证和测试状态
+  const [proxyValidation, setProxyValidation] = useState<{
+    isValid: boolean;
+    message: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+  } | null>(null);
+  const [isTestingProxy, setIsTestingProxy] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<{
+    success: boolean;
+    message: string;
+    timestamp: Date;
+  } | null>(null);
+
   useEffect(() => {
     if (sQuery.data) {
       setSshConcurrency(sQuery.data.sshConcurrency);
@@ -72,6 +88,122 @@ export default function SettingsSection() {
         setDockerCredentialsPersonalAccessToken(sQuery.data.dockerCredentialsPersonalAccessToken || '');
     }
   }, [sQuery.data]);
+
+  // 代理地址验证函数
+  const validateProxyAddress = (host: string): { isValid: boolean; message: string; type: 'success' | 'error' | 'warning' | 'info' } => {
+    if (!host.trim()) {
+      return { isValid: false, message: '代理地址不能为空', type: 'error' };
+    }
+
+    // 移除协议前缀（如果存在）
+    const cleanHost = host.replace(/^https?:\/\//, '');
+
+    // 检查是否包含端口
+    const hasPort = cleanHost.includes(':');
+
+    // 基本格式验证
+    const hostPattern = /^[a-zA-Z0-9.-]+(\.[a-zA-Z]{2,})?$/;
+    const hostWithPortPattern = /^[a-zA-Z0-9.-]+(\.[a-zA-Z]{2,})?:\d{1,5}$/;
+    const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    const ipWithPortPattern = /^(\d{1,3}\.){3}\d{1,3}:\d{1,5}$/;
+
+    const hostPart = hasPort ? cleanHost.split(':')[0] : cleanHost;
+    const portPart = hasPort ? cleanHost.split(':')[1] : null;
+
+    // 验证主机部分
+    if (!hostPattern.test(hostPart) && !ipPattern.test(hostPart)) {
+      return { isValid: false, message: '代理地址格式无效。请使用域名或IP地址', type: 'error' };
+    }
+
+    // 验证端口部分（如果存在）
+    if (portPart) {
+      const port = parseInt(portPart);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        return { isValid: false, message: '端口号必须在 1-65535 范围内', type: 'error' };
+      }
+    }
+
+    // 提供格式建议
+    if (host.startsWith('http://') || host.startsWith('https://')) {
+      return {
+        isValid: true,
+        message: '建议移除协议前缀，只使用主机名和端口',
+        type: 'warning'
+      };
+    }
+
+    if (!hasPort && dockerProxyPort === 8080) {
+      return {
+        isValid: true,
+        message: `格式正确。将使用端口 ${dockerProxyPort}`,
+        type: 'info'
+      };
+    }
+
+    return { isValid: true, message: '代理地址格式正确', type: 'success' };
+  };
+
+  // 测试 Docker Hub 连接
+  const testDockerHubConnectivity = async () => {
+    if (!dockerProxyHost.trim()) {
+      toast.error('请先输入代理地址');
+      return;
+    }
+
+    setIsTestingProxy(true);
+    setProxyTestResult(null);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/v1/settings/test-docker-hub-connectivity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proxyHost: dockerProxyHost,
+          proxyPort: dockerProxyPort,
+          proxyUsername: dockerProxyUsername || undefined,
+          proxyPassword: dockerProxyPassword || undefined,
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setProxyTestResult({
+          success: true,
+          message: result.message || 'Docker Hub 连接测试成功',
+          timestamp: new Date(),
+        });
+        toast.success('Docker Hub 连接测试成功');
+      } else {
+        setProxyTestResult({
+          success: false,
+          message: result.message || result.error || 'Docker Hub 连接测试失败',
+          timestamp: new Date(),
+        });
+        toast.error(`Docker Hub 连接测试失败: ${result.message || result.error}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      setProxyTestResult({
+        success: false,
+        message: `网络错误: ${errorMessage}`,
+        timestamp: new Date(),
+      });
+      toast.error(`测试失败: ${errorMessage}`);
+    } finally {
+      setIsTestingProxy(false);
+    }
+  };
+
+  // 监听代理地址变化并验证
+  useEffect(() => {
+    if (dockerProxyEnabled && dockerProxyHost) {
+      const validation = validateProxyAddress(dockerProxyHost);
+      setProxyValidation(validation);
+    } else {
+      setProxyValidation(null);
+    }
+  }, [dockerProxyHost, dockerProxyEnabled, dockerProxyPort]);
 
   const save = useMutation({
     mutationFn: async (body: Partial<Settings>) => {
@@ -123,21 +255,62 @@ export default function SettingsSection() {
               disabled={!dockerProxyEnabled}
             />
             <Label htmlFor="docker-proxy-local-only" className={!dockerProxyEnabled ? 'text-muted-foreground' : ''}>
-              仅对标签含有"local"的主机应用代理
+              仅对role为'本地主机'的主机应用代理
             </Label>
           </div>
           
           <div className={`grid gap-4 max-w-md ml-6 transition-opacity duration-200 ${dockerProxyEnabled ? 'opacity-100' : 'opacity-50'}`}>
             <div className="grid gap-2">
               <Label htmlFor="proxy-host">代理服务器地址 *</Label>
-              <Input 
-                id="proxy-host"
-                type="text" 
-                placeholder="例如：proxy.example.com" 
-                value={dockerProxyHost} 
-                onChange={(e) => setDockerProxyHost(e.target.value)}
-                disabled={!dockerProxyEnabled}
-              />
+              <div className="space-y-2">
+                <Input
+                  id="proxy-host"
+                  type="text"
+                  placeholder="例如：proxy.example.com:8080 或 192.168.1.100:3128"
+                  value={dockerProxyHost}
+                  onChange={(e) => setDockerProxyHost(e.target.value)}
+                  disabled={!dockerProxyEnabled}
+                  className={proxyValidation?.type === 'error' ? 'border-red-500' :
+                            proxyValidation?.type === 'warning' ? 'border-yellow-500' :
+                            proxyValidation?.type === 'success' ? 'border-green-500' : ''}
+                />
+
+                {/* 格式提示 */}
+                <div className="text-sm text-muted-foreground">
+                  <p>支持的格式：</p>
+                  <ul className="list-disc list-inside ml-2 space-y-1">
+                    <li><code>proxy.company.com</code> (使用下方端口设置)</li>
+                    <li><code>proxy.company.com:8080</code> (包含端口)</li>
+                    <li><code>192.168.1.100:3128</code> (IP地址和端口)</li>
+                  </ul>
+                </div>
+
+                {/* 验证结果显示 */}
+                {proxyValidation && (
+                  <Alert className={`${
+                    proxyValidation.type === 'error' ? 'border-red-200 bg-red-50' :
+                    proxyValidation.type === 'warning' ? 'border-yellow-200 bg-yellow-50' :
+                    proxyValidation.type === 'success' ? 'border-green-200 bg-green-50' :
+                    'border-blue-200 bg-blue-50'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {proxyValidation.type === 'error' && <XCircle className="h-4 w-4 text-red-600" />}
+                      {proxyValidation.type === 'warning' && <AlertCircle className="h-4 w-4 text-yellow-600" />}
+                      {proxyValidation.type === 'success' && <CheckCircle className="h-4 w-4 text-green-600" />}
+                      {proxyValidation.type === 'info' && <AlertCircle className="h-4 w-4 text-blue-600" />}
+                      <AlertDescription className={`${
+                        proxyValidation.type === 'error' ? 'text-red-700' :
+                        proxyValidation.type === 'warning' ? 'text-yellow-700' :
+                        proxyValidation.type === 'success' ? 'text-green-700' :
+                        'text-blue-700'
+                      }`}>
+                        {proxyValidation.message}
+                      </AlertDescription>
+                    </div>
+                  </Alert>
+                )}
+
+              </div>
             </div>
             
             <div className="grid gap-2">
@@ -173,7 +346,54 @@ export default function SettingsSection() {
               />
             </div>
             
-                      {!dockerProxyEnabled && (
+            {/* 测试连接按钮 */}
+            {dockerProxyEnabled && dockerProxyHost && proxyValidation?.isValid && (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={testDockerHubConnectivity}
+                  disabled={isTestingProxy}
+                  className="flex items-center gap-2"
+                >
+                  {isTestingProxy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4" />
+                  )}
+                  {isTestingProxy ? '测试中...' : '测试 Docker Hub 连接'}
+                </Button>
+
+                {/* {proxyTestResult && (
+                  <Badge variant={proxyTestResult.success ? 'default' : 'destructive'}>
+                    {proxyTestResult.success ? '连接成功' : '连接失败'}
+                  </Badge>
+                )} */}
+              </div>
+            )}
+
+            {/* 测试结果详情 */}
+            {proxyTestResult && (
+              <Alert className={proxyTestResult.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
+                <div className="flex items-center gap-2">
+                  {proxyTestResult.success ? (
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-red-600" />
+                  )}
+                  <div className="flex-1">
+                    <AlertDescription className={proxyTestResult.success ? 'text-green-700' : 'text-red-700'}>
+                      {proxyTestResult.message}
+                    </AlertDescription>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      测试时间: {proxyTestResult.timestamp.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </Alert>
+            )}
+          {!dockerProxyEnabled && (
             <div className="text-xs text-muted-foreground italic">
               启用 Docker 代理后可配置以上选项
             </div>

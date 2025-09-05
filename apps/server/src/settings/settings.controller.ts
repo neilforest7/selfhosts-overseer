@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put } from '@nestjs/common';
 import { SettingsService, Settings } from './settings.service';
 
 @Controller('/api/v1/settings')
@@ -13,6 +13,16 @@ export class SettingsController {
   @Put()
   async updateSettings(@Body() body: Partial<Settings>): Promise<Settings> {
     return this.settingsService.update(body);
+  }
+
+  @Post('test-docker-hub-connectivity')
+  async testDockerHubConnectivity(@Body() body: {
+    proxyHost: string;
+    proxyPort: number;
+    proxyUsername?: string;
+    proxyPassword?: string;
+  }): Promise<{ success: boolean; message: string; details?: any }> {
+    return this.settingsService.testDockerHubConnectivity(body);
   }
 }
 
