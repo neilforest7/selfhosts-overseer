@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { AutomationsService } from './automations.service';
 import { AutomationsController } from './automations.controller';
+import { ContainerUpdateAutomationService } from './container-update-automation.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BullModule } from '@nestjs/bullmq';
 import {
@@ -19,12 +20,12 @@ import { ContextModule } from '../context/context.module';
       name: AUTOMATION_QUEUE_NAME,
     }),
     HostsModule,
-    ContainersModule,
+    forwardRef(() => ContainersModule),
     OperationLogModule,
     ContextModule,
   ],
   controllers: [AutomationsController],
-  providers: [AutomationsService, AutomationsProcessor],
-  exports: [AutomationsService],
+  providers: [AutomationsService, AutomationsProcessor, ContainerUpdateAutomationService],
+  exports: [AutomationsService, ContainerUpdateAutomationService],
 })
 export class AutomationsModule {}

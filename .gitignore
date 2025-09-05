@@ -66,3 +66,4 @@ ANTHROPIC.md
 *.backup
 .DS_Store
 Thumbs.db
+docker_digest_debug_terminal_log.txt

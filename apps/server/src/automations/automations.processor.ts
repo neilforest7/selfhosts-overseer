@@ -337,6 +337,22 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
             await this.handleDiscoverContainers(params);
             break;
 
+          case 'check-container-updates':
+            await this.handleCheckContainerUpdates(params);
+            break;
+
+          case 'update-container':
+            await this.handleUpdateContainer(params);
+            break;
+
+          case 'batch-update-containers':
+            await this.handleBatchUpdateContainers(params);
+            break;
+
+          case 'update-compose-project':
+            await this.handleUpdateComposeProject(params);
+            break;
+
           default:
             this.logger.warn(`No handler found for event type "${type}".`);
             this.operationLogService.log('error', `No handler found for event type "${type}".`);
@@ -412,6 +428,152 @@ export class AutomationsProcessor extends WorkerHost implements OnModuleInit {
       }
     } else {
       throw new Error('Either `hostId` or `hostIds` is required for discover-containers event.');
+    }
+  }
+
+  private async handleCheckContainerUpdates(params: Event['params']): Promise<void> {
+    const { hostIds, containerIds, composeProjects } = params as {
+      hostIds?: string[];
+      containerIds?: string[];
+      composeProjects?: string[];
+    };
+
+    this.operationLogService.log('info', 'Starting container update check automation');
+
+    try {
+      const result = await this.containersService.batchCheckUpdates({
+        hostIds,
+        containerIds,
+        composeProjects,
+        skipCritical: false,
+        onlyOutdated: false,
+      });
+
+      this.operationLogService.log('info', `Update check started. Task ID: ${result.taskId}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.operationLogService.log('error', `Container update check failed: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  private async handleUpdateContainer(params: Event['params']): Promise<void> {
+    const { containerId, imageRef, skipValidation, rollbackOnFailure } = params as {
+      containerId: string;
+      imageRef?: string;
+      skipValidation?: boolean;
+      rollbackOnFailure?: boolean;
+    };
+
+    if (!containerId) {
+      throw new Error('`containerId` is required for update-container event.');
+    }
+
+    this.operationLogService.log('info', `Starting container update for: ${containerId}`);
+
+    try {
+      // Find the container to get host info
+      const container = await this.prisma.container.findUnique({
+        where: { id: containerId },
+        include: { host: true },
+      });
+
+      if (!container) {
+        throw new Error(`Container ${containerId} not found`);
+      }
+
+      const result = await this.containersService.updateOne(
+        { id: container.hostId },
+        containerId,
+        imageRef
+      );
+
+      this.operationLogService.log('info', `Container update completed successfully for: ${containerId}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.operationLogService.log('error', `Container update failed for ${containerId}: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  private async handleBatchUpdateContainers(params: Event['params']): Promise<void> {
+    const {
+      hostIds,
+      containerIds,
+      composeProjects,
+      updateStrategy = 'sequential',
+      maxConcurrent = 1,
+      skipValidation = false,
+      rollbackOnFailure = true,
+      onlyCompose = false,
+      onlyCli = false,
+    } = params as {
+      hostIds?: string[];
+      containerIds?: string[];
+      composeProjects?: string[];
+      updateStrategy?: 'sequential' | 'parallel' | 'rolling';
+      maxConcurrent?: number;
+      skipValidation?: boolean;
+      rollbackOnFailure?: boolean;
+      onlyCompose?: boolean;
+      onlyCli?: boolean;
+    };
+
+    this.operationLogService.log('info', `Starting batch container update with strategy: ${updateStrategy}`);
+
+    try {
+      const result = await this.containersService.batchUpdate({
+        hostIds,
+        containerIds,
+        composeProjects,
+        updateStrategy,
+        maxConcurrent,
+        skipValidation,
+        rollbackOnFailure,
+      });
+
+      this.operationLogService.log('info', `Batch update completed. Task ID: ${result.taskId}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.operationLogService.log('error', `Batch container update failed: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  private async handleUpdateComposeProject(params: Event['params']): Promise<void> {
+    const {
+      hostId,
+      composeProject,
+      services,
+      skipValidation = false,
+      rollbackOnFailure = true,
+    } = params as {
+      hostId: string;
+      composeProject: string;
+      services?: string[];
+      skipValidation?: boolean;
+      rollbackOnFailure?: boolean;
+    };
+
+    if (!hostId || !composeProject) {
+      throw new Error('`hostId` and `composeProject` are required for update-compose-project event.');
+    }
+
+    this.operationLogService.log('info', `Starting Compose project update for: ${composeProject} on host: ${hostId}`);
+
+    try {
+      const result = await this.containersService.batchUpdateCompose({
+        hostIds: [hostId],
+        composeProjects: [composeProject],
+        skipValidation,
+        rollbackOnFailure,
+      });
+
+      this.operationLogService.log('info', `Compose project update completed for: ${composeProject}. Task ID: ${result.taskId}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.operationLogService.log('error', `Compose project update failed for ${composeProject}: ${errorMessage}`);
+      throw error;
     }
   }
 }

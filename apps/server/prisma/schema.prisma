@@ -45,6 +45,12 @@ model Host {
   lastOnlineAt            DateTime?
   lastOfflineAt           DateTime?
   lastConnectivityCheck   DateTime?
+  // Platform information for Docker operations
+  dockerPlatformArch      String?               // e.g., "amd64", "arm64"
+  dockerPlatformOS        String?               // e.g., "linux", "windows"
+  dockerPlatformDetected  Boolean               @default(false)
+  dockerLoginStatus       Boolean               @default(false) // Track if Docker login is active
+  dockerLoginExpiry       DateTime?             // When Docker login expires
   createdAt               DateTime              @default(now())
   updatedAt               DateTime              @updatedAt
   containers              Container[]

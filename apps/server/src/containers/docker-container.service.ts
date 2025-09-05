@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { DockerExecService } from './docker-exec.service';
+import { OperationLogService } from '../operation-log/operation-log.service';
 
 @Injectable()
 export class DockerContainerService {
-  constructor(private readonly dockerExec: DockerExecService) {}
+  constructor(
+    private readonly dockerExec: DockerExecService,
+    private readonly operationLogService: OperationLogService,
+  ) {}
 
   async psByComposeProject(
     host: {
@@ -84,7 +88,7 @@ export class DockerContainerService {
 
     if (code !== 0) {
       // Log the error but don't throw, as some containers might be gone
-      console.warn(`'docker inspect' failed for some containers on ${host.address}. Stderr: ${stderr}`);
+      this.operationLogService.log('info', `⚠️ 'docker inspect' failed for some containers on ${host.address}. Stderr: ${stderr}`);
       return [];
     }
 
@@ -93,7 +97,7 @@ export class DockerContainerService {
       const parsed = JSON.parse(stdout.trim());
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
-      console.error(`Failed to parse JSON from 'docker inspect' on ${host.address}:`, e);
+      this.operationLogService.log('error', `❌ Failed to parse JSON from 'docker inspect' on ${host.address}: ${e}`);
       return [];
     }
   }

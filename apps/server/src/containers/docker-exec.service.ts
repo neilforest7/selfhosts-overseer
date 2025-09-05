@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { SshService, SshExecOptions } from '../ssh/ssh.service';
 import { SettingsService } from '../settings/settings.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { OperationLogService } from '../operation-log/operation-log.service';
 
 @Injectable()
 export class DockerExecService {
@@ -10,6 +11,7 @@ export class DockerExecService {
     private readonly ssh: SshService,
     private readonly settings: SettingsService,
     private readonly prisma: PrismaService,
+    private readonly operationLogService: OperationLogService,
   ) {}
 
   /**
@@ -58,24 +60,26 @@ export class DockerExecService {
       // 检查是否已经登录
       const { code: infoCode } = await this.exec(host, ['info'], 30);
       if (infoCode !== 0) {
-        console.warn(`[Docker凭证] Docker daemon 不可用: ${host.address}`);
+        this.operationLogService.log('info', `⚠️ Docker daemon 不可用: ${host.address}`);
         return false;
       }
 
       // 尝试登录 Docker Hub
+      // 使用与 exec 方法相同的 login shell 包装，确保 Docker 在 PATH 中
       const loginCmd = `echo "${appSettings.dockerCredentialsPersonalAccessToken}" | docker login --username "${appSettings.dockerCredentialsUsername}" --password-stdin`;
-      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, loginCmd);
+      const wrappedLoginCmd = `sh -lc "${loginCmd.replace(/"/g, '\\"')}"`;
+      const { code: loginCode, stderr: loginStderr } = await this.execShell(host, wrappedLoginCmd);
 
       if (loginCode === 0) {
-        console.log(`[Docker凭证] 登录成功: ${host.address}`);
+        this.operationLogService.log('info', `✅ Docker凭证登录成功: ${host.address}`);
         return true;
       } else {
-        console.warn(`[Docker凭证] 登录失败: ${host.address} - ${loginStderr}`);
+        this.operationLogService.log('error', `❌ Docker凭证登录失败: ${host.address} - ${loginStderr}`);
         return false;
       }
     } catch (error) {
-      console.warn(
-        `[Docker凭证] 登录过程出错: ${host.address} - ${error instanceof Error ? error.message : String(error)}`,
+      this.operationLogService.log('error',
+        `❌ Docker凭证登录过程出错: ${host.address} - ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
     }
@@ -110,12 +114,12 @@ export class DockerExecService {
             where: { address: hostAddress },
           });
 
-          // 如果找不到主机信息或主机标签不包含 "local"，则不应用代理
-          if (!host || !host.tags || !host.tags.some((tag: string) => tag.toLowerCase().includes('local'))) {
+          // 如果找不到主机信息或主机role不是'local'，则不应用代理
+          if (!host || host.role !== 'local') {
             return '';
           }
         } catch (dbError) {
-          console.warn('Failed to query host information for proxy filtering:', dbError);
+          this.operationLogService.log('info', `⚠️ Failed to query host information for proxy filtering: ${dbError}`);
           return '';
         }
       }
@@ -144,7 +148,7 @@ export class DockerExecService {
 
       return envVars.join(' ');
     } catch (error) {
-      console.warn('Failed to build proxy environment variables:', error);
+      this.operationLogService.log('info', `⚠️ Failed to build proxy environment variables: ${error}`);
       return '';
     }
   }

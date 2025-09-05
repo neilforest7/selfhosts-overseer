@@ -182,6 +182,97 @@ POST /api/v1/containers/compose/operate
 }
 ```
 
+#### Registry API Management
+
+#### Get Registry Health
+```http
+GET /api/v1/containers/registry/health
+```
+
+**Response:**
+```json
+{
+  "healthy": true,
+  "details": {
+    "tokenCacheSize": 3,
+    "lastTokenCheck": "2024-01-01T00:00:00Z",
+    "registryUrl": "https://registry-1.docker.io/v2"
+  }
+}
+```
+
+#### Get Registry Statistics
+```http
+GET /api/v1/containers/registry/stats
+```
+
+**Response:**
+```json
+{
+  "tokenCacheSize": 3,
+  "cachedTokens": [
+    {
+      "scope": "repository:nginx:pull",
+      "expiresAt": "2024-01-01T01:00:00Z",
+      "expiresIn": 3600
+    }
+  ]
+}
+```
+
+#### Perform Registry Maintenance
+```http
+POST /api/v1/containers/registry/maintenance
+```
+
+**Response:** 204 No Content
+
+#### Test Registry API
+```http
+POST /api/v1/containers/registry/test/{imageRef}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "imageRef": "nginx:latest",
+  "digest": "sha256:abcd1234...",
+  "error": null,
+  "rateLimited": false
+}
+```
+
+#### Diagnose Registry Connectivity
+```http
+POST /api/v1/containers/registry/diagnose
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "diagnostics": {
+    "proxyTest": {
+      "success": true,
+      "latency": 1500
+    },
+    "directTest": {
+      "success": false,
+      "error": "Connection timeout"
+    },
+    "dnsTest": {
+      "success": true,
+      "resolvedIPs": ["104.244.46.52", "104.244.46.53"]
+    },
+    "recommendations": [
+      "Direct connection failed but proxy works - network may require proxy"
+    ]
+  },
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
 ### Task Execution
 
 #### Execute Command

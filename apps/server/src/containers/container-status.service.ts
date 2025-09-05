@@ -24,7 +24,7 @@ export class ContainerStatusService {
     const existingOpId = this.contextService.getOpId();
 
     if (existingOpId) {
-      console.log(`Using existing OperationLog context: ${existingOpId}`);
+      this.operationLogService.log('info', `Using existing OperationLog context: ${existingOpId}`);
 
       let targetHostIds: string[];
       const hostId = bodyHost ? ((bodyHost as any).id as string | undefined) : undefined;
@@ -65,7 +65,7 @@ export class ContainerStatusService {
   }
 
   async refreshStatusOnHost(host: { id: string; address: string; sshUser: string; port?: number }): Promise<void> {
-    console.log(`[ContainerStatusService] Starting status refresh on host ${host.address}`);
+    this.operationLogService.log('info', `Starting status refresh on host ${host.address}`);
     this.operationLogService.log('info', `[${host.address}] Starting container status refresh...`, host.id);
 
     try {
@@ -503,7 +503,12 @@ export class ContainerStatusService {
           // Only update basic status fields during refresh
         },
       });
-    } catch (error) {
+    } catch (error: any) {
+      // If container record not found, it might have been deleted during discovery
+      if (error.code === 'P2025') {
+        this.operationLogService.log('info', `Container ${dbContainer.name} no longer exists in database, skipping status update`);
+        return;
+      }
       this.logger.error(`Failed to update container ${dbContainer.name} from Docker data: ${error}`);
     }
   }
@@ -518,7 +523,12 @@ export class ContainerStatusService {
         },
       });
       this.operationLogService.log('error', `Container "${dbContainer.name}" not found in Docker - marked as removed`);
-    } catch (error) {
+    } catch (error: any) {
+      // If container record not found, it was already deleted
+      if (error.code === 'P2025') {
+        this.operationLogService.log('info', `Container ${dbContainer.name} already removed from database`);
+        return;
+      }
       this.logger.error(`Failed to mark container ${dbContainer.name} as missing: ${error}`);
     }
   }

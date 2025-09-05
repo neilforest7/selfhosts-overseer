@@ -28,14 +28,14 @@ export class ContainerDiscoveryService {
   ) {}
 
   async discover(bodyHost: { id?: string } | { id: 'all' }): Promise<{ taskId: string }> {
-    console.log('--- DISCOVER METHOD CALLED ---', bodyHost);
+    this.operationLogService.log('info', `🔍 DISCOVER METHOD CALLED: ${JSON.stringify(bodyHost)}`);
 
     // Check if we're already running in an OperationLog context (e.g., from automation)
     const existingOpId = this.contextService.getOpId();
 
     if (existingOpId) {
       // We're already in a context, don't create a new OperationLog
-      console.log(`Using existing OperationLog context: ${existingOpId}`);
+      this.operationLogService.log('info', `Using existing OperationLog context: ${existingOpId}`);
 
       let targetHostIds: string[];
 
@@ -87,14 +87,14 @@ export class ContainerDiscoveryService {
   }
 
   async discoverMultiple(hostIds: string[]): Promise<{ taskId: string }> {
-    console.log('--- DISCOVER MULTIPLE METHOD CALLED ---', hostIds);
+    this.operationLogService.log('info', `🔍 DISCOVER MULTIPLE METHOD CALLED: ${JSON.stringify(hostIds)}`);
 
     // Check if we're already running in an OperationLog context (e.g., from automation)
     const existingOpId = this.contextService.getOpId();
 
     if (existingOpId) {
       // We're already in a context, don't create a new OperationLog
-      console.log(`Using existing OperationLog context: ${existingOpId}`);
+      this.operationLogService.log('info', `Using existing OperationLog context: ${existingOpId}`);
 
       await this.tasksService.exec({
         command: 'internal:discover_containers',
@@ -123,7 +123,7 @@ export class ContainerDiscoveryService {
   }
 
   async discoverOnHost(host: { id: string; address: string; sshUser: string; port?: number }): Promise<void> {
-    console.log(`[ContainerDiscoveryService] Starting discovery on host ${host.address}`);
+    this.operationLogService.log('info', `Starting discovery on host ${host.address}`);
     this.operationLogService.log('info', `[${host.address}] Starting container discovery...`, host.id);
 
     try {
@@ -599,7 +599,12 @@ export class ContainerDiscoveryService {
       });
 
       this.operationLogService.log('info', `Successfully replaced container record for "${name}" with new container ID: ${newContainerId.substring(0, 12)}`);
-    } catch (error) {
+    } catch (error: any) {
+      // If container record not found, it might have been deleted by another process
+      if (error.code === 'P2025') {
+        this.operationLogService.log('info', `Container ${existingContainer.name} no longer exists in database, skipping replacement`);
+        return;
+      }
       this.logger.error(`Failed to replace container record for ${existingContainer.name}: ${error}`);
       this.operationLogService.log('error', `Failed to replace container record: ${error instanceof Error ? error.message : String(error)}`);
       throw error;

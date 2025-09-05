@@ -20,7 +20,12 @@ import { ContainerLifecycleService } from './container-lifecycle.service';
 import { ContainerUpdateService } from './container-update.service';
 import { ContainerComposeService } from './container-compose.service';
 import { ContainerStatusService } from './container-status.service';
+import { ContainerBatchUpdateService } from './container-batch-update.service';
+import { ContainerCliUpdateService } from './container-cli-update.service';
+import { ContainerComposeUpdateService } from './container-compose-update.service';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AutomationsModule } from '../automations/automations.module';
 
 @Module({
   imports: [
@@ -35,6 +40,8 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     OperationLogModule,
     ActivityLogModule,
     EventEmitterModule,
+    ScheduleModule.forRoot(),
+    forwardRef(() => AutomationsModule),
   ],
   controllers: [ContainersController],
   providers: [
@@ -44,6 +51,9 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     ContainerUpdateService,
     ContainerComposeService,
     ContainerStatusService,
+    ContainerBatchUpdateService,
+    ContainerCliUpdateService,
+    ContainerComposeUpdateService,
     ContainerCheckerProcessor,
     ExecGateway,
     CryptoService,

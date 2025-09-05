@@ -173,23 +173,11 @@ export class DockerService {
     return this.dockerImage.pullImage(host, imageRef);
   }
 
-  async inspectRemoteManifest(
-    host: {
-      address: string;
-      sshUser: string;
-      port?: number;
-      password?: string;
-      privateKey?: string;
-      privateKeyPassphrase?: string;
-    },
-    imageRef: string,
-    platform?: { architecture?: string; os?: string },
-  ): Promise<{ digest?: string; manifestDigest?: string; error?: string; rateLimited?: boolean }> {
-    return this.dockerImage.inspectRemoteManifest(host, imageRef, platform);
-  }
+
 
   async checkImageUpdate(
     host: {
+      id: string;
       address: string;
       sshUser: string;
       port?: number;
@@ -199,8 +187,11 @@ export class DockerService {
     },
     imageRef: string,
     currentDigest?: string | null,
-    platform?: { architecture?: string; os?: string },
-  ): Promise<{ updateAvailable: boolean; remoteDigest?: string; error?: string }> {
-    return this.dockerImage.checkImageUpdate(host, imageRef, currentDigest, platform);
+  ): Promise<{ updateAvailable: boolean; remoteDigest?: string; error?: string; currentLocalDigest?: string }> {
+    return this.dockerImage.checkImageUpdate(host, imageRef, currentDigest);
+  }
+
+  async ensureDockerLogin(hostId: string, host: { address: string; sshUser: string; port?: number }): Promise<{ success: boolean; error?: string }> {
+    return this.dockerImage.ensureDockerLogin(hostId);
   }
 }

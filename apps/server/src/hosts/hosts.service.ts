@@ -85,6 +85,8 @@ export class HostsService {
       port: host.port ?? undefined,
       tags: host.tags,
       role: host.role as 'local' | 'remote',
+      status: host.status,
+      lastConnectivityCheck: host.lastConnectivityCheck,
       sshOptions: host.sshOptions as any,
       sshAuthMethod: host.sshAuthMethod as any,
       sshPassword: includeCredentials ? (decryptedPassword ? decryptedPassword.toString() : undefined) : null,
