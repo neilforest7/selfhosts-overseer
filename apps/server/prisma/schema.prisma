@@ -23,6 +23,14 @@ enum HostStatus {
   UNKNOWN
 }
 
+enum ImageUpdateStatus {
+  UNKNOWN           // 未知状态
+  UP_TO_DATE        // 完全最新
+  CONTAINER_OUTDATED // 容器过时（本地镜像已更新，但容器未重启）
+  IMAGE_OUTDATED    // 镜像过时（远程有新版本，但本地未拉取）
+  BOTH_OUTDATED     // 都过时（远程有新版本，且容器也未使用最新本地镜像）
+}
+
 model AppSetting {
   key   String @id
   value String
@@ -87,10 +95,26 @@ model Container {
   restartCount        Int?
   imageName           String?
   imageTag            String?
-  repoDigest          String?
-  remoteDigest        String?
-  updateAvailable     Boolean   @default(false)
-  updateCheckedAt     DateTime?
+
+  // 容器实际运行的镜像信息
+  containerImageDigest    String?   // 容器启动时使用的镜像摘要
+  containerImageId        String?   // 容器镜像ID
+  containerImageCreated   DateTime? // 容器镜像创建时间
+
+  // 本地最新镜像信息
+  localImageDigest        String?   // 本地最新镜像摘要（通过 docker images 获取）
+  localImageId            String?   // 本地最新镜像ID
+  localImageCreated       DateTime? // 本地最新镜像创建时间
+
+  // 远程镜像信息（保留现有字段）
+  repoDigest          String?   // 保留向后兼容，逐步迁移到 localImageDigest
+  remoteDigest        String?   // 远程最新镜像摘要
+
+  // 更新状态
+  imageUpdateStatus       ImageUpdateStatus @default(UNKNOWN)
+  updateAvailable         Boolean   @default(false) // 保留向后兼容
+  updateCheckedAt         DateTime?
+
   createdAt           DateTime  @default(now())
   startedAt           DateTime?
   isComposeManaged    Boolean   @default(false)
@@ -109,6 +133,7 @@ model Container {
   host                Host      @relation(fields: [hostId], references: [id], onDelete: Cascade)
   @@unique([hostId, containerId])
   @@index([hostId, composeGroupKey])
+  @@index([imageUpdateStatus])
 }
 
 model ReverseProxyRoute {

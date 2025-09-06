@@ -59,9 +59,17 @@
 
 5) 容器管理（重点）
    - 发现与元数据：`docker ps -a` + `docker inspect`，收集状态、端口、挂载、网络、镜像标签/摘要、创建/启动时间、重启计数
-   - 版本与可更新性：
-     - 公有 registry：可通过 `docker pull <image:tag>` 解析输出判断是否有更新（因暂不支持私有仓库鉴权）
-     - 记录本地 `RepoDigests` 与最近检查时间
+   - **镜像状态跟踪（三层检测）**：
+     - **容器实际运行镜像**：通过 `docker inspect` 获取容器启动时使用的镜像摘要
+     - **本地最新镜像**：通过 `docker images` 获取本地最新镜像摘要
+     - **远程最新镜像**：通过 registry API 获取远程最新镜像摘要
+     - **状态分类**：
+       - `UP_TO_DATE`：容器和镜像都是最新版本
+       - `CONTAINER_OUTDATED`：本地镜像已更新，但容器仍使用旧版本（需重启）
+       - `IMAGE_OUTDATED`：远程有新版本，但本地未拉取（需拉取）
+       - `BOTH_OUTDATED`：远程有新版本，且容器也未使用最新本地镜像（需拉取+重启）
+       - `UNKNOWN`：状态未知或检测失败
+     - **精确操作**：根据状态提供精确的操作建议（仅重启 vs 仅拉取 vs 拉取+重启）
    - 启动命令与 Compose：
      - CLI 容器：由 `docker inspect` 重建近似 `docker run` 的“用户输入部分”（端口/卷/env/重启策略等）
      - Compose 容器：读取容器标签识别 `project/service/working_dir/config_files`，并通过 `docker compose config` 展示有效配置
@@ -107,7 +115,20 @@
 
 ### 六、数据模型（实际实现）
 - **`Host`**：id、name、address、sshUser、port?、tags[]、sshOptions(Json?)、sshAuthMethod、sshPassword?、sshPrivateKey?、sshPrivateKeyPassphrase?、role(local|remote)、status(ONLINE|OFFLINE|UNKNOWN)、lastOnlineAt?、lastOfflineAt?、lastConnectivityCheck?、createdAt、updatedAt
-- **`Container`**：id、hostId、containerId、name、state?、status?、restartCount?、imageName?、imageTag?、repoDigest?、remoteDigest?、updateAvailable、updateCheckedAt?、createdAt、startedAt?、isComposeManaged、composeProject?、composeService?、composeWorkingDir?、composeGroupKey?、composeFolderName?、composeConfigFiles(Json?)、runCommand?、ports(Json?)、mounts(Json?)、networks(Json?)、labels(Json?)
+- **`Container`**：id、hostId、containerId、name、state?、status?、restartCount?、imageName?、imageTag?、
+  **镜像跟踪字段**：
+  - containerImageDigest?（容器实际运行的镜像摘要）
+  - containerImageId?（容器镜像ID）
+  - containerImageCreated?（容器镜像创建时间）
+  - localImageDigest?（本地最新镜像摘要）
+  - localImageId?（本地最新镜像ID）
+  - localImageCreated?（本地最新镜像创建时间）
+  - repoDigest?（保留向后兼容）
+  - remoteDigest?（远程最新镜像摘要）
+  - imageUpdateStatus（UNKNOWN|UP_TO_DATE|CONTAINER_OUTDATED|IMAGE_OUTDATED|BOTH_OUTDATED）
+  - updateAvailable（保留向后兼容）
+  - updateCheckedAt?、
+  **其他字段**：createdAt、startedAt?、isComposeManaged、composeProject?、composeService?、composeWorkingDir?、composeGroupKey?、composeFolderName?、composeConfigFiles(Json?)、runCommand?、ports(Json?)、mounts(Json?)、networks(Json?)、labels(Json?)
 - **`ComposeProject`**：id、project、workingDir、configFiles[]、effectiveConfigHash?、lastSyncedAt?
 - **`AutomationRule`**：id、name、description?、isEnabled、ruleJson(Json)、createdAt、updatedAt、operations[]
 - **`OperationLog`**：id、type、status(PENDING|RUNNING|COMPLETED|ERROR)、startedAt?、finishedAt?、automationRuleId?、entries[]

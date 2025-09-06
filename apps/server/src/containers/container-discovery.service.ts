@@ -211,6 +211,53 @@ export class ContainerDiscoveryService {
     const repoDigests = containerData.RepoDigests || [];
     const repoDigest = repoDigests.length > 0 ? repoDigests[0] : null;
 
+    // Get container's actual running image digest and metadata
+    let containerImageDigest: string | null = null;
+    let containerImageId: string | null = null;
+    let containerImageCreated: Date | null = null;
+    let localImageDigest: string | null = null;
+    let localImageId: string | null = null;
+    let localImageCreated: Date | null = null;
+
+    try {
+      // Get container's actual running image digest
+      const hostCred = await this.getHostCredById(hostId);
+      if (hostCred) {
+        containerImageDigest = await this.docker.getContainerImageDigest(hostCred, containerId);
+
+        // Get container image metadata
+        if (containerData.Image) {
+          containerImageId = containerData.Image;
+          if (containerData.Created) {
+            containerImageCreated = new Date(containerData.Created);
+          }
+        }
+
+        // Get local latest image digest and metadata
+        if (imageRef) {
+          const localDigests = await this.docker.inspectImageRepoDigests(hostCred, imageRef);
+          localImageDigest = localDigests.length > 0 ? localDigests[0] : null;
+
+          // Get local image metadata
+          try {
+            const { code, stdout } = await this.docker.exec(hostCred, ['inspect', '--format', '{{.Id}} {{.Created}}', imageRef], 30);
+            if (code === 0) {
+              const parts = stdout.trim().split(' ');
+              if (parts.length >= 2) {
+                localImageId = parts[0];
+                localImageCreated = new Date(parts[1]);
+              }
+            }
+          } catch (error) {
+            // Ignore errors when getting local image metadata
+          }
+        }
+      }
+    } catch (error) {
+      // Log error but don't fail the discovery process
+      this.operationLogService.log('error', `Failed to get image digests for container ${name}: ${error}`);
+    }
+
     // Extract compose information
     const labels = containerData.Config?.Labels || {};
     const composeProject = labels['com.docker.compose.project'];
@@ -259,6 +306,13 @@ export class ContainerDiscoveryService {
         imageName,
         imageTag,
         repoDigest,
+        // New image tracking fields
+        containerImageDigest,
+        containerImageId,
+        containerImageCreated,
+        localImageDigest,
+        localImageId,
+        localImageCreated,
         startedAt,
         isComposeManaged,
         composeProject,
@@ -283,6 +337,13 @@ export class ContainerDiscoveryService {
         imageName,
         imageTag,
         repoDigest,
+        // New image tracking fields
+        containerImageDigest,
+        containerImageId,
+        containerImageCreated,
+        localImageDigest,
+        localImageId,
+        localImageCreated,
         createdAt,
         startedAt,
         isComposeManaged,

@@ -23,6 +23,7 @@ import { ContainerStatusService } from './container-status.service';
 import { ContainerBatchUpdateService } from './container-batch-update.service';
 import { ContainerCliUpdateService } from './container-cli-update.service';
 import { ContainerComposeUpdateService } from './container-compose-update.service';
+import { ImageStatusService } from './image-status.service';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AutomationsModule } from '../automations/automations.module';
@@ -54,6 +55,7 @@ import { AutomationsModule } from '../automations/automations.module';
     ContainerBatchUpdateService,
     ContainerCliUpdateService,
     ContainerComposeUpdateService,
+    ImageStatusService,
     ContainerCheckerProcessor,
     ExecGateway,
     CryptoService,

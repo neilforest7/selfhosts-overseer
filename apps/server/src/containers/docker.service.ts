@@ -191,6 +191,22 @@ export class DockerService {
     return this.dockerImage.checkImageUpdate(host, imageRef, currentDigest);
   }
 
+  async checkRemoteImageDigest(
+    host: {
+      id: string;
+      address: string;
+      sshUser: string;
+      port?: number;
+      password?: string;
+      privateKey?: string;
+      privateKeyPassphrase?: string;
+    },
+    imageRef: string,
+    ensureLogin: boolean = true,
+  ): Promise<{ digest?: string; error?: string; rateLimited?: boolean }> {
+    return this.dockerImage.checkRemoteImageDigest(host, imageRef, ensureLogin);
+  }
+
   async ensureDockerLogin(hostId: string, host: { address: string; sshUser: string; port?: number }): Promise<{ success: boolean; error?: string }> {
     return this.dockerImage.ensureDockerLogin(hostId);
   }

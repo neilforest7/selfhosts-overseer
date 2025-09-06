@@ -118,6 +118,15 @@ GET /api/v1/containers?hostId=string&hostName=string&q=string&updateAvailable=bo
       "remoteDigest": "string",
       "updateAvailable": false,
       "updateCheckedAt": "2024-01-01T00:00:00Z",
+      // 新增镜像状态跟踪字段
+      "containerImageDigest": "sha256:abc123...",
+      "containerImageId": "sha256:def456...",
+      "containerImageCreated": "2024-01-01T00:00:00Z",
+      "localImageDigest": "sha256:ghi789...",
+      "localImageId": "sha256:jkl012...",
+      "localImageCreated": "2024-01-01T00:00:00Z",
+      "imageUpdateStatus": "UP_TO_DATE|CONTAINER_OUTDATED|IMAGE_OUTDATED|BOTH_OUTDATED|UNKNOWN",
+      // 其他字段
       "createdAt": "2024-01-01T00:00:00Z",
       "startedAt": "2024-01-01T00:00:00Z",
       "isComposeManaged": false,
@@ -156,6 +165,25 @@ POST /api/v1/containers/discover
 ```http
 POST /api/v1/containers/check-updates
 ```
+
+**镜像状态说明：**
+
+新的容器镜像状态跟踪系统提供了更精确的更新检测：
+
+- **`containerImageDigest`**: 容器实际运行的镜像摘要
+- **`localImageDigest`**: 本地最新镜像摘要
+- **`remoteDigest`**: 远程最新镜像摘要
+- **`imageUpdateStatus`**: 综合状态枚举
+  - `UP_TO_DATE`: 容器和镜像都是最新版本
+  - `CONTAINER_OUTDATED`: 本地镜像已更新，但容器仍使用旧版本（需重启）
+  - `IMAGE_OUTDATED`: 远程有新版本，但本地未拉取（需拉取）
+  - `BOTH_OUTDATED`: 远程有新版本，且容器也未使用最新本地镜像（需拉取+重启）
+  - `UNKNOWN`: 状态未知或检测失败
+
+**操作建议：**
+- `CONTAINER_OUTDATED`: 只需重启容器
+- `IMAGE_OUTDATED`: 只需拉取镜像
+- `BOTH_OUTDATED`: 需要先拉取镜像，再重启容器
 
 #### Update Container
 ```http

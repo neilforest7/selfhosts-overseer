@@ -13,7 +13,8 @@ import { toast } from 'sonner';
 import { ManualPortDialog } from './ManualPortDialog';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import { DiscoverHostsDialog } from './DiscoverHostsDialog';
-import { ChevronDown, ChevronLast, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { ChevronDown, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { getUpdateStatusDisplay, ImageUpdateStatus } from '@selfhost-serv-agent/shared';
 
 
 type ContainerItem = {
@@ -25,7 +26,12 @@ type ContainerItem = {
   imageTag?: string;
   repoDigest?: string | null;
   remoteDigest?: string | null;
-  updateAvailable?: boolean;
+  updateAvailable?: boolean; // 保留向后兼容
+  // 新的镜像状态字段
+  containerImageDigest?: string | null;
+  localImageDigest?: string | null;
+  imageUpdateStatus?: ImageUpdateStatus;
+  updateCheckedAt?: string | null;
   restartCount?: number | null;
   isComposeManaged?: boolean;
   composeProject?: string | null;
@@ -199,6 +205,37 @@ export default function ContainersSection() {
     const hostMap = new Map(hostsQuery.data?.items?.map(h => [h.id, h.name]) || []);
     return (hostId: string) => hostMap.get(hostId) || hostId.slice(0, 8);
   }, [hostsQuery.data]);
+
+  // 获取镜像更新状态的显示信息 - 返回彩色点而不是徽章
+  const getImageUpdateDot = (imageUpdateStatus?: string, updateAvailable?: boolean) => {
+    // 如果有新的状态字段，使用新的逻辑
+    if (imageUpdateStatus && imageUpdateStatus !== 'UNKNOWN' && imageUpdateStatus !== 'UP_TO_DATE') {
+      const display = getUpdateStatusDisplay(imageUpdateStatus as ImageUpdateStatus);
+      return {
+        color: display.color === 'green' ? 'bg-green-500' :
+              display.color === 'orange' ? 'bg-orange-500' :
+              display.color === 'blue' ? 'bg-blue-500' :
+              display.color === 'red' ? 'bg-red-500' :
+              display.color === 'purple-400' ? 'bg-purple-400' :
+              display.color === 'pink-400' ? 'bg-pink-400' :
+              display.color === 'indigo-400' ? 'bg-indigo-400' :
+              'bg-gray-500',
+        description: display.description,
+        action: display.action,
+      };
+    }
+
+    // 回退到旧的逻辑（向后兼容）
+    if (updateAvailable) {
+      return {
+        color: 'bg-amber-500',
+        description: '有更新可用',
+        action: 'update' as const,
+      };
+    }
+
+    return null;
+  };
 
   // 容器状态映射和颜色 - 支持新的容器生命周期状态
   const getContainerStatusBadge = (state?: string, status?: string, isComposeManaged?: boolean) => {
@@ -777,11 +814,32 @@ export default function ContainersSection() {
                             <span><Badge variant="secondary">cli</Badge></span>
                           )}
                           {(() => {
-                            // 检查组或容器是否有更新可用
-                            const hasUpdate = items.some(item => item.updateAvailable);
-                            return hasUpdate ? (
-                              <Badge className="bg-amber-500 text-black hover:bg-amber-500 ml-2">可更新</Badge>
-                            ) : null;
+                            // 检查组或容器是否有更新可用 - 使用新的状态逻辑
+                            const updateStatuses = items.map(item => ({
+                              imageUpdateStatus: item.imageUpdateStatus,
+                              updateAvailable: item.updateAvailable
+                            }));
+
+                            // 收集所有非 UP_TO_DATE 状态的点
+                            const statusDots = updateStatuses
+                              .map(s => getImageUpdateDot(s.imageUpdateStatus, s.updateAvailable))
+                              .filter(dot => dot !== null);
+
+                            if (statusDots.length > 0) {
+                              return (
+                                <div className="flex items-center gap-1 ml-2">
+                                  {statusDots.map((dot, index) => (
+                                    <div
+                                      key={index}
+                                      className={`w-2 h-2 rounded-full ${dot.color}`}
+                                      title={dot.description}
+                                    />
+                                  ))}
+                                </div>
+                              );
+                            }
+
+                            return null;
                           })()}
                           <Button 
                             variant="ghost" 
@@ -1068,10 +1126,18 @@ export default function ContainersSection() {
                                     </TableCell>
                                     <TableCell className="text-muted-foreground">{i.imageName}</TableCell>
                                     <TableCell>
-                                      <Badge variant="secondary">{i.imageTag || 'latest'}</Badge>
-                                      {i.updateAvailable ? (
-                                        <Badge className="bg-amber-500 text-black hover:bg-amber-500 mx-2">可更新</Badge>
-                                      ) : null}
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="secondary">{i.imageTag || 'latest'}</Badge>
+                                        {(() => {
+                                          const imageDot = getImageUpdateDot(i.imageUpdateStatus, i.updateAvailable);
+                                          return imageDot ? (
+                                            <div
+                                              className={`w-2 h-2 rounded-full ${imageDot.color}`}
+                                              title={imageDot.description}
+                                            />
+                                          ) : null;
+                                        })()}
+                                      </div>
                                     </TableCell>
                                     <TableCell className="text-right">
                                       <ManualPortDialog containerId={i.id} existingMapping={i.manualPortMapping}> 

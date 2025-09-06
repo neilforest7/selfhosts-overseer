@@ -6,6 +6,7 @@ import { OperationLogService } from '../operation-log/operation-log.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ContextService } from '../context/context.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
+import { ImageStatusService } from './image-status.service';
 
 @Injectable()
 export class ContainerUpdateService {
@@ -18,6 +19,7 @@ export class ContainerUpdateService {
     private readonly operationLogService: OperationLogService,
     private readonly contextService: ContextService,
     private readonly activityLog: ActivityLogService,
+    private readonly imageStatusService: ImageStatusService,
     @Inject(forwardRef(() => TasksService))
     private readonly tasksService: TasksService,
   ) {}
@@ -187,21 +189,24 @@ export class ContainerUpdateService {
     }
 
     const imageRef = `${container.imageName}:${container.imageTag}`;
-    
-    // Check for updates
-    const updateResult = await this.docker.checkImageUpdate(
-      hostCred,
-      imageRef,
-      container.repoDigest
-    );
+
+    // Use new three-layer comparison logic
+    const updateResult = await this.checkImageUpdateStatus(hostCred, container, imageRef);
 
     // Update the container record (handle case where container might have been deleted)
     try {
       await this.prisma.container.update({
         where: { id: container.id },
         data: {
-          updateAvailable: updateResult.updateAvailable,
-          remoteDigest: updateResult.remoteDigest,
+          // Update new fields
+          containerImageDigest: updateResult.containerImageDigest,
+          containerImageId: updateResult.containerImageId,
+          localImageDigest: updateResult.localImageDigest,
+          localImageId: updateResult.localImageId,
+          remoteDigest: updateResult.remoteImageDigest,
+          imageUpdateStatus: updateResult.status,
+          // Keep backward compatibility
+          updateAvailable: updateResult.containerNeedsRestart || updateResult.imageNeedsPull,
           updateCheckedAt: new Date(),
         },
       });
@@ -215,10 +220,108 @@ export class ContainerUpdateService {
       throw error;
     }
 
-    if (updateResult.updateAvailable) {
-      this.operationLogService.log('info', `Update available for ${container.name} (${imageRef})`);
+    // Log detailed status
+    this.logUpdateStatus(container.name, imageRef, updateResult);
+  }
+
+  /**
+   * 新的三层镜像更新检测逻辑
+   */
+  private async checkImageUpdateStatus(
+    hostCred: any,
+    container: any,
+    imageRef: string
+  ): Promise<{
+    status: 'UNKNOWN' | 'UP_TO_DATE' | 'CONTAINER_OUTDATED' | 'IMAGE_OUTDATED' | 'BOTH_OUTDATED';
+    containerNeedsRestart: boolean;
+    imageNeedsPull: boolean;
+    containerImageDigest?: string;
+    containerImageId?: string;
+    localImageDigest?: string;
+    localImageId?: string;
+    remoteImageDigest?: string;
+    error?: string;
+  }> {
+    try {
+      // 1. 获取容器实际运行的镜像信息
+      const containerImageDigest = await this.docker.getContainerImageDigest(hostCred, container.containerId);
+
+      // 获取容器镜像ID
+      let containerImageId: string | null = null;
+      try {
+        const { code, stdout } = await this.docker.exec(hostCred, ['inspect', '--format', '{{.Image}}', container.containerId], 30);
+        if (code === 0) {
+          containerImageId = stdout.trim();
+        }
+      } catch (error) {
+        // 忽略错误，继续处理
+      }
+
+      // 2. 获取本地最新镜像信息
+      const localDigests = await this.docker.inspectImageRepoDigests(hostCred, imageRef);
+      const localImageDigest = localDigests.length > 0 ? localDigests[0] : null;
+
+      // 获取本地镜像ID
+      let localImageId: string | null = null;
+      try {
+        const { code, stdout } = await this.docker.exec(hostCred, ['inspect', '--format', '{{.Id}}', imageRef], 30);
+        if (code === 0) {
+          localImageId = stdout.trim();
+        }
+      } catch (error) {
+        // 忽略错误，继续处理
+      }
+
+      // 3. 获取远程最新镜像摘要
+      const remoteResult = await this.docker.checkRemoteImageDigest(hostCred, imageRef);
+      const remoteImageDigest = remoteResult.digest;
+
+      // 4. 使用 ImageStatusService 进行三层比较分析（修正后的逻辑）
+      const statusResult = this.imageStatusService.analyzeImageStatus(
+        containerImageDigest,
+        containerImageId,
+        localImageDigest,
+        localImageId,
+        remoteImageDigest
+      );
+
+      return statusResult;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        status: 'UNKNOWN',
+        containerNeedsRestart: false,
+        imageNeedsPull: false,
+        error: errorMessage,
+      };
     }
   }
+
+  /**
+   * 记录更新状态日志
+   */
+  private logUpdateStatus(containerName: string, imageRef: string, updateResult: any): void {
+    switch (updateResult.status) {
+      case 'UP_TO_DATE':
+        this.operationLogService.log('info', `✅ ${containerName} (${imageRef}) is up to date`);
+        break;
+      case 'CONTAINER_OUTDATED':
+        this.operationLogService.log('info', `🔄 ${containerName} (${imageRef}) needs restart - local image updated but container not restarted`);
+        break;
+      case 'IMAGE_OUTDATED':
+        this.operationLogService.log('info', `📥 ${containerName} (${imageRef}) needs image pull - remote has newer version`);
+        break;
+      case 'BOTH_OUTDATED':
+        this.operationLogService.log('info', `🔄📥 ${containerName} (${imageRef}) needs update and restart - both image and container are outdated`);
+        break;
+      case 'UNKNOWN':
+        this.operationLogService.log('info', `❓ ${containerName} (${imageRef}) status unknown${updateResult.error ? ': ' + updateResult.error : ''}`);
+        break;
+    }
+  }
+
+
 
   private async _updateComposeContainer(container: any, imageRef?: string): Promise<void> {
     const hostCred = await this.getHostCredById(container.hostId);

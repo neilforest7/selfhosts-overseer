@@ -1,4 +1,11 @@
 export * from '@prisma/client';
+export {
+  ImageUpdateResult,
+  ContainerImageInfo,
+  UpdateStatusDisplay,
+  getUpdateStatusDisplay,
+  needsAction
+} from './types/container';
 
 export interface AppSettings {
   sshConcurrency: number; // 并发 10–100，默认 30

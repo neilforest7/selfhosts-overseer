@@ -134,7 +134,7 @@ export class DockerRegistryService {
 
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;
-      this.operationLogService.log('info', `✅ Request completed in ${duration}ms, status: ${response.status}`);
+      this.operationLogService.log('info', `Request completed in ${duration}ms, status: ${response.status}`);
 
       return response;
     } catch (error) {
