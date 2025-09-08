@@ -209,7 +209,7 @@ export default function ContainersSection() {
   // 获取镜像更新状态的显示信息 - 返回彩色点而不是徽章
   const getImageUpdateDot = (imageUpdateStatus?: string, updateAvailable?: boolean) => {
     // 如果有新的状态字段，使用新的逻辑
-    if (imageUpdateStatus && imageUpdateStatus !== 'UNKNOWN' && imageUpdateStatus !== 'UP_TO_DATE') {
+    if (imageUpdateStatus && imageUpdateStatus !== 'UNKNOWN') {
       const display = getUpdateStatusDisplay(imageUpdateStatus as ImageUpdateStatus);
       return {
         color: display.color === 'green' ? 'bg-green-500' :
@@ -657,6 +657,7 @@ export default function ContainersSection() {
               <TableHead>主机</TableHead>
               <TableHead>状态</TableHead>
               <TableHead>名称</TableHead>
+              <TableHead>类型</TableHead>
               <TableHead className="text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -807,12 +808,7 @@ export default function ContainersSection() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">{isCompose ? `${items.length} 个服务` : ''}</span>
-                          {isCompose ? (
-                            <span><Badge variant="secondary">compose</Badge></span>
-                          ) : (
-                            <span><Badge variant="secondary">cli</Badge></span>
-                          )}
+                          {/* <span className="text-xs text-muted-foreground">{isCompose ? `${items.length} 个服务` : ''}</span> */}
                           {(() => {
                             // 检查组或容器是否有更新可用 - 使用新的状态逻辑
                             const updateStatuses = items.map(item => ({
@@ -850,6 +846,13 @@ export default function ContainersSection() {
                           </Button>
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {isCompose ? (
+                        <span><Badge variant="secondary">compose</Badge></span>
+                      ) : (
+                        <span><Badge variant="secondary">cli</Badge></span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
@@ -1092,7 +1095,7 @@ export default function ContainersSection() {
                   </TableRow>
                   {expandedGroup === key && (
                     <TableRow>
-                      <TableCell colSpan={4}>
+                      <TableCell colSpan={5}>
                         <div className="rounded border p-4">
                           <div className="mb-3 font-medium">
                             容器详情 - {isCompose ? (first.composeFolderName || first.composeProject) : first.name}
@@ -1127,16 +1130,16 @@ export default function ContainersSection() {
                                     <TableCell className="text-muted-foreground">{i.imageName}</TableCell>
                                     <TableCell>
                                       <div className="flex items-center gap-2">
-                                        <Badge variant="secondary">{i.imageTag || 'latest'}</Badge>
                                         {(() => {
                                           const imageDot = getImageUpdateDot(i.imageUpdateStatus, i.updateAvailable);
                                           return imageDot ? (
                                             <div
-                                              className={`w-2 h-2 rounded-full ${imageDot.color}`}
-                                              title={imageDot.description}
+                                            className={`w-2 h-2 rounded-full ${imageDot.color}`}
+                                            title={imageDot.description}
                                             />
                                           ) : null;
                                         })()}
+                                        <Badge variant="secondary">{i.imageTag || 'latest'}</Badge>
                                       </div>
                                     </TableCell>
                                     <TableCell className="text-right">
