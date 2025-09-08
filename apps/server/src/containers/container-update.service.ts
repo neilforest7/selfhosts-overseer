@@ -150,7 +150,12 @@ export class ContainerUpdateService {
 
     try {
       const containers = await this.prisma.container.findMany({
-        where: { hostId: host.id },
+        where: {
+          hostId: host.id,
+          ...(options?.composeProject ? { isComposeManaged: true, composeProject: options.composeProject } : {}),
+          ...(options?.containerIds && options.containerIds.length ? { id: { in: options.containerIds } } : {}),
+          ...(options?.containerNames && options.containerNames.length ? { name: { in: options.containerNames } } : {}),
+        },
         select: {
           id: true,
           containerId: true,
@@ -181,6 +186,25 @@ export class ContainerUpdateService {
       this.operationLogService.log('error', `[${host.address}] Update check failed: ${errorMessage}`, host.id);
       throw error;
     }
+  }
+
+  async checkComposeUpdates(hostId: string, composeProject: string): Promise<{ taskId: string }> {
+    const opLog = await this.operationLogService.create({ title: `Check Compose Updates - ${composeProject}` });
+    this.contextService.run(opLog.id, async () => {
+      let isFailed = false;
+      try {
+        const host = await this.prisma.host.findUnique({ where: { id: hostId } });
+        if (!host) throw new Error(`Host with id ${hostId} not found`);
+        await this.checkUpdatesOnHost({ id: host.id, address: host.address, sshUser: host.sshUser, port: host.port ?? undefined }, { composeProject });
+      } catch (err) {
+        isFailed = true;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.operationLogService.log('error', `Compose update check failed: ${errorMessage}`);
+      } finally {
+        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+      }
+    });
+    return { taskId: opLog.id };
   }
 
   private async checkSingleContainerUpdate(hostCred: any, container: any): Promise<void> {

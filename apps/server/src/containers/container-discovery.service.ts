@@ -269,17 +269,41 @@ export class ContainerDiscoveryService {
     // Generate compose metadata fields
     let composeGroupKey: string | null = null;
     let composeFolderName: string | null = null;
+    let composeProjectId: string | null = null;
 
     if (isComposeManaged && composeProject) {
-      // Generate composeGroupKey: hostId::compose::projectName
-      composeGroupKey = `${hostId}::compose::${composeProject}`;
+      // Ensure ComposeProject exists and get id (hostId + project + workingDir)
+      const workingDirStr = composeWorkingDir || '';
+      let projectRow = await (this.prisma as any).composeProject.findFirst({
+        where: { project: composeProject, workingDir: workingDirStr, hostId: hostId },
+      });
+      if (!projectRow) {
+        projectRow = await (this.prisma as any).composeProject.create({
+          data: {
+            project: composeProject,
+            workingDir: workingDirStr,
+            configFiles: composeConfigFiles ? composeConfigFiles.split(',') : [],
+            hostId: hostId
+          },
+        });
+      } else {
+        projectRow = await (this.prisma as any).composeProject.update({
+          where: { id: projectRow.id },
+          data: { lastSyncedAt: new Date() },
+        });
+      }
+      composeProjectId = projectRow.id;
 
-      // Generate composeFolderName from working directory
+      // Generate composeGroupKey (compat) and folder fallback
       if (composeWorkingDir) {
-        const parts = composeWorkingDir.split(/[/\\]+/).filter(Boolean);
+        const parts = composeWorkingDir.split(/[\\/]+/).filter(Boolean);
         composeFolderName = parts.length > 0 ? parts[parts.length - 1] : composeProject;
       } else {
         composeFolderName = composeProject;
+      }
+      composeGroupKey = `${hostId}::compose::${composeProject}`;
+      if (!composeGroupKey) {
+        composeGroupKey = `${hostId}::compose::${composeProject}::${composeFolderName}`;
       }
     }
 
@@ -319,6 +343,7 @@ export class ContainerDiscoveryService {
         composeService,
         composeWorkingDir,
         composeGroupKey,
+        ...(composeProjectId ? ({ composeProjectId } as any) : {}),
         composeFolderName,
         composeConfigFiles: composeConfigFiles ? { configFiles: composeConfigFiles.split(',') } : undefined,
         runCommand,
@@ -351,6 +376,7 @@ export class ContainerDiscoveryService {
         composeService,
         composeWorkingDir,
         composeGroupKey,
+        ...(composeProjectId ? ({ composeProjectId } as any) : {}),
         composeFolderName,
         composeConfigFiles: composeConfigFiles ? { configFiles: composeConfigFiles.split(',') } : undefined,
         runCommand,

@@ -124,6 +124,9 @@ model Container {
   composeGroupKey     String?
   composeFolderName   String?
   composeConfigFiles  Json?
+  // New relation to ComposeProject entity (explicit project modeling)
+  composeProjectId    String?
+  composeProjectRef   ComposeProject? @relation(fields: [composeProjectId], references: [id], onDelete: SetNull)
   runCommand          String?
   ports               Json?
   mounts              Json?
@@ -184,11 +187,17 @@ model HostNpmConfig {
 
 model ComposeProject {
   id                  String   @id @default(cuid())
+  hostId              String?
   project             String
   workingDir          String
   configFiles         String[]
   effectiveConfigHash String?
   lastSyncedAt        DateTime?
+
+  // Reverse relation: containers in this compose project
+  containers          Container[]
+
+  @@unique([hostId, project, workingDir])
 }
 
 model FrpsConfig {

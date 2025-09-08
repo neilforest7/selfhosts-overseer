@@ -18,7 +18,8 @@ export class ContainersController {
     @Query('hostName') hostName?: string,
     @Query('q') q?: string,
     @Query('updateAvailable') updateAvailable?: string,
-    @Query('composeManaged') composeManaged?: string
+    @Query('composeManaged') composeManaged?: string,
+    @Query('composeProjectId') composeProjectId?: string,
   ) {
     return this.containers.list({
       hostId,
@@ -26,6 +27,7 @@ export class ContainersController {
       q,
       updateAvailable: updateAvailable === 'true' ? true : updateAvailable === 'false' ? false : undefined,
       isComposeManaged: composeManaged === 'true' ? true : composeManaged === 'false' ? false : undefined,
+      composeProjectId,
     });
   }
 
@@ -69,8 +71,18 @@ export class ContainersController {
   }
 
   @Post('check-compose-updates')
-  async checkComposeUpdates(@Body() body: { hostId: string; composeProject: string; }) {
-    return this.containers.checkComposeProjectUpdates(body.hostId, body.composeProject);
+  async checkComposeUpdates(@Body() body: { hostId?: string; composeProject?: string; composeProjectId?: string; }) {
+    let hostId = body.hostId;
+    let composeProject = body.composeProject;
+    if (body.composeProjectId) {
+      const resolved = await (this.containers as any).resolveComposeProject(body.composeProjectId);
+      if (!hostId) hostId = resolved.hostId;
+      if (!composeProject) composeProject = resolved.project;
+    }
+    if (!hostId || !composeProject) {
+      throw new BadRequestException('hostId/composeProject is required (or provide composeProjectId)');
+    }
+    return this.containers.checkComposeProjectUpdates(hostId, composeProject);
   }
 
   @Post(':id/check-update')
@@ -255,6 +267,13 @@ export class ContainersController {
     return this.containers.validateUpdateConfiguration(config);
   }
 
+  // Maintenance endpoint: backfill ComposeProject and composeProjectId
+  @Post('compose/backfill-projects')
+  async backfillComposeProjects() {
+    const result = await (this.containers as any).backfillComposeProjects();
+    return { success: true, ...result };
+  }
+
   // Statistics and Monitoring Endpoints
   @Get('statistics/updates')
   async getUpdateStatistics(@Query('hostIds') hostIds?: string) {
@@ -311,13 +330,37 @@ export class ContainersController {
   }
 
   @Post('compose/operate')
-  async composeOperate(@Body() body: { hostId: string; project: string; workingDir: string; op: 'down'|'pull'|'up'|'restart'|'stop'|'start'; }) {
-    return this.containers.composeOperate({ id: body.hostId }, body.op, body.project, body.workingDir);
+  async composeOperate(@Body() body: { hostId?: string; composeProjectId?: string; project?: string; workingDir?: string; op: 'down'|'pull'|'up'|'restart'|'stop'|'start'; }) {
+    let hostId = body.hostId;
+    let project = body.project;
+    let workingDir = body.workingDir;
+    if (body.composeProjectId) {
+      const resolved = await (this.containers as any).resolveComposeProject(body.composeProjectId);
+      if (!hostId) hostId = resolved.hostId;
+      if (!project) project = resolved.project;
+      if (!workingDir) workingDir = resolved.workingDir;
+    }
+    if (!hostId || !project || !workingDir) {
+      throw new BadRequestException('hostId/project/workingDir is required (or provide composeProjectId)');
+    }
+    return this.containers.composeOperate({ id: hostId }, body.op, project, workingDir);
   }
 
   @Post('compose/reactivate')
-  async reactivateComposeProject(@Body() body: { hostId: string; project: string; workingDir: string; }) {
-    return this.containers.reactivateComposeProject({ id: body.hostId }, body.project, body.workingDir);
+  async reactivateComposeProject(@Body() body: { hostId?: string; composeProjectId?: string; project?: string; workingDir?: string; }) {
+    let hostId = body.hostId;
+    let project = body.project;
+    let workingDir = body.workingDir;
+    if (body.composeProjectId) {
+      const resolved = await (this.containers as any).resolveComposeProject(body.composeProjectId);
+      if (!hostId) hostId = resolved.hostId;
+      if (!project) project = resolved.project;
+      if (!workingDir) workingDir = resolved.workingDir;
+    }
+    if (!hostId || !project || !workingDir) {
+      throw new BadRequestException('hostId/project/workingDir is required (or provide composeProjectId)');
+    }
+    return this.containers.reactivateComposeProject({ id: hostId }, project, workingDir);
   }
 
   @Get('compose/down-projects')

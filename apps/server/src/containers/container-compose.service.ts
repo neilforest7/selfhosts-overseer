@@ -46,6 +46,12 @@ export class ContainerComposeService {
 
           await this.executeComposeOperation(hostCred, operation, project, workingDir, services);
 
+          // Health/Running checks for aggressive reactivate/up flows
+          if (operation === 'up') {
+            this.operationLogService.log('info', `Waiting for compose project "${project}" to be running...`);
+            await this.waitForProjectRunning(hostOrRef.id, project, { retries: 10, intervalMs: 3000 });
+          }
+
           // Get host name for activity logging
           const host = await this.prisma.host.findUnique({
             where: { id: hostOrRef.id },
@@ -424,19 +430,19 @@ export class ContainerComposeService {
       const currentContainerIds = currentLongIdSet.size > 0 ? currentLongIdSet : new Set(currentIdsShort);
 
       // Get containers for this project from database
-      const dbContainers = await this.prisma.container.findMany({
+      const dbContainers = await (this.prisma as any).container.findMany({
         where: {
           hostId,
           composeProject: project,
           isComposeManaged: true,
         },
-        select: { id: true, containerId: true, name: true },
+        select: { id: true, containerId: true, name: true, state: true, composeService: true },
       });
 
       this.operationLogService.log('info', `Found ${currentContainers.length} current containers and ${dbContainers.length} database containers for project "${project}"`);
 
       // Handle removed containers - mark as exited or delete/reactivate them
-      const removedContainers = dbContainers.filter(dbContainer => {
+      const removedContainers = (dbContainers as any[]).filter((dbContainer: any) => {
         const id = dbContainer.containerId;
         const idShort = id?.substring(0, 12);
         return !currentContainerIds.has(id) && !(idShort && currentShortIdSet.has(idShort));
@@ -450,7 +456,7 @@ export class ContainerComposeService {
           // For 'down' operations, preserve container records but mark them as compose-down
           // This allows users to restart the compose project from the UI
           this.operationLogService.log('info', `Marking ${removedContainers.length} containers as compose-down (preserving records for UI restart)`);
-          const removedContainerIds = removedContainers.map(c => c.id);
+          const removedContainerIds = removedContainers.map((c: any) => c.id);
           await this.prisma.container.updateMany({
             where: {
               id: { in: removedContainerIds },
@@ -488,7 +494,7 @@ export class ContainerComposeService {
       }
 
       // Perform cleanup of orphaned CLI containers and compose container replacement
-      await this.performContainerCleanupAndReplacement(hostId, removedContainers, currentContainers);
+      await this.performContainerCleanupAndReplacement(hostId, removedContainers as any, currentContainers);
 
     } catch (error) {
       this.logger.error(`Failed to update compose project status for ${project}: ${error}`);
@@ -534,17 +540,44 @@ export class ContainerComposeService {
     // Generate compose metadata fields
     let composeGroupKey: string | null = null;
     let composeFolderName: string | null = null;
+    let composeProjectId: string | null = null;
 
     if (isComposeManaged && composeProject) {
-      // Generate composeGroupKey: hostId::compose::projectName
-      composeGroupKey = `${hostId}::compose::${composeProject}`;
+      // Ensure ComposeProject exists and fetch id
+      const workingDirStr = composeWorkingDir || '';
+      // Avoid relying on generated composite unique input before prisma generate
+      let projectRow = await (this.prisma as any).composeProject.findFirst({
+        where: { project: composeProject, workingDir: workingDirStr, hostId: hostId },
+      });
+      if (!projectRow) {
+        projectRow = await (this.prisma as any).composeProject.create({
+          data: {
+            project: composeProject,
+            workingDir: workingDirStr,
+            configFiles: composeConfigFiles ? composeConfigFiles.split(',') : [],
+            hostId: hostId,
+          },
+        });
+      } else {
+        projectRow = await (this.prisma as any).composeProject.update({
+          where: { id: projectRow.id },
+          data: { lastSyncedAt: new Date() },
+        });
+      }
+      composeProjectId = projectRow.id;
 
-      // Generate composeFolderName from working directory
+      // Derive folder name from working dir
       if (composeWorkingDir) {
-        const parts = composeWorkingDir.split(/[/\\]+/).filter(Boolean);
+        const parts = composeWorkingDir.split(/[\\/]+/).filter(Boolean);
         composeFolderName = parts.length > 0 ? parts[parts.length - 1] : composeProject;
       } else {
         composeFolderName = composeProject;
+      }
+
+      // Backward-compatible group key with fallback suffix
+      composeGroupKey = `${hostId}::compose::${composeProject}`;
+      if (!composeGroupKey) {
+        composeGroupKey = `${hostId}::compose::${composeProject}::${composeFolderName}`;
       }
     }
 
@@ -574,6 +607,8 @@ export class ContainerComposeService {
         composeService,
         composeWorkingDir,
         composeGroupKey,
+        // composeProjectId requires regenerated prisma types; write via any
+        ...(composeProjectId ? ({ composeProjectId } as any) : {}),
         composeFolderName,
         composeConfigFiles: composeConfigFiles ? { configFiles: composeConfigFiles.split(',') } : undefined,
         runCommand,
@@ -600,6 +635,7 @@ export class ContainerComposeService {
         composeService,
         composeWorkingDir,
         composeGroupKey,
+        ...(composeProjectId ? ({ composeProjectId } as any) : {}),
         composeFolderName,
         composeConfigFiles: composeConfigFiles ? { configFiles: composeConfigFiles.split(',') } : undefined,
         runCommand,
@@ -739,7 +775,7 @@ export class ContainerComposeService {
 
     for (const removedContainer of removedContainers) {
       // Get the old container's data first to check its state
-      const oldContainerData = await this.prisma.container.findUnique({
+      const oldContainerData = await (this.prisma as any).container.findUnique({
         where: { id: removedContainer.id },
         select: {
           manualPortMapping: true,
@@ -747,7 +783,7 @@ export class ContainerComposeService {
           status: true,
           composeService: true,
           composeProject: true,
-          // Add other user-configured fields here if needed
+          composeProjectId: true,
         },
       });
 
@@ -865,6 +901,7 @@ export class ContainerComposeService {
             where: { id: removedContainer.id },
             data: {
               containerId: longNewContainerId,
+              ...(oldContainerData.composeProjectId ? ({ composeProjectId: oldContainerData.composeProjectId } as any) : {}),
               // The upsert process will update other fields, but we preserve user config
             },
           });
@@ -935,6 +972,7 @@ export class ContainerComposeService {
           id: true,
           name: true,
           containerId: true,
+          composeService: true,
         },
       });
 
@@ -957,15 +995,26 @@ export class ContainerComposeService {
 
       const currentContainers = await this.docker.psByComposeProject(hostCred, project);
       const currentContainerIds = new Set(currentContainers.map((c: any) => c.ID));
+      // Build a set of current compose services for precise matching
+      const currentServiceSet = new Set<string>();
+      for (const c of currentContainers) {
+        const rawLabels = (c as any).Labels;
+        const labels: Record<string, string> = typeof rawLabels === 'string' ? this.parseDockerPsLabels(rawLabels) : (rawLabels || {});
+        const svc = labels['com.docker.compose.service'];
+        if (svc) currentServiceSet.add(svc);
+      }
 
-      // Filter out any compose-down records that somehow correspond to currently running containers
+      // Only delete compose-down records that have been superseded by a running container of the same service
       const safeToDeleteRecords = composeDownContainers.filter(record => {
         const isCurrentlyRunning = currentContainerIds.has(record.containerId);
         if (isCurrentlyRunning) {
           this.operationLogService.log('info', `Skipping deletion of compose-down record "${record.name}" as container ${record.containerId} is currently running`);
           return false;
         }
-        return true;
+        if (record.composeService && currentServiceSet.has(record.composeService)) {
+          return true;
+        }
+        return false;
       });
 
       if (safeToDeleteRecords.length === 0) {
@@ -1004,6 +1053,33 @@ export class ContainerComposeService {
       privateKey: host.sshPrivateKey ? this.crypto.decryptString(host.sshPrivateKey)?.toString() : undefined,
       privateKeyPassphrase: host.sshPrivateKeyPassphrase ? this.crypto.decryptString(host.sshPrivateKeyPassphrase)?.toString() : undefined,
     };
+  }
+
+  private async waitForProjectRunning(hostId: string, project: string, opts: { retries: number; intervalMs: number }): Promise<void> {
+    const { retries, intervalMs } = opts;
+    const hostCred = await this.getHostCredById(hostId);
+    if (!hostCred) throw new Error(`Host with id ${hostId} not found`);
+
+    for (let i = 0; i < retries; i++) {
+      try {
+        const current = await this.docker.psByComposeProject(hostCred, project, 60);
+        if (current.length === 0) {
+          this.operationLogService.log('info', `Compose project "${project}": no containers yet (attempt ${i + 1}/${retries})`);
+        } else {
+          // Consider running when all listed containers are in running state, or if no Health then treat running as healthy
+          const allRunning = current.every((c: any) => c.State === 'running');
+          if (allRunning) {
+            this.operationLogService.log('info', `Compose project "${project}" is running`);
+            return;
+          }
+          this.operationLogService.log('info', `Compose project "${project}" not fully running (attempt ${i + 1}/${retries})`);
+        }
+      } catch (e) {
+        this.operationLogService.log('error', `Health check error for project "${project}": ${e}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(`Compose project "${project}" failed to reach running state in ${(retries * intervalMs) / 1000}s`);
   }
 
   /**
@@ -1176,6 +1252,48 @@ export class ContainerComposeService {
       const mounts = this.extractMountsFromDockerData(newContainerData);
       const networks = this.extractNetworksFromDockerData(newContainerData);
 
+      // Compose association (ensure ComposeProject and compute group key)
+      const composeProject = labels['com.docker.compose.project'];
+      const composeService = labels['com.docker.compose.service'];
+      const composeWorkingDir = labels['com.docker.compose.project.working_dir'] || '';
+      const composeConfigFiles = labels['com.docker.compose.project.config_files'];
+
+      let composeProjectId: string | null = null;
+      let composeGroupKey: string | null = null;
+      let composeFolderName: string | null = null;
+
+      if (composeProject) {
+        const workingDirStr = composeWorkingDir || '';
+        const hostIdLocal = existingContainer.hostId as string;
+        let projectRow = await (this.prisma as any).composeProject.findFirst({
+          where: { project: composeProject, workingDir: workingDirStr, hostId: hostIdLocal },
+        });
+        if (!projectRow) {
+          projectRow = await (this.prisma as any).composeProject.create({
+            data: {
+              project: composeProject,
+              workingDir: workingDirStr,
+              configFiles: composeConfigFiles ? composeConfigFiles.split(',') : [],
+            },
+          });
+        } else {
+          projectRow = await (this.prisma as any).composeProject.update({
+            where: { id: projectRow.id },
+            data: { lastSyncedAt: new Date() },
+          });
+        }
+        composeProjectId = projectRow.id;
+
+        if (composeWorkingDir) {
+          const parts = composeWorkingDir.split(/[\\/]+/).filter(Boolean);
+          composeFolderName = parts.length > 0 ? parts[parts.length - 1] : composeProject;
+        } else {
+          composeFolderName = composeProject;
+        }
+        composeGroupKey = `${hostIdLocal}::compose::${composeProject}`;
+        if (!composeGroupKey) composeGroupKey = `${hostIdLocal}::compose::${composeProject}::${composeFolderName}`;
+      }
+
       // Update the existing record with new container ID and metadata
       await this.prisma.container.update({
         where: { id: existingContainer.id },
@@ -1183,10 +1301,16 @@ export class ContainerComposeService {
           containerId: newContainerId,
           state,
           status,
+          ...(composeProjectId ? ({ composeProjectId } as any) : {}),
+          ...(composeGroupKey ? ({ composeGroupKey } as any) : {}),
+          ...(composeFolderName ? ({ composeFolderName } as any) : {}),
           ports,
           mounts,
           networks,
           labels,
+          composeProject: composeProject || existingContainer.composeProject,
+          composeService: composeService || existingContainer.composeService,
+          composeWorkingDir: composeWorkingDir || existingContainer.composeWorkingDir,
           startedAt: new Date(), // Container was just recreated
           // Preserve user-configured fields like manualPortMapping
           // These are intentionally NOT updated to preserve user settings

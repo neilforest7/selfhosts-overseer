@@ -40,6 +40,7 @@ type ContainerItem = {
   composeFolderName?: string | null;
   manualPortMapping?: { exposedPort: string; internalPort: string } | null;
   hostId: string;
+  composeProjectId?: string;
 };
 
 type HostItem = {
@@ -1017,28 +1018,24 @@ export default function ContainersSection() {
                         )}
                         <DropdownMenuItem onClick={async ()=>{ 
                           const containerName = isCompose ? `${title} 组` : first.name;
-                          const opId = await startOperation(`检查更新: ${containerName}`);
-                          
+                          // 不再人为创建 Operation（避免重复日志），直接调用后端接口
                           if (isCompose) {
-                            // Compose 组：检查该组所有容器
                             toast.info(`检查 ${title} 组的更新...`);
                             try {
+                              const body: any = { hostId: first.hostId };
+                              if (first.composeProjectId) body.composeProjectId = first.composeProjectId;
+                              else body.composeProject = first.composeProject || '';
                               const r = await fetch('http://localhost:3001/api/v1/containers/check-compose-updates', { 
                                 method: 'POST', 
                                 headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({ 
-                                  hostId: first.hostId, 
-                                  composeProject: first.composeProject || '', 
-                                  opId
-                                }) 
+                                body: JSON.stringify(body)
                               });
                               if (!r.ok) throw new Error('检查失败');
                               const result = await r.json();
                               if (result.taskId) {
                                 await monitorOperationStatus(result.taskId, `检查 ${title} 组更新`);
                               } else {
-                                // Fallback for operations that don't return taskId
-                                if (result.updated > 0) {
+                                if (typeof result.updated === 'number') {
                                   toast.success(`${title} 组有 ${result.updated} 个容器可更新`);
                                 } else if (result.error) {
                                   toast.warning(`${title} 组检查失败: ${result.error}`);
@@ -1051,21 +1048,19 @@ export default function ContainersSection() {
                               toast.error(`检查 ${title} 组更新失败: ${e?.message || '未知错误'}`);
                             }
                           } else {
-                            // CLI 容器：只检查这一个容器
                             toast.info(`检查 ${first.name} 的更新...`);
                             try {
                               const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/check-update`, { 
                                 method: 'POST', 
                                 headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({ opId }) 
+                                body: JSON.stringify({})
                               });
                               if (!r.ok) throw new Error('检查失败');
                               const result = await r.json();
                               if (result.taskId) {
                                 await monitorOperationStatus(result.taskId, `检查 ${first.name} 更新`);
                               } else {
-                                // Fallback for operations that don't return taskId
-                                if (result.updated > 0) {
+                                if (typeof result.updated === 'number') {
                                   toast.success(`${first.name} 有更新可用`);
                                 } else if (result.error) {
                                   toast.warning(`${first.name} 检查失败: ${result.error}`);

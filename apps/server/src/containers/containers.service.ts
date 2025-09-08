@@ -26,7 +26,7 @@ export class ContainersService {
   ) {}
 
   // List containers with filtering
-  async list(params: { hostId?: string; hostName?: string; q?: string; updateAvailable?: boolean | undefined; isComposeManaged?: boolean | undefined }) {
+  async list(params: { hostId?: string; hostName?: string; q?: string; updateAvailable?: boolean | undefined; isComposeManaged?: boolean | undefined; composeProjectId?: string }) {
     const where: any = {};
     if (params.hostId) {
       where.hostId = params.hostId;
@@ -38,6 +38,7 @@ export class ContainersService {
         return { items: [] };
       }
     }
+    if (params.composeProjectId) where.composeProjectId = params.composeProjectId;
     if (typeof params.updateAvailable === 'boolean') where.updateAvailable = params.updateAvailable;
     if (typeof params.isComposeManaged === 'boolean') where.isComposeManaged = params.isComposeManaged;
     if (params.q) where.OR = [{ name: { contains: params.q } }, { imageName: { contains: params.q } }];
@@ -54,6 +55,16 @@ export class ContainersService {
       },
     });
     return { items };
+  }
+
+  // Resolve ComposeProject by id to hostId/project/workingDir
+  async resolveComposeProject(composeProjectId: string): Promise<{ hostId?: string; project: string; workingDir: string }> {
+    const proj = await (this.prisma as any).composeProject.findUnique({
+      where: { id: composeProjectId },
+      select: { hostId: true, project: true, workingDir: true },
+    });
+    if (!proj) throw new Error(`ComposeProject not found: ${composeProjectId}`);
+    return { hostId: proj.hostId ?? undefined, project: proj.project, workingDir: proj.workingDir };
   }
 
   // Manual port mapping management
@@ -314,9 +325,7 @@ export class ContainersService {
   }
 
   async checkComposeProjectUpdates(hostId: string, _composeProject: string): Promise<{ taskId: string }> {
-    // This could be implemented as a specialized method in ContainerUpdateService
-    // For now, we'll just check updates for the entire host
-    return this.checkUpdates({ id: hostId });
+    return (this.updateService as any).checkComposeUpdates(hostId, _composeProject);
   }
 
   // Legacy refresh status method with overloaded signature
@@ -559,5 +568,80 @@ export class ContainersService {
       averageDuration: 120, // seconds
       successRate: 95, // percentage
     };
+  }
+
+  // Maintenance: Backfill ComposeProject and composeProjectId on containers
+  async backfillComposeProjects(): Promise<{ createdProjects: number; updatedContainers: number }> {
+    let createdProjects = 0;
+    let updatedContainers = 0;
+
+    // Find compose-managed containers (avoid filtering by composeProjectId to remain compatible before prisma generate)
+    const missing = await this.prisma.container.findMany({
+      where: {
+        isComposeManaged: true,
+        composeProject: { not: null },
+      },
+      select: {
+        id: true,
+        hostId: true,
+        composeProject: true,
+        composeWorkingDir: true,
+        composeConfigFiles: true,
+        composeGroupKey: true,
+      },
+      take: 5000,
+    });
+
+    if (missing.length === 0) return { createdProjects, updatedContainers };
+
+    // Group by (hostId, project, workingDir)
+    const groups = new Map<string, { hostId: string; project: string; workingDir: string; sampleConfigFiles?: any; containerIds: string[] }>();
+    for (const c of missing) {
+      const hostId = c.hostId;
+      const project = c.composeProject as string;
+      const workingDir = (c.composeWorkingDir || '') as string;
+      const key = `${hostId}::${project}::${workingDir}`;
+      if (!groups.has(key)) {
+        groups.set(key, { hostId, project, workingDir, sampleConfigFiles: c.composeConfigFiles, containerIds: [] });
+      }
+      groups.get(key)!.containerIds.push(c.id);
+    }
+
+    for (const [, g] of groups) {
+      // Upsert ComposeProject
+      let projectRow = await (this.prisma as any).composeProject.findFirst({
+        where: { project: g.project, workingDir: g.workingDir, hostId: g.hostId },
+      });
+      if (!projectRow) {
+        projectRow = await (this.prisma as any).composeProject.create({
+          data: {
+            project: g.project,
+            workingDir: g.workingDir,
+            configFiles: Array.isArray(g.sampleConfigFiles?.configFiles) ? g.sampleConfigFiles.configFiles : [],
+          },
+        });
+        createdProjects++;
+      }
+
+      // Update containers in group with composeProjectId and ensure composeGroupKey exists
+      await this.prisma.container.updateMany({
+        where: { id: { in: g.containerIds } },
+        data: {
+          // cast via any to allow new field prior to prisma generate
+          ...(projectRow.id ? ({ composeProjectId: projectRow.id } as any) : {}),
+        },
+      });
+      updatedContainers += g.containerIds.length;
+
+      // Fill composeGroupKey if missing
+      const compatKey = `${g.hostId}::compose::${g.project}`;
+      const folder = g.workingDir ? g.workingDir.split(/[/\\]+/).filter(Boolean).slice(-1)[0] : g.project;
+      await this.prisma.container.updateMany({
+        where: { id: { in: g.containerIds }, composeGroupKey: null as any },
+        data: { composeGroupKey: compatKey || `${compatKey}::${folder}` },
+      });
+    }
+
+    return { createdProjects, updatedContainers };
   }
 }
