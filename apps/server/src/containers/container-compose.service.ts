@@ -400,9 +400,28 @@ export class ContainerComposeService {
       const hostCred = await this.getHostCredById(hostId);
       if (!hostCred) throw new Error(`Host with id ${hostId} not found`);
 
-      // Get current containers for this project from Docker
+      // Get current containers for this project from Docker (ps) and enrich with inspect (for long IDs & full labels)
       const currentContainers = await this.docker.psByComposeProject(hostCred, project, 60);
-      const currentContainerIds = new Set(currentContainers.map(c => c.ID).filter(Boolean));
+      const currentIdsShort: string[] = currentContainers.map((c: any) => c.ID).filter(Boolean);
+
+      let inspectData: any[] = [];
+      const currentIdShortToLong = new Map<string, string>();
+      const currentLongIdSet = new Set<string>();
+      const currentShortIdSet = new Set<string>(currentIdsShort);
+
+      if (currentIdsShort.length > 0) {
+        inspectData = await this.docker.inspectContainers(hostCred, currentIdsShort, 120);
+        for (const ins of inspectData) {
+          const longId: string | undefined = ins?.Id;
+          if (!longId) continue;
+          const shortId = longId.substring(0, 12);
+          currentIdShortToLong.set(shortId, longId);
+          currentLongIdSet.add(longId);
+        }
+      }
+
+      // Build a normalized set using long IDs when available
+      const currentContainerIds = currentLongIdSet.size > 0 ? currentLongIdSet : new Set(currentIdsShort);
 
       // Get containers for this project from database
       const dbContainers = await this.prisma.container.findMany({
@@ -416,20 +435,12 @@ export class ContainerComposeService {
 
       this.operationLogService.log('info', `Found ${currentContainers.length} current containers and ${dbContainers.length} database containers for project "${project}"`);
 
-      // Update existing containers
-      if (currentContainers.length > 0) {
-        const containerIds = currentContainers.map(c => c.ID).filter(Boolean);
-        if (containerIds.length > 0) {
-          const inspectData = await this.docker.inspectContainers(hostCred, containerIds, 120);
-          await this.updateContainerData(hostId, inspectData);
-          this.operationLogService.log('info', `Updated ${inspectData.length} existing containers for project "${project}"`);
-        }
-      }
-
-      // Handle removed containers - mark as exited or delete them
-      const removedContainers = dbContainers.filter(dbContainer =>
-        !currentContainerIds.has(dbContainer.containerId)
-      );
+      // Handle removed containers - mark as exited or delete/reactivate them
+      const removedContainers = dbContainers.filter(dbContainer => {
+        const id = dbContainer.containerId;
+        const idShort = id?.substring(0, 12);
+        return !currentContainerIds.has(id) && !(idShort && currentShortIdSet.has(idShort));
+      });
 
       if (removedContainers.length > 0) {
         this.operationLogService.log('info', `Found ${removedContainers.length} containers not in current Docker output for project "${project}"`);
@@ -455,11 +466,24 @@ export class ContainerComposeService {
         } else if (operation === 'up') {
           // For 'up' operations, containers might have been recreated with new IDs
           // Also handle reactivation of compose-down containers
+          // IMPORTANT: Do this BEFORE upserting current containers to avoid duplicates
           await this.handleContainerRecreation(hostId, project, removedContainers, currentContainers);
         } else {
           // For start/stop/restart operations, containers should still exist
           // This might indicate a temporary issue or containers in a different state
           this.operationLogService.log('info', `Containers missing from Docker output during '${operation}' operation. This might be temporary. Containers: ${removedContainers.map(c => c.name).join(', ')}`);
+        }
+      }
+
+      // After reactivation/replacement is handled, upsert current containers to refresh data
+      if (currentContainers.length > 0) {
+        const containerIds = currentContainers.map(c => c.ID).filter(Boolean);
+        if (containerIds.length > 0) {
+          // Reuse inspectData if already fetched; otherwise fetch now
+          const needFetch = inspectData.length === 0;
+          const data = needFetch ? await this.docker.inspectContainers(hostCred, containerIds, 120) : inspectData;
+          await this.updateContainerData(hostId, data);
+          this.operationLogService.log('info', `Updated ${data.length} existing containers for project "${project}"`);
         }
       }
 
@@ -764,8 +788,22 @@ export class ContainerComposeService {
             return false;
           }
 
-          const currentName = current.Names?.[0]?.replace(/^\//, '') || current.ID?.substring(0, 12);
-          const currentLabels = current.Labels || {};
+          // Normalize docker ps Name(s)
+          let currentName: string = '';
+          const namesField = (current as any).Names;
+          if (Array.isArray(namesField)) {
+            currentName = (namesField[0] || '').toString().replace(/^\//, '');
+          } else if (typeof namesField === 'string') {
+            currentName = namesField.replace(/^\//, '');
+          } else {
+            currentName = (current.ID || '').toString().substring(0, 12);
+          }
+
+          // Normalize Labels from docker ps (can be a long CSV-like string)
+          const rawLabels = (current as any).Labels;
+          const currentLabels: Record<string, string> = typeof rawLabels === 'string'
+            ? this.parseDockerPsLabels(rawLabels)
+            : (rawLabels || {});
           const currentService = currentLabels['com.docker.compose.service'];
 
           this.operationLogService.log('info', `Fallback: Checking container "${currentName}" (service: ${currentService}) against removed "${removedContainer.name}"`);
@@ -805,6 +843,20 @@ export class ContainerComposeService {
         // Mark this current container as matched to prevent duplicate assignments
         matchedCurrentContainerIds.add(matchingCurrentContainer.ID);
 
+        // IMPORTANT: Normalize to long container ID via inspect (ensure DB uses long IDs)
+        let longNewContainerId: string = matchingCurrentContainer.ID;
+        try {
+          const hostCred = await this.getHostCredById(hostId);
+          if (hostCred) {
+            const inspect = await this.docker.inspectContainers(hostCred, [matchingCurrentContainer.ID], 60);
+            if (Array.isArray(inspect) && inspect[0]?.Id) {
+              longNewContainerId = inspect[0].Id;
+            }
+          }
+        } catch (e) {
+          this.logger.warn(`Failed to resolve long container ID for ${matchingCurrentContainer.ID}: ${e}`);
+        }
+
         if (wasComposeDown) {
           this.operationLogService.log('info', `Reactivating compose-down container "${removedContainer.name}" with new ID: ${matchingCurrentContainer.ID}`);
 
@@ -812,7 +864,7 @@ export class ContainerComposeService {
           await this.prisma.container.update({
             where: { id: removedContainer.id },
             data: {
-              containerId: matchingCurrentContainer.ID,
+              containerId: longNewContainerId,
               // The upsert process will update other fields, but we preserve user config
             },
           });
@@ -832,7 +884,7 @@ export class ContainerComposeService {
                 await this.prisma.container.updateMany({
                   where: {
                     hostId,
-                    containerId: matchingCurrentContainer.ID,
+                    containerId: longNewContainerId,
                   },
                   data: {
                     manualPortMapping: oldContainerData.manualPortMapping as any,
@@ -1219,5 +1271,31 @@ export class ContainerComposeService {
       this.logger.warn(`Failed to extract networks from Docker data: ${error}`);
       return {};
     }
+  }
+
+  /**
+   * Parse the Labels field returned by `docker ps --format json` which can be a
+   * single comma-separated key=value string. Example:
+   *   "com.docker.compose.project=proj,com.docker.compose.service=svc"
+   */
+  private parseDockerPsLabels(rawLabels: string): Record<string, string> {
+    const labels: Record<string, string> = {};
+    try {
+      const parts = rawLabels.split(',');
+      for (const part of parts) {
+        const idx = part.indexOf('=');
+        if (idx > 0) {
+          const key = part.substring(0, idx).trim();
+          const value = part.substring(idx + 1).trim();
+          if (key) labels[key] = value;
+        } else {
+          const key = part.trim();
+          if (key) labels[key] = '';
+        }
+      }
+    } catch {
+      // best-effort parsing; return what we got (possibly empty)
+    }
+    return labels;
   }
 }
