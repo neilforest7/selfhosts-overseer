@@ -311,7 +311,7 @@ export class ContainersService {
   }
 
   async checkSingleContainerUpdate(containerId: string): Promise<{ taskId: string }> {
-    // Get container info and check updates for its host
+    // Get container info and run a scoped check for this single container only
     const container = await this.prisma.container.findUnique({
       where: { id: containerId },
       include: { host: true },
@@ -321,7 +321,12 @@ export class ContainersService {
       throw new Error('Container not found');
     }
 
-    return this.checkUpdates({ id: container.hostId });
+    // Delegate to updateService with precise filtering
+    return (this.updateService as any).batchCheckUpdates({
+      hostIds: [container.hostId],
+      containerIds: [container.id],
+      onlyOutdated: false,
+    });
   }
 
   async checkComposeProjectUpdates(hostId: string, _composeProject: string): Promise<{ taskId: string }> {

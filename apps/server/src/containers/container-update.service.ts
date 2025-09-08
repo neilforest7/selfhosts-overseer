@@ -566,9 +566,34 @@ export class ContainerUpdateService {
     batchSize?: number;
     onlyOutdated?: boolean;
   }): Promise<{ taskId: string }> {
-    // Note: skipCritical option is maintained for API compatibility but no longer filters containers
-    const hostId = options.hostIds?.[0] || 'all';
-    return this.checkUpdates({ id: hostId });
+    const opLog = await this.operationLogService.create({ title: `Check Container Updates (${options.hostIds?.length || 0} hosts, ${options.containerIds?.length || 0} containers, ${options.composeProjects?.length || 0} compose projects)` });
+    this.contextService.run(opLog.id, async () => {
+      let isFailed = false;
+      try {
+        const hostIds = options.hostIds && options.hostIds.length ? options.hostIds : undefined;
+        const hosts = hostIds ? await this.prisma.host.findMany({ where: { id: { in: hostIds } }, select: { id: true, address: true, sshUser: true, port: true } })
+                              : await this.prisma.host.findMany({ select: { id: true, address: true, sshUser: true, port: true } });
+        for (const host of hosts) {
+          await this.checkUpdatesOnHost(
+          { 
+            id: host.id, 
+            address: host.address, 
+            sshUser: host.sshUser,
+            port: host.port ?? undefined 
+          }, {
+            containerIds: options.containerIds,
+            composeProject: options.composeProjects && options.composeProjects.length ? options.composeProjects[0] : undefined,
+          });
+        }
+      } catch (err) {
+        isFailed = true;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.operationLogService.log('error', `Batch update check failed: ${errorMessage}`);
+      } finally {
+        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+      }
+    });
+    return { taskId: opLog.id };
   }
 
   async batchCheckUpdatesOnHost(host: { id: string; address: string; sshUser: string; port?: number }, options?: {
