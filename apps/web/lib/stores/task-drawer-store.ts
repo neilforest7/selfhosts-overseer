@@ -11,6 +11,7 @@ type TaskDrawerState = {
   actions: {
     startOperation: (title: string, context?: object, triggerType?: 'MANUAL' | 'SYSTEM') => Promise<string>;
     addTask: (task: OperationLog) => void;
+    addTaskAndOpen: (task: OperationLog) => void;
     setLogHistory: (taskId: string, entries: OperationLogEntry[]) => void;
     addLogEntry: (taskId: string, entry: OperationLogEntry) => void;
     updateTaskStatus: (taskId: string, status: OperationLog['status'], endTime?: string) => void;
@@ -54,6 +55,18 @@ export const useTaskDrawerStore = create<TaskDrawerState>()(
             state.tasks[task.id] = { ...task, entries: task.entries || [] };
             state.taskOrder.unshift(task.id);
           }
+        });
+      },
+      addTaskAndOpen: (task) => {
+        set((state) => {
+          if (!state.tasks[task.id]) {
+            state.tasks[task.id] = { ...task, entries: task.entries || [] };
+            state.taskOrder.unshift(task.id);
+          }
+          // Force open TaskDrawer and select the task
+          state.isOpen = true;
+          state.isMinimized = false;
+          state.currentTaskId = task.id;
         });
       },
       setLogHistory: (taskId, entries) => {

@@ -60,7 +60,62 @@ export default function ContainersSection() {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [discoverDialogOpen, setDiscoverDialogOpen] = useState(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
+  const { startOperation, fetchTasks, selectTask, setOpen, addTaskAndOpen } = useTaskDrawerStore((s) => s.actions);
+
+  // Helper function to execute task operations and automatically open TaskDrawer
+  const executeTaskOperation = useCallback(async (
+    title: string,
+    apiCall: () => Promise<Response>,
+    onSuccess?: (result: any) => void,
+    onError?: (error: Error) => void
+  ) => {
+    try {
+      const response = await apiCall();
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const result = await response.json();
+      
+      // If the API returns a taskId, add it to TaskDrawer and select it
+      if (result.taskId) {
+        // Create a temporary task entry for immediate display
+        const tempTask = {
+          id: result.taskId,
+          title,
+          status: 'RUNNING' as const,
+          triggerType: 'MANUAL' as const,
+          startTime: new Date().toISOString(),
+          endTime: null,
+          entries: []
+        };
+        addTaskAndOpen(tempTask);
+        
+        // Monitor the task status
+        const monitorTask = async () => {
+          try {
+            const statusResponse = await fetch(`http://localhost:3001/api/v1/operations/${result.taskId}`);
+            if (statusResponse.ok) {
+              const taskData = await statusResponse.json();
+              if (taskData.status === 'COMPLETED' || taskData.status === 'ERROR') {
+                return; // Task finished, stop monitoring
+              }
+            }
+            // Continue monitoring every 2 seconds
+            setTimeout(monitorTask, 2000);
+          } catch (error) {
+            console.error('Failed to monitor task status:', error);
+          }
+        };
+        monitorTask();
+      }
+      
+      if (onSuccess) onSuccess(result);
+    } catch (error) {
+      console.error(`Task operation failed: ${title}`, error);
+      if (onError) onError(error as Error);
+      toast.error(`操作失败: ${title}`);
+    }
+  }, [addTaskAndOpen]);
 
   // Helper function to refresh containers with debouncing
   const refreshContainers = useCallback(async (immediate = true) => {
@@ -924,21 +979,23 @@ export default function ContainersSection() {
                         ) : (
                           <>
                             <DropdownMenuItem onClick={async ()=>{
-                              const opId = await startOperation(`重启 ${first.name}`);
-                              toast.info(`正在重启：${first.name}`);
-                              try {
-                                const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/restart`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
-                                if (!r.ok) throw new Error(await r.text());
-                                const result = await r.json();
-                                if (result.taskId) {
-                                  await monitorOperationStatus(result.taskId, `重启 ${first.name}`);
-                                } else {
-                                  toast.success(`重启完成：${first.name}`);
-                                  await refreshContainers(true);
-                                }
-                              } catch (e: any) {
-                                toast.error(`重启失败：${first.name} - ${e?.message || '未知错误'}`);
-                              }
+                              await executeTaskOperation(
+                                `重启 ${first.name}`,
+                                () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/restart`, { 
+                                  method:'POST', 
+                                  headers:{'Content-Type':'application/json'}, 
+                                  body: JSON.stringify({ host: { id: first.hostId } }) 
+                                }),
+                                (result) => {
+                                  if (result.taskId) {
+                                    // TaskDrawer already opened and task selected by executeTaskOperation
+                                  } else {
+                                    toast.success(`重启完成：${first.name}`);
+                                    refreshContainers(true);
+                                  }
+                                },
+                                (error) => toast.error(`重启失败：${first.name} - ${error.message}`)
+                              );
                             }}>重启容器</DropdownMenuItem>
                                 {(() => {
                                   const s = (groupStatus.state || '').toLowerCase();
@@ -948,21 +1005,23 @@ export default function ContainersSection() {
                                     <>
                                       {!running && (
                                         <DropdownMenuItem onClick={async ()=>{
-                                          const opId = await startOperation(`启动 ${first.name}`);
-                                          toast.info(`正在启动：${first.name}`);
-                                          try {
-                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
-                                            if (!r.ok) throw new Error(await r.text());
-                                            const result = await r.json();
-                                            if (result.taskId) {
-                                              await monitorOperationStatus(result.taskId, `启动 ${first.name}`);
-                                            } else {
-                                              toast.success(`启动完成：${first.name}`);
-                                              await refreshContainers(true);
-                                            }
-                                          } catch (e: any) {
-                                            toast.error(`启动失败：${first.name} - ${e?.message || '未知错误'}`);
-                                          }
+                                          await executeTaskOperation(
+                                            `启动 ${first.name}`,
+                                            () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { 
+                                              method:'POST', 
+                                              headers:{'Content-Type':'application/json'}, 
+                                              body: JSON.stringify({ host: { id: first.hostId } }) 
+                                            }),
+                                            (result) => {
+                                              if (result.taskId) {
+                                                // TaskDrawer already opened and task selected by executeTaskOperation
+                                              } else {
+                                                toast.success(`启动完成：${first.name}`);
+                                                refreshContainers(true);
+                                              }
+                                            },
+                                            (error) => toast.error(`启动失败：${first.name} - ${error.message}`)
+                                          );
                                         }}>启动容器</DropdownMenuItem>
                                       )}
                                     </>
@@ -976,21 +1035,23 @@ export default function ContainersSection() {
                                     <>
                                       {running && (
                                         <DropdownMenuItem onClick={async ()=>{
-                                          const opId = await startOperation(`停止 ${first.name}`);
-                                          toast.info(`正在停止：${first.name}`);
-                                          try {
-                                            const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: first.hostId }, opId }) });
-                                            if (!r.ok) throw new Error(await r.text());
-                                            const result = await r.json();
-                                            if (result.taskId) {
-                                              await monitorOperationStatus(result.taskId, `停止 ${first.name}`);
-                                            } else {
-                                              toast.success(`停止完成：${first.name}`);
-                                              await refreshContainers(true);
-                                            }
-                                          } catch (e: any) {
-                                            toast.error(`停止失败：${first.name} - ${e?.message || '未知错误'}`);
-                                          }
+                                          await executeTaskOperation(
+                                            `停止 ${first.name}`,
+                                            () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { 
+                                              method:'POST', 
+                                              headers:{'Content-Type':'application/json'}, 
+                                              body: JSON.stringify({ host: { id: first.hostId } }) 
+                                            }),
+                                            (result) => {
+                                              if (result.taskId) {
+                                                // TaskDrawer already opened and task selected by executeTaskOperation
+                                              } else {
+                                                toast.success(`停止完成：${first.name}`);
+                                                refreshContainers(true);
+                                              }
+                                            },
+                                            (error) => toast.error(`停止失败：${first.name} - ${error.message}`)
+                                          );
                                         }}>停止容器</DropdownMenuItem>
                                       )}
                                     </>
@@ -998,80 +1059,83 @@ export default function ContainersSection() {
                                 })()}
                             <DropdownMenuItem onClick={async ()=>{
                               const i = first;
-                              const opId = await startOperation(`更新 ${i.name}`);
-                              toast.info(`正在更新：${i.name}`);
-                              try {
-                                const r = await fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ host: { id: i.hostId }, opId }) });
-                                if (!r.ok) throw new Error(await r.text());
-                                const result = await r.json();
-                                if (result.taskId) {
-                                  await monitorOperationStatus(result.taskId, `更新 ${i.name}`);
-                                } else {
-                                  toast.success(`更新完成：${i.name}`);
-                                  await refreshContainers(true);
-                                }
-                              } catch (e: any) {
-                                toast.error(`更新失败：${i.name} - ${e?.message || '未知错误'}`);
-                              }
+                              await executeTaskOperation(
+                                `更新 ${i.name}`,
+                                () => fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { 
+                                  method:'POST', 
+                                  headers:{'Content-Type':'application/json'}, 
+                                  body: JSON.stringify({ host: { id: i.hostId } }) 
+                                }),
+                                (result) => {
+                                  if (result.taskId) {
+                                    // TaskDrawer already opened and task selected by executeTaskOperation
+                                  } else {
+                                    toast.success(`更新完成：${i.name}`);
+                                    refreshContainers(true);
+                                  }
+                                },
+                                (error) => toast.error(`更新失败：${i.name} - ${error.message}`)
+                              );
                             }}>更新容器</DropdownMenuItem>
                           </>
                         )}
                         <DropdownMenuItem onClick={async ()=>{ 
                           const containerName = isCompose ? `${title} 组` : first.name;
-                          // 不再人为创建 Operation（避免重复日志），直接调用后端接口
                           if (isCompose) {
-                            toast.info(`检查 ${title} 组的更新...`);
-                            try {
-                              const body: any = { hostId: first.hostId };
-                              if (first.composeProjectId) body.composeProjectId = first.composeProjectId;
-                              else body.composeProject = first.composeProject || '';
-                              const r = await fetch('http://localhost:3001/api/v1/containers/check-compose-updates', { 
-                                method: 'POST', 
-                                headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify(body)
-                              });
-                              if (!r.ok) throw new Error('检查失败');
-                              const result = await r.json();
-                              if (result.taskId) {
-                                await monitorOperationStatus(result.taskId, `检查 ${title} 组更新`);
-                              } else {
-                                if (typeof result.updated === 'number') {
-                                  toast.success(`${title} 组有 ${result.updated} 个容器可更新`);
-                                } else if (result.error) {
-                                  toast.warning(`${title} 组检查失败: ${result.error}`);
+                            // Compose 组：检查该组所有容器
+                            await executeTaskOperation(
+                              `检查更新: ${title} 组`,
+                              () => {
+                                const body: any = { hostId: first.hostId };
+                                if (first.composeProjectId) body.composeProjectId = first.composeProjectId;
+                                else body.composeProject = first.composeProject || '';
+                                return fetch('http://localhost:3001/api/v1/containers/check-compose-updates', { 
+                                  method: 'POST', 
+                                  headers: {'Content-Type': 'application/json'},
+                                  body: JSON.stringify(body)
+                                });
+                              },
+                              (result) => {
+                                if (result.taskId) {
+                                  // TaskDrawer already opened and task selected by executeTaskOperation
                                 } else {
-                                  toast.success(`${title} 组所有容器已是最新版本`);
+                                  if (typeof result.updated === 'number') {
+                                    toast.success(`${title} 组有 ${result.updated} 个容器可更新`);
+                                  } else if (result.error) {
+                                    toast.warning(`${title} 组检查失败: ${result.error}`);
+                                  } else {
+                                    toast.success(`${title} 组所有容器已是最新版本`);
+                                  }
+                                  refreshContainers(true);
                                 }
-                                await refreshContainers(true);
-                              }
-                            } catch (e: any) {
-                              toast.error(`检查 ${title} 组更新失败: ${e?.message || '未知错误'}`);
-                            }
+                              },
+                              (error) => toast.error(`检查 ${title} 组更新失败: ${error.message}`)
+                            );
                           } else {
-                            toast.info(`检查 ${first.name} 的更新...`);
-                            try {
-                              const r = await fetch(`http://localhost:3001/api/v1/containers/${first.id}/check-update`, { 
+                            // 单个容器：检查该容器更新
+                            await executeTaskOperation(
+                              `检查更新: ${first.name}`,
+                              () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/check-update`, { 
                                 method: 'POST', 
                                 headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify({})
-                              });
-                              if (!r.ok) throw new Error('检查失败');
-                              const result = await r.json();
-                              if (result.taskId) {
-                                await monitorOperationStatus(result.taskId, `检查 ${first.name} 更新`);
-                              } else {
-                                if (typeof result.updated === 'number') {
-                                  toast.success(`${first.name} 有更新可用`);
-                                } else if (result.error) {
-                                  toast.warning(`${first.name} 检查失败: ${result.error}`);
+                              }),
+                              (result) => {
+                                if (result.taskId) {
+                                  // TaskDrawer already opened and task selected by executeTaskOperation
                                 } else {
-                                  toast.success(`${first.name} 已是最新版本`);
+                                  if (typeof result.updated === 'number') {
+                                    toast.success(`${first.name} 有更新可用`);
+                                  } else if (result.error) {
+                                    toast.warning(`${first.name} 检查失败: ${result.error}`);
+                                  } else {
+                                    toast.success(`${first.name} 已是最新版本`);
+                                  }
+                                  refreshContainers(true);
                                 }
-                                await refreshContainers(true);
-                              }
-                            } catch (e: any) {
-                              toast.error(`检查 ${first.name} 更新失败: ${e?.message || '未知错误'}`);
-                            }
+                              },
+                              (error) => toast.error(`检查 ${first.name} 更新失败: ${error.message}`)
+                            );
                           }
                         }}>检查更新</DropdownMenuItem>
                         { (isCompose ? items.some(c => c.name.toLowerCase().includes('npm')) : title.toLowerCase().includes('npm')) &&
