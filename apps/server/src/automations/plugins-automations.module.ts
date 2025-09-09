@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
 
 // Existing services
@@ -16,24 +17,24 @@ import { PluginsController } from './plugins/plugins.controller';
 import { 
   CronTriggerPlugin, 
   ManualTriggerPlugin, 
-  WebhookTriggerPlugin 
+  WebhookTriggerPlugin,
+  HttpHealthCheckTriggerPlugin,
+  FileSystemTriggerPlugin,
+  ContainerStateTriggerPlugin,
+  SystemResourceTriggerPlugin
 } from './plugins/triggers';
-import { HttpHealthCheckTriggerPlugin } from './plugins/triggers/http-health-check-trigger.plugin';
-import { FileSystemTriggerPlugin } from './plugins/triggers/filesystem-trigger.plugin';
-import { ContainerStateTriggerPlugin } from './plugins/triggers/container-state-trigger.plugin';
-import { SystemResourceTriggerPlugin } from './plugins/triggers/system-resource-trigger.plugin';
 
 // Built-in event plugins
 import { 
   LogMessageEventPlugin,
   RestartContainerEventPlugin,
   DiscoverContainersEventPlugin,
-  CheckContainerUpdatesEventPlugin
+  CheckContainerUpdatesEventPlugin,
+  SendNotificationEventPlugin,
+  ExecuteCommandEventPlugin,
+  FileOperationsEventPlugin,
+  ContainerManagementEventPlugin
 } from './plugins/events';
-import { SendNotificationEventPlugin } from './plugins/events/send-notification-event.plugin';
-import { ExecuteCommandEventPlugin } from './plugins/events/execute-command-event.plugin';
-import { FileOperationsEventPlugin } from './plugins/events/file-operations-event.plugin';
-import { ContainerManagementEventPlugin } from './plugins/events/container-management-event.plugin';
 
 // Updated processor for plugin system
 import { PluginAutomationsProcessor } from './plugins/processors/plugin-automations.processor';
@@ -44,8 +45,6 @@ import { HostsModule } from '../hosts/hosts.module';
 import { ContainersModule } from '../containers/containers.module';
 import { OperationLogModule } from '../operation-log/operation-log.module';
 import { ContextModule } from '../context/context.module';
-import { SshModule } from '../ssh/ssh.module';
-import { ModuleRef } from '@nestjs/core';
 
 @Module({
   imports: [
@@ -57,7 +56,6 @@ import { ModuleRef } from '@nestjs/core';
     forwardRef(() => ContainersModule),
     OperationLogModule,
     ContextModule,
-    SshModule,
   ],
   controllers: [AutomationsController, PluginsController],
   providers: [
@@ -68,7 +66,7 @@ import { ModuleRef } from '@nestjs/core';
     // Plugin system
     {
       provide: PluginRegistry,
-      useFactory: (moduleRef: ModuleRef) => new PluginRegistry(
+      useFactory: (moduleRef) => new PluginRegistry(
         moduleRef,
         {
           autoDiscovery: false, // Disable for now, register manually

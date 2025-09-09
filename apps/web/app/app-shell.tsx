@@ -15,10 +15,11 @@ import { ActivityLogSection } from './sections/ActivityLogSection';
 import { TaskDrawer } from '@/components/TaskDrawer';
 import LogsSection from './sections/LogsSection';
 import DnsPage from './dns/page';
+import PluginsPage from './plugins/page';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import { ListTodo } from 'lucide-react';
 
-type TabKey = 'overview' | 'hosts' | 'actions' | 'containers' | 'dns' | 'observability' | 'topology' | 'certificates' | 'logs' | 'activity' | 'settings';
+type TabKey = 'overview' | 'hosts' | 'actions' | 'containers' | 'dns' | 'plugins' | 'observability' | 'topology' | 'certificates' | 'logs' | 'activity' | 'settings';
 
 export default function AppShell() {
     const [tab, setTab] = useState<TabKey>('overview');
@@ -27,7 +28,7 @@ export default function AppShell() {
     useEffect(() => {
         const applyFromHash = () => {
         const hash = window.location.hash.slice(1);
-        if (['overview', 'hosts', 'actions', 'containers', 'dns', 'observability', 'topology', 'certificates', 'logs', 'activity', 'settings'].includes(hash)) {
+        if (['overview', 'hosts', 'actions', 'containers', 'dns', 'plugins', 'observability', 'topology', 'certificates', 'logs', 'activity', 'settings'].includes(hash)) {
             setTab(hash as TabKey);
         }
         };
@@ -43,6 +44,7 @@ export default function AppShell() {
             case 'actions': return <AutomationsPage />;
             case 'containers': return <ContainersSection />;
             case 'dns': return <DnsPage />;
+            case 'plugins': return <PluginsPage />;
             case 'observability': return <ObservabilitySection />;
             case 'topology': return <TopologySection />;
             case 'certificates': return <CertificatesSection />;
@@ -58,12 +60,13 @@ export default function AppShell() {
         <div className="flex h-full bg-background text-foreground">
             <nav className="w-48 border-r p-4 space-y-2">
             <h1 className="text-lg font-bold mb-4">MCP</h1>
-            {(['overview', 'hosts', 'containers','dns','topology','logs','activity','actions','certificates','observability','settings'] as TabKey[]).map(t => {
+            {(['overview', 'hosts', 'containers','dns','plugins','topology','logs','activity','actions','certificates','observability','settings'] as TabKey[]).map(t => {
                 const labels: Record<TabKey, string> = {
                     overview: 'Overview',
                     hosts: 'Hosts',
                     containers: 'Containers',
                     dns: 'DNS',
+                    plugins: 'Plugins',
                     topology: 'Topology',
                     logs: 'Logs',
                     activity: 'Activity',

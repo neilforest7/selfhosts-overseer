@@ -1,0 +1,207 @@
+import { BasePlugin } from './base-plugin';
+import { 
+  IEventPlugin, 
+  EventConfig, 
+  EventContext, 
+  EventResult 
+} from '../interfaces';
+
+/**
+ * Base class for event plugins
+ * Provides common event functionality and utilities
+ */
+export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin {
+  public abstract readonly eventType: string;
+  
+  /**
+   * Execute the event action
+   */
+  public abstract execute(config: EventConfig, context: EventContext): Promise<EventResult>;
+  
+  /**
+   * Validate event-specific configuration
+   * Default implementation validates basic structure
+   */
+  public async validateEventConfig(config: EventConfig): Promise<boolean> {
+    if (!config.type || config.type !== this.eventType) {
+      this.logError(`Invalid event type. Expected: ${this.eventType}, got: ${config.type}`);
+      return false;
+    }
+    
+    if (!config.params || typeof config.params !== 'object') {
+      this.logError('Event params must be an object');
+      return false;
+    }
+    
+    return this.validateCustomConfig(config);
+  }
+  
+  /**
+   * Get event configuration schema
+   * Override in subclasses to provide specific schema
+   */
+  public abstract getEventConfigSchema(): Record<string, any>;
+  
+  /**
+   * Get event parameter schema
+   * Override in subclasses to provide specific parameter schema
+   */
+  public abstract getEventParamsSchema(): Record<string, any>;
+  
+  /**
+   * Check if this event can be executed safely
+   * Default implementation returns true
+   */
+  public async canExecute(config: EventConfig, context: EventContext): Promise<boolean> {
+    return this.isEventEnabled(config);
+  }
+  
+  /**
+   * Estimate execution time for this event
+   * Default implementation returns 5 seconds
+   */
+  public getEstimatedExecutionTime(config: EventConfig): number {
+    return 5000; // 5 seconds default
+  }
+  
+  /**
+   * Check if this event requires elevated privileges
+   * Default implementation returns false
+   */
+  public requiresElevatedPrivileges(config: EventConfig): boolean {
+    return false;
+  }
+  
+  /**
+   * Validate custom event configuration
+   * Override in subclasses for custom validation logic
+   */
+  protected async validateCustomConfig(config: EventConfig): Promise<boolean> {
+    return true;
+  }
+  
+  /**
+   * Create a successful event result
+   */
+  protected createSuccessResult(
+    message?: string,
+    data?: Record<string, any>,
+    metadata?: Record<string, any>
+  ): EventResult {
+    return {
+      success: true,
+      message,
+      data,
+      metadata
+    };
+  }
+  
+  /**
+   * Create a failed event result
+   */
+  protected createFailureResult(
+    error: string,
+    data?: Record<string, any>,
+    metadata?: Record<string, any>
+  ): EventResult {
+    return {
+      success: false,
+      error,
+      data,
+      metadata
+    };
+  }
+  
+  /**
+   * Helper to check if event is enabled
+   */
+  protected isEventEnabled(config: EventConfig): boolean {
+    return config.enabled !== false;
+  }
+  
+  /**
+   * Helper to get event parameter with default
+   */
+  protected getParam<T>(config: EventConfig, key: string, defaultValue: T): T {
+    return config.params[key] !== undefined ? config.params[key] : defaultValue;
+  }
+  
+  /**
+   * Helper to validate required parameters
+   */
+  protected validateRequiredParams(config: EventConfig, requiredParams: string[]): boolean {
+    for (const param of requiredParams) {
+      if (config.params[param] === undefined || config.params[param] === null) {
+        this.logError(`Required parameter '${param}' is missing from event configuration`);
+        return false;
+      }
+    }
+    return true;
+  }
+  
+  /**
+   * Helper to get timeout from config options
+   */
+  protected getTimeout(config: EventConfig, defaultTimeout: number = 30000): number {
+    return config.options?.timeout || defaultTimeout;
+  }
+  
+  /**
+   * Helper to check if retry is enabled
+   */
+  protected shouldRetry(config: EventConfig): boolean {
+    return config.options?.retry === true;
+  }
+  
+  /**
+   * Helper to get retry attempts
+   */
+  protected getRetryAttempts(config: EventConfig): number {
+    return config.options?.retryAttempts || 3;
+  }
+  
+  /**
+   * Helper to get retry delay
+   */
+  protected getRetryDelay(config: EventConfig): number {
+    return config.options?.retryDelay || 1000;
+  }
+  
+  /**
+   * Execute with retry logic
+   */
+  protected async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    config: EventConfig,
+    context: EventContext
+  ): Promise<T> {
+    const maxAttempts = this.shouldRetry(config) ? this.getRetryAttempts(config) : 1;
+    const retryDelay = this.getRetryDelay(config);
+    
+    let lastError: Error | undefined;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (attempt < maxAttempts) {
+          this.logWarn(`Attempt ${attempt} failed, retrying in ${retryDelay}ms: ${lastError.message}`);
+          await this.delay(retryDelay);
+        } else {
+          this.logError(`All ${maxAttempts} attempts failed: ${lastError.message}`);
+        }
+      }
+    }
+    
+    throw lastError;
+  }
+  
+  /**
+   * Utility to delay execution
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
