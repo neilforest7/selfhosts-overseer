@@ -67,3 +67,8 @@ ANTHROPIC.md
 .DS_Store
 Thumbs.db
 docker_digest_debug_terminal_log.txt
+add_automation_trigger_plan.md
+logging-refractor-plan.md
+network_topo_part.png
+recover_docker_func_plan_detailed.md
+recover_docker_func_plan.md

@@ -855,33 +855,6 @@ POST /api/v1/containers/test-credentials
 }
 ```
 
-### DIUN (Docker Image Update Notifier)
-
-#### DIUN Webhook Handler
-```http
-POST /diun/notify
-```
-
-**Request Body:**
-```json
-{
-  "hostname": "string",
-  "entries": []
-}
-```
-
-#### Check Single Image
-```http
-POST /diun/check-image
-```
-
-**Request Body:**
-```json
-{
-  "image": "nginx:latest"
-}
-```
-
 ### FRP Management (Extended)
 
 #### Resolve FRP Dependencies

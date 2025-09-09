@@ -205,8 +205,6 @@
 - **FRP 管理**：
   - GET `/api/v1/frp/configs`、`/health`、`/metrics`、`/logs`
   - POST `/api/v1/frp/sync/:hostId`、`/resolve-dependencies`、`/heal`
-- **DIUN 集成**：
-  - POST `/diun/notify`、`/diun/check-image`
 - **设置与健康**：
   - GET/PUT `/api/v1/settings`
   - GET `/api/v1/health`
