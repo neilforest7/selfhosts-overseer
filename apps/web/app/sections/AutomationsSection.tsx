@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { CreateEditAutomationRuleDialog } from './CreateEditAutomationRuleDialog';
+import { PluginBasedAutomationRuleDialog } from './PluginBasedAutomationRuleDialog';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 
 // Matches the Prisma model and the backend response
@@ -37,6 +38,7 @@ async function fetchAutomationRules(): Promise<AutomationRule[]> {
 export default function AutomationsSection() {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [usePluginDialog, setUsePluginDialog] = useState(true); // Toggle between old and new dialog
   const [selectedRule, setSelectedRule] = useState<AutomationRule | null>(null);
   const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
 
@@ -143,10 +145,18 @@ export default function AutomationsSection() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>自动化规则</CardTitle>
-          <Button onClick={() => { setSelectedRule(null); setIsDialogOpen(true); }}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            新建规则
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => { setSelectedRule(null); setIsDialogOpen(true); }}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              新建规则
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setUsePluginDialog(!usePluginDialog)}
+            >
+              {usePluginDialog ? '传统界面' : '插件界面'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
@@ -210,13 +220,23 @@ export default function AutomationsSection() {
           </div>
         </CardContent>
       </Card>
-      <CreateEditAutomationRuleDialog
-        isOpen={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
-        rule={selectedRule}
-        onSave={handleSave}
-        isSaving={createMutation.isPending || updateMutation.isPending}
-      />
+      {usePluginDialog ? (
+        <PluginBasedAutomationRuleDialog
+          isOpen={isDialogOpen}
+          onOpenChange={setIsDialogOpen}
+          rule={selectedRule}
+          onSave={handleSave}
+          isSaving={createMutation.isPending || updateMutation.isPending}
+        />
+      ) : (
+        <CreateEditAutomationRuleDialog
+          isOpen={isDialogOpen}
+          onOpenChange={setIsDialogOpen}
+          rule={selectedRule}
+          onSave={handleSave}
+          isSaving={createMutation.isPending || updateMutation.isPending}
+        />
+      )}
     </>
   );
 }

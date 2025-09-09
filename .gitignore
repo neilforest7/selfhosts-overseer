@@ -55,7 +55,6 @@ debug.log
 error.log
 
 # AI assistant files
-CLAUDE.md
 GEMINI.md
 OPENAI.md
 ANTHROPIC.md
