@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import CytoscapeComponent from 'react-cytoscapejs';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Maximize, Minimize } from 'lucide-react';
+import { Maximize, Minimize, Target } from 'lucide-react';
 
 cytoscape.use(dagre);
 
@@ -390,7 +390,7 @@ const stylesheet = [
   {
     selector: 'edge[type="dns-provider-to-record-edge"]',
     style: {
-      'curve-style': 'round-taxi',
+      'curve-style': 'bezier',
       'line-style': 'solid',
       'target-arrow-shape': 'triangle',
       'line-color': '#FF6347',
@@ -561,12 +561,11 @@ const applyHostContainerLayouts = (cy: cytoscape.Core) => {
   
   // Shrink host containers to fit tightly around their child nodes
   shrinkHostContainers(cy);
-
   // Shrink group containers to fit around repositioned host containers
   shrinkGroupContainers(cy);
 
   // Apply viewport management to center and fit all nodes properly
-  applyViewportCentering(cy);
+  fitTopLevelGroups(cy);
 };
 
 // Function to apply specific container type positioning rules after shrinking
@@ -648,7 +647,7 @@ const applySpecificContainerPositioning = (cy: cytoscape.Core) => {
     const topUnits = [...npmContainingComposeGroups, ...finalStandaloneNpmContainers, ...frpcContainers];
 
     if (topUnits.length > 0) {
-      const topY = hostBB.y1 - containerPadding - 300;
+      const topY = hostBB.y1 - containerPadding - 250;
       const centerX = hostBB.x1 + (hostBB.w / 2);
 
       console.log(`Positioning ${topUnits.length} units at top center of host`);
@@ -681,7 +680,7 @@ const applySpecificContainerPositioning = (cy: cytoscape.Core) => {
 
     // 2. Position FRPS containers at bottom center
     if (frpsContainers.length > 0) {
-      const bottomY = hostBB.y2 - containerPadding;
+      const bottomY = hostBB.y2 - containerPadding +50;
       const centerX = hostBB.x1 + (hostBB.w / 2);
 
       if (frpsContainers.length === 1) {
@@ -944,7 +943,7 @@ const shrinkHostContainers = (cy: cytoscape.Core) => {
 // Function to organize child nodes within group containers
 const shrinkGroupContainers = (cy: cytoscape.Core) => {
   const groupNodes = cy.nodes('[type="group"]');
-  const childSpacing = 25; // Minimal spacing between child nodes (shoulder-to-shoulder)
+  const childSpacing = 100; // Minimal spacing between child nodes (shoulder-to-shoulder)
 
   console.log(`Processing ${groupNodes.length} group containers for child node organization`);
 
@@ -1130,12 +1129,31 @@ const applyViewportCentering = (cy: cytoscape.Core) => {
   }
 };
 
+// 使用顶层方块进行视口适配（按钮与初始化共用）
+const fitTopLevelGroups = (cy: cytoscape.Core, padding: number = 80) => {
+  try {
+    const groupNodes = cy.nodes('[type="group"]');
+    const targets = groupNodes.length > 0 ? groupNodes : cy.nodes().orphans();
+    if (targets.length === 0) return;
+    cy.fit(targets, padding);
+  } catch (error) {
+    console.warn('Error fitting top-level groups:', error);
+  }
+};
+
 export default function TopologySection() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['topologyData'],
     queryFn: fetchTopologyData,
   });
   const [isMaximized, setIsMaximized] = useState(false);
+  const cyRef = useRef<cytoscape.Core | null>(null);
+
+  const handleFitTopLevelGroups = () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    fitTopLevelGroups(cy, 80);
+  };
 
   const containerStyle: React.CSSProperties = isMaximized
     ? {
@@ -1170,6 +1188,15 @@ export default function TopologySection() {
             >
               {isMaximized ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
             </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="absolute top-2 right-14 z-10"
+              onClick={handleFitTopLevelGroups}
+              title="适配顶层方块到视口"
+            >
+              <Target className="h-4 w-4" />
+            </Button>
             {isLoading && <div>Loading topology...</div>}
             {error && <div>Error fetching topology data.</div>}
             {data && (
@@ -1179,6 +1206,7 @@ export default function TopologySection() {
                 layout={layout}
                 style={{ width: '100%', height: '100%' }}
                 cy={(cy) => {
+                  cyRef.current = cy;
                   cy.maxZoom(3);
                   cy.minZoom(0.05);
                   // Apply auto-layout within host containers after main layout
@@ -1186,7 +1214,7 @@ export default function TopologySection() {
                     // Add a small delay to ensure the main layout is complete
                     setTimeout(() => {
                       applyHostContainerLayouts(cy);
-                    }, 400);
+                    }, 800);
                   });
                 }}
               />
