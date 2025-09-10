@@ -325,12 +325,84 @@ export class ConfigSerializer {
     }
 
     // 如果提供了schema，进行schema验证
-    if (schema && schema.required) {
-      schema.required.forEach((field: string) => {
-        if (!(field in config) || config[field] === undefined || config[field] === '') {
-          errors.push(`必需字段 "${field}" 缺失或为空`);
-        }
-      });
+    if (schema && typeof schema === 'object') {
+      // 处理新版本插件schema格式（包含properties和required）
+      if (schema.properties && Array.isArray(schema.required)) {
+        schema.required.forEach((field: string) => {
+          if (!(field in config) || config[field] === undefined || config[field] === '') {
+            // 检查是否有默认值
+            const propertySchema = schema.properties[field];
+            if (propertySchema && propertySchema.default !== undefined) {
+              // 有默认值，不是错误
+              return;
+            }
+            errors.push(`必需字段 "${field}" 缺失或为空`);
+          }
+        });
+
+        // 验证字段类型和格式
+        Object.entries(config).forEach(([key, value]) => {
+          if (schema.properties[key]) {
+            const propertySchema = schema.properties[key];
+            
+            // 类型验证
+            if (propertySchema.type && typeof value !== propertySchema.type) {
+              // 特殊处理：字符串类型但值为数字的情况
+              if (propertySchema.type === 'string' && typeof value === 'number') {
+                config[key] = String(value); // 自动转换
+              } else if (propertySchema.type === 'number' && typeof value === 'string') {
+                const numValue = Number(value);
+                if (!isNaN(numValue)) {
+                  config[key] = numValue; // 自动转换
+                } else {
+                  errors.push(`字段 "${key}" 必须是数字类型`);
+                }
+              }
+            }
+
+            // 最小长度验证
+            if (propertySchema.minLength && String(value).length < propertySchema.minLength) {
+              errors.push(`字段 "${key}" 长度不能少于 ${propertySchema.minLength} 个字符`);
+            }
+
+            // 最大长度验证
+            if (propertySchema.maxLength && String(value).length > propertySchema.maxLength) {
+              errors.push(`字段 "${key}" 长度不能超过 ${propertySchema.maxLength} 个字符`);
+            }
+
+            // 枚举值验证
+            if (propertySchema.enum && !propertySchema.enum.includes(value)) {
+              errors.push(`字段 "${key}" 必须是以下值之一: ${propertySchema.enum.join(', ')}`);
+            }
+
+            // 正则表达式验证
+            if (propertySchema.pattern && typeof value === 'string') {
+              const regex = new RegExp(propertySchema.pattern);
+              if (!regex.test(value)) {
+                errors.push(`字段 "${key}" 格式不正确`);
+              }
+            }
+
+            // 数字范围验证
+            if (propertySchema.type === 'number') {
+              if (propertySchema.minimum !== undefined && value < propertySchema.minimum) {
+                errors.push(`字段 "${key}" 不能小于 ${propertySchema.minimum}`);
+              }
+              if (propertySchema.maximum !== undefined && value > propertySchema.maximum) {
+                errors.push(`字段 "${key}" 不能大于 ${propertySchema.maximum}`);
+              }
+            }
+          }
+        });
+      }
+      // 处理旧版本插件schema格式（只有required数组）
+      else if (schema.required && Array.isArray(schema.required)) {
+        schema.required.forEach((field: string) => {
+          if (!(field in config) || config[field] === undefined || config[field] === '') {
+            errors.push(`必需字段 "${field}" 缺失或为空`);
+          }
+        });
+      }
     }
 
     // 检查JSON序列化是否会失败

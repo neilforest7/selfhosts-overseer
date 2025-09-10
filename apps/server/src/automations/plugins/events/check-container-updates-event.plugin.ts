@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { BaseEventPlugin } from '../base';
-import { EventConfig, EventContext, EventResult } from '../interfaces';
+import { EventConfig, EventContext, EventResult, DynamicConfigOptions } from '../interfaces';
 import { ContainersService } from '../../../containers/containers.service';
 import { OperationLogService } from '../../../operation-log/operation-log.service';
+import { HostsService } from '../../../hosts/hosts.service';
 
 /**
  * Check container updates event plugin
@@ -20,7 +21,8 @@ export class CheckContainerUpdatesEventPlugin extends BaseEventPlugin {
   
   constructor(
     private readonly containersService: ContainersService,
-    private readonly operationLogService: OperationLogService
+    private readonly operationLogService: OperationLogService,
+    private readonly hostsService: HostsService
   ) {
     super();
   }
@@ -281,6 +283,38 @@ export class CheckContainerUpdatesEventPlugin extends BaseEventPlugin {
     };
   }
   
+  /**
+   * Get dynamic configuration options for event fields
+   */
+  public async getEventDynamicOptions(): Promise<DynamicConfigOptions> {
+    try {
+      const options: DynamicConfigOptions = {};
+
+      // Get available hosts
+      const { items: hosts } = await this.hostsService.list();
+      options.hostIds = hosts.map((host: any) => ({
+        value: host.id,
+        label: `${host.name} (${host.address})`,
+        description: `Host: ${host.address}`,
+        group: 'Hosts'
+      }));
+
+      // Get available containers
+      const { items: containers } = await this.containersService.list({});
+      options.containerIds = containers.map(container => ({
+        value: container.name || container.id,
+        label: `${container.name || container.id} (${container.state || 'unknown'})`,
+        description: `Host: ${container.host?.name || 'Unknown'} | State: ${container.state || 'unknown'}`,
+        group: container.host?.name || 'Unknown Host'
+      }));
+
+      return options;
+    } catch (error) {
+      this.logError('Failed to get dynamic options', error);
+      return {};
+    }
+  }
+
   /**
    * Update checks can take significant time depending on scope
    */

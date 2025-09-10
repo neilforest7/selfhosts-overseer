@@ -71,3 +71,5 @@ logging-refractor-plan.md
 network_topo_part.png
 recover_docker_func_plan_detailed.md
 recover_docker_func_plan.md
+docs/automation-plugin-architecture.md
+plugin_issues_list.md

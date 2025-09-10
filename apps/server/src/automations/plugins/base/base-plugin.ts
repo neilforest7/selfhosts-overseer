@@ -1,11 +1,11 @@
 import { Logger } from '@nestjs/common';
-import { IPlugin, IPluginValidator, ValidationResult, PluginValidationError } from '../interfaces';
+import { IPlugin, IPluginValidator, ValidationResult, PluginValidationError, DynamicConfigOptions } from '../interfaces';
 
 /**
  * Base plugin class providing common functionality
  * All plugins should extend this class
  */
-export abstract class BasePlugin implements IPlugin {
+export abstract class BasePlugin implements IPlugin, IPluginValidator {
   protected readonly logger: Logger;
   
   public abstract readonly id: string;
@@ -40,29 +40,22 @@ export abstract class BasePlugin implements IPlugin {
   }
   
   /**
-   * Validate plugin configuration (IPlugin interface)
-   * Override in subclasses for custom validation
+   * Validate plugin configuration (IPlugin & IPluginValidator interface)
+   * This method implements both interface requirements by returning ValidationResult
    */
-  validateConfig(config: any): boolean | Promise<boolean> {
-    return true;
+  async validateConfig(config: any): Promise<ValidationResult> {
+    return this.validateConfigDetailed(config);
   }
 
   /**
-   * Validate plugin configuration with detailed results
-   * Implements IPluginValidator interface
+   * Validate plugin configuration with detailed results (IPluginValidator interface)
+   * Default implementation calls validateConfigDetailed
    */
   async validateConfigDetailed(config: any): Promise<ValidationResult> {
     try {
       const errors: string[] = [];
       const warnings: string[] = [];
       const suggestions: string[] = [];
-
-      // Call legacy validation method for backward compatibility
-      const isValid = await this.validateConfig(config);
-
-      if (!isValid) {
-        errors.push('Plugin configuration validation failed');
-      }
 
       // Perform basic validation
       if (!config || typeof config !== 'object') {
@@ -104,6 +97,15 @@ export abstract class BasePlugin implements IPlugin {
     }
   }
 
+  /**
+   * Get dynamic configuration options for plugin fields
+   * Override in subclasses to provide dynamic data
+   */
+  async getDynamicConfigOptions(): Promise<DynamicConfigOptions> {
+    return {};
+  }
+
+  
   /**
    * Get validation schema for this plugin
    * Must be implemented by subclasses

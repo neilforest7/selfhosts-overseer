@@ -14,11 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Zap, Play, Settings, Info } from 'lucide-react';
+import { Zap, Play, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   fetchTriggerPlugins,
   fetchEventPlugins,
+  fetchPluginDynamicOptions,
   type TriggerPlugin,
   type EventPlugin
 } from '@/lib/api/plugins';
@@ -57,6 +58,8 @@ export function PluginBasedAutomationRuleDialog({
 }: Props) {
   const [selectedTrigger, setSelectedTrigger] = useState<TriggerPlugin | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<EventPlugin | null>(null);
+  const [triggerDynamicOptions, setTriggerDynamicOptions] = useState<Record<string, any>>({});
+  const [eventDynamicOptions, setEventDynamicOptions] = useState<Record<string, any>>({});
   const [validationResult, setValidationResult] = useState<ValidationResult>({
     isValid: true,
     errors: [],
@@ -173,6 +176,58 @@ export function PluginBasedAutomationRuleDialog({
     setSelectedEvent(event || null);
   }, [form.watch('eventType'), eventPlugins, loadingEvents]);
 
+  // Fetch dynamic options when trigger is selected
+  useEffect(() => {
+    if (!selectedTrigger || !selectedTrigger.id) {
+      setTriggerDynamicOptions({});
+      return;
+    }
+
+    const fetchTriggerOptions = async () => {
+      try {
+        // Use dynamic options from the plugin data if available
+        if (selectedTrigger.dynamicOptions) {
+          setTriggerDynamicOptions(selectedTrigger.dynamicOptions);
+        } else {
+          // Fallback to fetching from API
+          const options = await fetchPluginDynamicOptions(selectedTrigger.id);
+          setTriggerDynamicOptions(options);
+        }
+      } catch (error) {
+        console.error('Failed to fetch trigger dynamic options:', error);
+        setTriggerDynamicOptions({});
+      }
+    };
+
+    fetchTriggerOptions();
+  }, [selectedTrigger]);
+
+  // Fetch dynamic options when event is selected
+  useEffect(() => {
+    if (!selectedEvent || !selectedEvent.id) {
+      setEventDynamicOptions({});
+      return;
+    }
+
+    const fetchEventOptions = async () => {
+      try {
+        // Use dynamic options from the plugin data if available
+        if (selectedEvent.dynamicOptions) {
+          setEventDynamicOptions(selectedEvent.dynamicOptions);
+        } else {
+          // Fallback to fetching from API
+          const options = await fetchPluginDynamicOptions(selectedEvent.id);
+          setEventDynamicOptions(options);
+        }
+      } catch (error) {
+        console.error('Failed to fetch event dynamic options:', error);
+        setEventDynamicOptions({});
+      }
+    };
+
+    fetchEventOptions();
+  }, [selectedEvent]);
+
   const onSubmit = (_data: FormData) => {
     // 始终从 RHF 取“最新值”，避免闭包或事件节流导致的陈旧数据
     const data = form.getValues();
@@ -257,17 +312,28 @@ export function PluginBasedAutomationRuleDialog({
         schema={schema}
         value={value}
         onChange={onChange}
-        // TODO: Pass actual data from API calls
-        availableHosts={[]}
-        availableContainers={[]}
-        availableUsers={[]}
+        // Map dynamic options from plugins to expected format
+        availableHosts={(triggerDynamicOptions.hostId || triggerDynamicOptions.hostIds || eventDynamicOptions.hostId || eventDynamicOptions.hostIds || []).map((option: any) => ({
+          id: option.value,
+          name: option.label,
+          hostName: option.description?.replace('Host: ', '') || option.label
+        }))}
+        availableContainers={(triggerDynamicOptions.containerId || triggerDynamicOptions.containerIdentifier || triggerDynamicOptions.containerIds || triggerDynamicOptions.containerIdentifiers || eventDynamicOptions.containerId || eventDynamicOptions.containerIdentifier || eventDynamicOptions.containerIds || eventDynamicOptions.containerIdentifiers || []).map((option: any) => ({
+          id: option.value,
+          name: option.label,
+          hostName: option.description?.match(/Host: (.+?) \|/)?.[1] || option.description?.replace('Host: ', '') || 'Unknown Host'
+        }))}
+        availableUsers={(triggerDynamicOptions.userId || triggerDynamicOptions.userIds || eventDynamicOptions.userId || eventDynamicOptions.userIds || []).map((option: any) => ({
+          id: option.value,
+          name: option.label
+        }))}
       />
     );
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {rule ? '编辑自动化规则' : '创建自动化规则'}
@@ -279,7 +345,7 @@ export function PluginBasedAutomationRuleDialog({
             console.log('Form validation errors:', errors);
           })} className="space-y-6">
             {/* Basic Info */}
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
                 name="name"
@@ -301,7 +367,7 @@ export function PluginBasedAutomationRuleDialog({
                   <FormItem>
                     <FormLabel>描述（可选）</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="输入规则描述" {...field} />
+                      <Textarea placeholder="输入规则描述" {...field} className="min-h-[80px]" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -311,175 +377,181 @@ export function PluginBasedAutomationRuleDialog({
 
             <Separator />
 
-            {/* Trigger Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Zap className="h-5 w-5 text-blue-500" />
-                  触发器
-                </CardTitle>
-                <CardDescription>
-                  选择何时触发此自动化规则
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="triggerType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>触发器类型</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择触发器类型" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {loadingTriggers ? (
-                            <SelectItem key="loading" value="__loading__" disabled>
-                              <div className="flex items-center gap-2">
-                                <span>加载中...</span>
-                              </div>
-                            </SelectItem>
-                          ) : (
-                            triggerPlugins.map((trigger) => (
-                              <SelectItem
-                                key={trigger.id || `trigger-${trigger.triggerType}-${trigger.name}`}
-                                value={trigger.triggerType}
-                              >
+            {/* Trigger and Event Selection - Side by Side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Trigger Selection */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Zap className="h-5 w-5 text-blue-500" />
+                    触发器
+                  </CardTitle>
+                  <CardDescription>
+                    选择何时触发此自动化规则
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="triggerType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>触发器类型</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择触发器类型" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {loadingTriggers ? (
+                              <SelectItem key="loading" value="__loading__" disabled>
                                 <div className="flex items-center gap-2">
-                                  <span>{trigger.name}</span>
-                                  <Badge variant="outline">v{trigger.version}</Badge>
+                                  <span>加载中...</span>
                                 </div>
                               </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                            ) : (
+                              triggerPlugins.map((trigger) => (
+                                <SelectItem
+                                  key={trigger.id || `trigger-${trigger.triggerType}-${trigger.name}`}
+                                  value={trigger.triggerType}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="truncate">{trigger.name}</span>
+                                    <Badge variant="outline" className="text-xs">v{trigger.version}</Badge>
+                                  </div>
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                {/* Trigger Configuration */}
+                  {/* Trigger Configuration */}
+                  {selectedTrigger && selectedTrigger.configSchema && (
+                    <div className="space-y-4 p-4 border rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Settings className="h-4 w-4" />
+                        <span className="font-medium text-sm">触发器配置</span>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto space-y-3">
+                        {Object.entries(selectedTrigger.configSchema.properties || {}).map(([key, schema]) => (
+                          <Controller
+                            key={key}
+                            name={`triggerConfig.${key}` as any}
+                            control={form.control}
+                            defaultValue={(schema as any)?.default || ''}
+                            render={({ field }) => {
+                              console.log(`🎨 Rendering trigger config field: ${key}, value:`, field.value, 'name:', `triggerConfig.${key}`);
+                              return renderConfigField(key, schema, field.value, (newValue) => {
+                                console.log(`🔄 Trigger config field ${key} changed from:`, field.value, 'to:', newValue);
+                                field.onChange(newValue);
 
-                {selectedTrigger && selectedTrigger.configSchema && (
-                  <div className="space-y-4 p-4 border rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Settings className="h-4 w-4" />
-                      <span className="font-medium">触发器配置</span>
+                                // 同时更新嵌套对象，确保数据一致性
+                                const currentTriggerConfig = form.getValues('triggerConfig') || {};
+                                const updatedTriggerConfig = { ...currentTriggerConfig, [key]: newValue };
+                                form.setValue('triggerConfig', updatedTriggerConfig, { shouldDirty: true, shouldValidate: true });
+                                console.log(`🔄 Also updated nested triggerConfig:`, updatedTriggerConfig);
+                              });
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    {Object.entries(selectedTrigger.configSchema.properties || {}).map(([key, schema]) => (
-                      <Controller
-                        key={key}
-                        name={`triggerConfig.${key}` as any}
-                        control={form.control}
-                        defaultValue={(schema as any)?.default || ''}
-                        render={({ field }) => {
-                          console.log(`🎨 Rendering trigger config field: ${key}, value:`, field.value, 'name:', `triggerConfig.${key}`);
-                          return renderConfigField(key, schema, field.value, (newValue) => {
-                            console.log(`🔄 Trigger config field ${key} changed from:`, field.value, 'to:', newValue);
-                            field.onChange(newValue);
+                  )}
+                </CardContent>
+              </Card>
 
-                            // 同时更新嵌套对象，确保数据一致性
-                            const currentTriggerConfig = form.getValues('triggerConfig') || {};
-                            const updatedTriggerConfig = { ...currentTriggerConfig, [key]: newValue };
-                            form.setValue('triggerConfig', updatedTriggerConfig, { shouldDirty: true, shouldValidate: true });
-                            console.log(`🔄 Also updated nested triggerConfig:`, updatedTriggerConfig);
-                          });
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Event Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Play className="h-5 w-5 text-green-500" />
-                  事件
-                </CardTitle>
-                <CardDescription>
-                  选择触发时要执行的操作
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="eventType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>事件类型</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择事件类型" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {loadingEvents ? (
-                            <SelectItem key="loading" value="__loading__" disabled>
-                              <div className="flex items-center gap-2">
-                                <span>加载中...</span>
-                              </div>
-                            </SelectItem>
-                          ) : (
-                            eventPlugins.map((event) => (
-                              <SelectItem
-                                key={event.id || `event-${event.eventType}-${event.name}`}
-                                value={event.eventType}
-                              >
+              {/* Event Selection */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Play className="h-5 w-5 text-green-500" />
+                    事件
+                  </CardTitle>
+                  <CardDescription>
+                    选择触发时要执行的操作
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="eventType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>事件类型</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择事件类型" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {loadingEvents ? (
+                              <SelectItem key="loading" value="__loading__" disabled>
                                 <div className="flex items-center gap-2">
-                                  <span>{event.name}</span>
-                                  <Badge variant="secondary">v{event.version}</Badge>
+                                  <span>加载中...</span>
                                 </div>
                               </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                            ) : (
+                              eventPlugins.map((event) => (
+                                <SelectItem
+                                  key={event.id || `event-${event.eventType}-${event.name}`}
+                                  value={event.eventType}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="truncate">{event.name}</span>
+                                    <Badge variant="secondary" className="text-xs">v{event.version}</Badge>
+                                  </div>
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                {/* Event Configuration */}
-                {selectedEvent && (selectedEvent.paramsSchema || selectedEvent.configSchema) && (
-                  <div className="space-y-4 p-4 border rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Settings className="h-4 w-4" />
-                      <span className="font-medium">事件配置</span>
+                  {/* Event Configuration */}
+                  {selectedEvent && (selectedEvent.paramsSchema || selectedEvent.configSchema) && (
+                    <div className="space-y-4 p-4 border rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Settings className="h-4 w-4" />
+                        <span className="font-medium text-sm">事件配置</span>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto space-y-3">
+                        {/* Use paramsSchema if available, otherwise fall back to configSchema */}
+                        {Object.entries((selectedEvent.paramsSchema?.properties || selectedEvent.configSchema?.properties) || {}).map(([key, schema]) => (
+                          <Controller
+                            key={key}
+                            name={`eventConfig.${key}` as any}
+                            control={form.control}
+                            defaultValue={(schema as any)?.default || ''}
+                            render={({ field }) => {
+                              console.log(`🎨 Rendering event config field: ${key}, value:`, field.value, 'name:', `eventConfig.${key}`);
+                              return renderConfigField(key, schema, field.value, (newValue) => {
+                                console.log(`🔄 Event config field ${key} changed from:`, field.value, 'to:', newValue);
+                                field.onChange(newValue);
+
+                                // 同时更新嵌套对象，确保数据一致性
+                                const currentEventConfig = form.getValues('eventConfig') || {};
+                                const updatedEventConfig = { ...currentEventConfig, [key]: newValue };
+                                form.setValue('eventConfig', updatedEventConfig, { shouldDirty: true, shouldValidate: true });
+                                console.log(`🔄 Also updated nested eventConfig:`, updatedEventConfig);
+                              });
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    {/* Use paramsSchema if available, otherwise fall back to configSchema */}
-                    {Object.entries((selectedEvent.paramsSchema?.properties || selectedEvent.configSchema?.properties) || {}).map(([key, schema]) => (
-                      <Controller
-                        key={key}
-                        name={`eventConfig.${key}` as any}
-                        control={form.control}
-                        defaultValue={(schema as any)?.default || ''}
-                        render={({ field }) => {
-                          console.log(`🎨 Rendering event config field: ${key}, value:`, field.value, 'name:', `eventConfig.${key}`);
-                          return renderConfigField(key, schema, field.value, (newValue) => {
-                            console.log(`🔄 Event config field ${key} changed from:`, field.value, 'to:', newValue);
-                            field.onChange(newValue);
-
-                            // 同时更新嵌套对象，确保数据一致性
-                            const currentEventConfig = form.getValues('eventConfig') || {};
-                            const updatedEventConfig = { ...currentEventConfig, [key]: newValue };
-                            form.setValue('eventConfig', updatedEventConfig, { shouldDirty: true, shouldValidate: true });
-                            console.log(`🔄 Also updated nested eventConfig:`, updatedEventConfig);
-                          });
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
             {/* 表单验证反馈 */}
             <FormValidationFeedback
@@ -490,14 +562,14 @@ export function PluginBasedAutomationRuleDialog({
               onValidationChange={setValidationResult}
             />
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="sm:w-auto w-full">
                 取消
               </Button>
               <Button
                 type="submit"
                 disabled={isSaving || !validationResult.isValid}
-                className={validationResult.warnings.length > 0 ? 'bg-yellow-600 hover:bg-yellow-700' : ''}
+                className={validationResult.warnings.length > 0 ? 'bg-yellow-600 hover:bg-yellow-700 sm:w-auto w-full' : 'sm:w-auto w-full'}
               >
                 {isSaving ? '保存中...' : '保存规则'}
                 {validationResult.warnings.length > 0 && (

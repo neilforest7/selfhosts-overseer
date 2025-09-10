@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTriggerPlugin } from '../base';
-import { TriggerConfig, TriggerContext, TriggerResult } from '../interfaces';
+import { TriggerConfig, TriggerContext, TriggerResult, DynamicConfigOptions } from '../interfaces';
 import { ContainersService } from '../../../containers/containers.service';
+import { HostsService } from '../../../hosts/hosts.service';
 
 /**
  * Container state trigger plugin
@@ -18,7 +19,8 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
   public readonly triggerType = 'container-state';
   
   constructor(
-    private readonly containersService: ContainersService
+    private readonly containersService: ContainersService,
+    private readonly hostsService: HostsService
   ) {
     super();
   }
@@ -32,51 +34,99 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
         return this.createTriggerResult(false, { reason: 'Trigger is disabled' });
       }
       
-      const containerIdentifier = this.getConfigValue(config, 'containerIdentifier', '');
-      const expectedState = this.getConfigValue(config, 'expectedState', 'running');
-      const triggerOn = this.getConfigValue(config, 'triggerOn', 'match') as 'match' | 'mismatch';
-      const hostId = this.getConfigValue(config, 'hostId', null);
+      const containerIdentifiers = this.getConfigValue(config, 'containerIdentifiers', []) as string[];
+      const expectedStates = this.getConfigValue(config, 'expectedStates', ['running']) as string[];
+      const triggerOn = this.getConfigValue(config, 'triggerOn', 'match') as 'match' | 'mismatch' | 'any';
+      const hostIds = this.getConfigValue(config, 'hostIds', []) as string[];
+      const matchMode = this.getConfigValue(config, 'matchMode', 'all') as 'all' | 'any';
       
-      if (!containerIdentifier) {
-        return this.createTriggerResult(false, { reason: 'Container identifier is required' });
+      if (!containerIdentifiers || containerIdentifiers.length === 0) {
+        return this.createTriggerResult(false, { reason: 'Container identifiers are required' });
       }
       
-      // Find container
-      const searchQuery: any = { q: containerIdentifier };
-      if (hostId) {
-        searchQuery.hostId = hostId;
+      if (!expectedStates || expectedStates.length === 0) {
+        return this.createTriggerResult(false, { reason: 'Expected states are required' });
       }
       
-      const { items: containers } = await this.containersService.list(searchQuery);
-      if (!containers || containers.length === 0) {
+      // Find all matching containers
+      const matchingContainers = [];
+      
+      for (const identifier of containerIdentifiers) {
+        const searchQuery: any = { q: identifier };
+        if (hostIds.length > 0) {
+          searchQuery.hostIds = hostIds;
+        }
+        
+        const { items: containers } = await this.containersService.list(searchQuery);
+        if (containers && containers.length > 0) {
+          matchingContainers.push(...containers);
+        }
+      }
+      
+      if (matchingContainers.length === 0) {
         return this.createTriggerResult(false, { 
-          reason: `Container '${containerIdentifier}' not found` 
+          reason: `No containers found matching identifiers: ${containerIdentifiers.join(', ')}` 
         });
       }
       
-      const container = containers[0];
-      const currentState = this.normalizeState(container.state || 'unknown');
+      // Evaluate state conditions
+      const results = [];
+      let shouldTrigger = false;
       
-      const stateMatches = currentState === expectedState;
-      const shouldTrigger = (triggerOn === 'match' && stateMatches) || 
-                           (triggerOn === 'mismatch' && !stateMatches);
+      for (const container of matchingContainers) {
+        const currentState = this.normalizeState(container.state || 'unknown');
+        const stateMatches = expectedStates.includes(currentState);
+        
+        let containerShouldTrigger = false;
+        if (triggerOn === 'match') {
+          containerShouldTrigger = stateMatches;
+        } else if (triggerOn === 'mismatch') {
+          containerShouldTrigger = !stateMatches;
+        } else if (triggerOn === 'any') {
+          containerShouldTrigger = true; // Trigger on any state change
+        }
+        
+        results.push({
+          container,
+          currentState,
+          stateMatches,
+          shouldTrigger: containerShouldTrigger
+        });
+      }
+      
+      // Determine overall trigger based on match mode
+      const matchingContainersCount = results.filter(r => r.shouldTrigger).length;
+      
+      if (matchMode === 'all') {
+        shouldTrigger = matchingContainersCount === matchingContainers.length;
+      } else { // 'any'
+        shouldTrigger = matchingContainersCount > 0;
+      }
       
       return this.createTriggerResult(shouldTrigger, {
         reason: shouldTrigger 
-          ? `Container ${container.name} is ${currentState} (${triggerOn} ${expectedState})` 
-          : `Container ${container.name} is ${currentState} (not ${triggerOn} ${expectedState})`,
+          ? `${matchingContainersCount}/${matchingContainers.length} containers match state criteria (${triggerOn} ${expectedStates.join(', ')})` 
+          : `${matchingContainersCount}/${matchingContainers.length} containers match state criteria (not ${triggerOn} ${expectedStates.join(', ')})`,
         triggerData: {
-          containerId: container.id,
-          containerName: container.name,
-          hostId: container.hostId,
-          currentState,
-          expectedState,
+          matchingContainers: matchingContainersCount,
+          totalContainers: matchingContainers.length,
+          expectedStates,
           triggerOn,
-          containerInfo: {
-            status: container.status,
-            restartCount: container.restartCount,
-            lastStarted: container.startedAt
-          }
+          matchMode,
+          hostIds,
+          containerResults: results.map(r => ({
+            containerId: r.container.id,
+            containerName: r.container.name,
+            hostId: r.container.hostId,
+            currentState: r.currentState,
+            stateMatches: r.stateMatches,
+            shouldTrigger: r.shouldTrigger,
+            containerInfo: {
+              status: r.container.status,
+              restartCount: r.container.restartCount,
+              lastStarted: r.container.startedAt
+            }
+          }))
         }
       });
       
@@ -95,45 +145,67 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
     return {
       type: 'object',
       properties: {
-        containerIdentifier: {
-          type: 'string',
-          title: 'Container ID/Name',
-          description: 'Container ID, name, or partial match pattern',
-          minLength: 1,
-          placeholder: 'nginx, web-app, or container-id',
-          examples: ['nginx', 'web-app-*', 'database', 'redis-cache']
+        containerIdentifiers: {
+          type: 'array',
+          title: 'Containers to Monitor',
+          description: 'Container IDs, names, or patterns to monitor (leave empty for all containers)',
+          items: {
+            type: 'string',
+            minLength: 1,
+            title: 'Container ID/Name',
+            placeholder: 'nginx, web-app, or container-id'
+          },
+          default: [],
+          examples: [['nginx'], ['web-app', 'database'], ['redis-cache', 'postgres*']]
         },
-        hostId: {
-          type: 'string',
-          title: 'Target Host',
-          description: 'Limit search to specific host (leave empty for all hosts)',
-          placeholder: 'Select a host'
+        hostIds: {
+          type: 'array',
+          title: 'Target Hosts',
+          description: 'Limit monitoring to specific hosts (leave empty for all hosts)',
+          items: {
+            type: 'string',
+            minLength: 1,
+            title: 'Host'
+          },
+          default: [],
+          examples: [['web-server'], ['prod-host-1', 'prod-host-2']]
         },
-        expectedState: {
-          type: 'string',
-          title: 'Expected Container State',
-          description: 'Container state to monitor for',
-          enum: [
-            'running',
-            'stopped',
-            'paused',
-            'restarting',
-            'removing',
-            'dead',
-            'created',
-            'exited',
-            'unhealthy'
-          ],
-          default: 'running',
-          examples: ['running', 'stopped', 'unhealthy']
+        expectedStates: {
+          type: 'array',
+          title: 'Expected Container States',
+          description: 'Container states to monitor for',
+          items: {
+            type: 'string',
+            enum: [
+              'running',
+              'stopped',
+              'paused',
+              'restarting',
+              'removing',
+              'dead',
+              'created',
+              'exited',
+              'unhealthy'
+            ]
+          },
+          default: ['running'],
+          examples: [['running'], ['running', 'unhealthy'], ['stopped', 'exited']]
         },
         triggerOn: {
           type: 'string',
           title: 'Trigger Condition',
           description: 'When should this trigger activate?',
-          enum: ['match', 'mismatch'],
+          enum: ['match', 'mismatch', 'any'],
           default: 'match',
-          examples: ['match', 'mismatch']
+          examples: ['match', 'mismatch', 'any']
+        },
+        matchMode: {
+          type: 'string',
+          title: 'Match Mode',
+          description: 'How many containers must match the criteria to trigger',
+          enum: ['all', 'any'],
+          default: 'all',
+          examples: ['all', 'any']
         },
         checkInterval: {
           type: 'number',
@@ -160,7 +232,7 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
           examples: [1, 2, 3]
         }
       },
-      required: ['containerIdentifier', 'expectedState'],
+      required: ['expectedStates'],
       additionalProperties: false
     };
   }
@@ -177,24 +249,54 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
    * Validate container state trigger configuration
    */
   protected async validateCustomConfig(config: TriggerConfig): Promise<boolean> {
-    if (!this.validateRequiredFields(config, ['containerIdentifier', 'expectedState'])) {
+    if (!this.validateRequiredFields(config, ['expectedStates'])) {
       return false;
     }
     
-    const expectedState = config.config.expectedState;
+    const expectedStates = this.getConfigValue(config, 'expectedStates', []);
     const validStates = [
       'running', 'stopped', 'paused', 'restarting', 
       'removing', 'dead', 'created', 'exited', 'unhealthy'
     ];
     
-    if (!validStates.includes(expectedState)) {
-      this.logError(`Invalid expected state: ${expectedState}`);
+    if (!Array.isArray(expectedStates) || expectedStates.length === 0) {
+      this.logError('expectedStates must be a non-empty array');
       return false;
     }
     
-    const triggerOn = config.config.triggerOn;
-    if (triggerOn && !['match', 'mismatch'].includes(triggerOn)) {
+    const invalidStates = expectedStates.filter(state => !validStates.includes(state));
+    if (invalidStates.length > 0) {
+      this.logError(`Invalid expected states: ${invalidStates.join(', ')}`);
+      return false;
+    }
+    
+    const containerIdentifiers = this.getConfigValue(config, 'containerIdentifiers', []);
+    if (Array.isArray(containerIdentifiers) && containerIdentifiers.length > 0) {
+      const invalidIdentifiers = containerIdentifiers.filter(id => typeof id !== 'string' || id.trim() === '');
+      if (invalidIdentifiers.length > 0) {
+        this.logError(`Invalid container identifiers: ${invalidIdentifiers.join(', ')}`);
+        return false;
+      }
+    }
+    
+    const hostIds = this.getConfigValue(config, 'hostIds', []);
+    if (Array.isArray(hostIds) && hostIds.length > 0) {
+      const invalidHostIds = hostIds.filter(id => typeof id !== 'string' || id.trim() === '');
+      if (invalidHostIds.length > 0) {
+        this.logError(`Invalid host IDs: ${invalidHostIds.join(', ')}`);
+        return false;
+      }
+    }
+    
+    const triggerOn = this.getConfigValue(config, 'triggerOn', 'match');
+    if (!['match', 'mismatch', 'any'].includes(triggerOn)) {
       this.logError(`Invalid triggerOn value: ${triggerOn}`);
+      return false;
+    }
+    
+    const matchMode = this.getConfigValue(config, 'matchMode', 'all');
+    if (!['all', 'any'].includes(matchMode)) {
+      this.logError(`Invalid matchMode value: ${matchMode}`);
       return false;
     }
     
@@ -217,6 +319,39 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
         operators: ['equals', 'not_equals']
       }
     };
+  }
+
+  /**
+   * Get dynamic configuration options for trigger fields
+   */
+  public async getTriggerDynamicOptions(): Promise<DynamicConfigOptions> {
+    try {
+      const options: DynamicConfigOptions = {};
+
+      // Get available hosts
+      const { items: hosts } = await this.hostsService.list();
+      options.hostIds = hosts.map((host: any) => ({
+        value: host.id,
+        label: `${host.name} (${host.address})`,
+        description: `Host: ${host.address}`,
+        group: 'Hosts'
+      }));
+
+      // Get available containers
+      const { items: containers } = await this.containersService.list({});
+
+      options.containerIdentifiers = containers.map(container => ({
+        value: container.name || container.id,
+        label: `${container.name || container.id} (${container.state || 'unknown'})`,
+        description: `Host: ${container.host?.name || 'Unknown'} | State: ${container.state || 'unknown'}`,
+        group: container.host?.name || 'Unknown Host'
+      }));
+
+      return options;
+    } catch (error) {
+      this.logError('Failed to get dynamic options', error);
+      return {};
+    }
   }
   
   /**

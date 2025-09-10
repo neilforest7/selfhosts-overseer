@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { BaseEventPlugin } from '../base';
-import { EventConfig, EventContext, EventResult } from '../interfaces';
+import { EventConfig, EventContext, EventResult, DynamicConfigOptions } from '../interfaces';
 import { OperationLogService } from '../../../operation-log/operation-log.service';
 import { ContainersService } from '../../../containers/containers.service';
+import { HostsService } from '../../../hosts/hosts.service';
 
 interface ContainerOperationResult {
   success: boolean;
@@ -31,7 +32,8 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
   
   constructor(
     private readonly operationLogService: OperationLogService,
-    private readonly containersService: ContainersService
+    private readonly containersService: ContainersService,
+    private readonly hostsService: HostsService
   ) {
     super();
   }
@@ -42,84 +44,108 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
   public async execute(config: EventConfig, context: EventContext): Promise<EventResult> {
     try {
       const operation = this.getParam(config, 'operation', 'restart') as string;
-      const containerIdentifier = this.getParam(config, 'containerIdentifier', '');
-      const hostId = this.getParam(config, 'hostId', null);
+      const containerIdentifiers = this.getParam(config, 'containerIdentifiers', []) as string[];
+      const hostIds = this.getParam(config, 'hostIds', []) as string[];
       const waitForHealthy = this.getParam(config, 'waitForHealthy', false);
       const timeout = this.getParam(config, 'timeout', 60000);
       const force = this.getParam(config, 'force', false);
       const updateConfig = this.getParam(config, 'updateConfig', {});
+      const executionMode = this.getParam(config, 'executionMode', 'parallel') as 'parallel' | 'sequential';
       
-      if (!containerIdentifier) {
-        return this.createFailureResult('Container identifier is required');
+      if (!containerIdentifiers || containerIdentifiers.length === 0) {
+        return this.createFailureResult('Container identifiers are required');
       }
       
-      // Find container
-      const container = await this.findContainer(containerIdentifier, hostId);
-      if (!container) {
-        return this.createFailureResult(`Container '${containerIdentifier}' not found`);
+      // Find all matching containers
+      const targetContainers = await this.findContainers(containerIdentifiers, hostIds);
+      if (targetContainers.length === 0) {
+        return this.createFailureResult(`No containers found matching identifiers: ${containerIdentifiers.join(', ')}`);
       }
       
-      const previousState = container.state;
-      let result: ContainerOperationResult;
+      const results: ContainerOperationResult[] = [];
+      const executionModeText = executionMode === 'parallel' ? 'parallel' : 'sequential';
       
-      switch (operation) {
-        case 'start':
-          result = await this.startContainer(container, waitForHealthy, timeout);
-          break;
-        case 'stop':
-          result = await this.stopContainer(container, timeout, force);
-          break;
-        case 'restart':
-          result = await this.restartContainer(container, waitForHealthy, timeout);
-          break;
-        case 'pause':
-          result = await this.pauseContainer(container);
-          break;
-        case 'unpause':
-          result = await this.unpauseContainer(container);
-          break;
-        case 'remove':
-          result = await this.removeContainer(container, force);
-          break;
-        case 'update':
-          result = await this.updateContainer(container, updateConfig);
-          break;
-        case 'recreate':
-          result = await this.recreateContainer(container, waitForHealthy, timeout);
-          break;
-        case 'logs':
-          result = await this.getContainerLogs(container, this.getParam(config, 'logLines', 100));
-          break;
-        default:
-          return this.createFailureResult(`Unsupported operation: ${operation}`);
-      }
+      this.operationLogService.log(
+        'info', 
+        `Starting ${executionModeText} container operation '${operation}' on ${targetContainers.length} containers`
+      );
       
-      if (result.success) {
-        this.operationLogService.log(
-          'info', 
-          `Container operation completed: ${operation} on ${container.name} (${container.id})`
+      if (executionMode === 'parallel') {
+        // Execute operations in parallel
+        const promises = targetContainers.map(container => 
+          this.executeContainerOperation(container, operation, {
+            waitForHealthy,
+            timeout,
+            force,
+            updateConfig,
+            logLines: this.getParam(config, 'logLines', 100)
+          })
         );
-        
-        return this.createSuccessResult(
-          `Container operation '${operation}' completed successfully`,
-          {
-            ...result,
-            previousState,
-            containerInfo: {
-              id: container.id,
-              name: container.name,
-              image: container.image,
-              hostId: container.hostId
+        results.push(...await Promise.allSettled(promises).then(settledResults =>
+          settledResults.map((result, index) => {
+            if (result.status === 'fulfilled') {
+              return result.value;
+            } else {
+              return {
+                success: false,
+                operation,
+                containerId: targetContainers[index].id,
+                containerName: targetContainers[index].name,
+                error: result.reason instanceof Error ? result.reason.message : String(result.reason)
+              };
             }
-          }
-        );
+          })
+        ));
       } else {
-        this.operationLogService.log(
-          'error', 
-          `Container operation failed: ${operation} on ${container.name} - ${result.error}`
-        );
-        return this.createFailureResult(`Container operation failed: ${result.error}`);
+        // Execute operations sequentially
+        for (const container of targetContainers) {
+          try {
+            const result = await this.executeContainerOperation(container, operation, {
+              waitForHealthy,
+              timeout,
+              force,
+              updateConfig,
+              logLines: this.getParam(config, 'logLines', 100)
+            });
+            results.push(result);
+          } catch (error) {
+            results.push({
+              success: false,
+              operation,
+              containerId: container.id,
+              containerName: container.name,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
       }
+      
+      // Calculate summary
+      const successCount = results.filter(r => r.success).length;
+      const failureCount = results.length - successCount;
+      
+      const summaryMessage = `Container operation '${operation}' completed: ${successCount} successful, ${failureCount} failed`;
+      this.operationLogService.log('info', summaryMessage);
+      
+      return this.createSuccessResult(
+        summaryMessage,
+        {
+          operation,
+          executionMode,
+          totalContainers: targetContainers.length,
+          successCount,
+          failureCount,
+          results: results.map((result, index) => ({
+            ...result,
+            containerInfo: targetContainers[index] ? {
+              id: targetContainers[index].id,
+              name: targetContainers[index].name,
+              image: targetContainers[index].image,
+              hostId: targetContainers[index].hostId
+            } : undefined
+          }))
+        }
+      );
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -185,26 +211,46 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
               default: 'restart',
               examples: ['restart', 'stop', 'start', 'update']
             },
-            containerIdentifier: {
-              type: 'string',
-              title: 'Container ID/Name',
-              description: 'Container ID, name, or pattern to match',
-              minLength: 1,
-              maxLength: 200,
-              placeholder: 'nginx or container-id',
+            containerIdentifiers: {
+              type: 'array',
+              title: 'Target Containers',
+              description: 'Container IDs, names, or patterns to operate on',
+              items: {
+                type: 'string',
+                minLength: 1,
+                maxLength: 200,
+                title: 'Container ID/Name',
+                placeholder: 'nginx or container-id'
+              },
+              default: [],
               examples: [
-                'nginx',
-                'web-server',
-                'app-prod',
-                'database-primary',
-                'redis-cache'
+                ['nginx'],
+                ['web-server', 'database'],
+                ['app-prod', 'redis-cache', 'monitoring']
               ]
             },
-            hostId: {
+            hostIds: {
+              type: 'array',
+              title: 'Target Hosts',
+              description: 'Hosts to perform container operations on (leave empty for auto-detect)',
+              items: {
+                type: 'string',
+                minLength: 1,
+                title: 'Host'
+              },
+              default: [],
+              examples: [
+                ['web-server'],
+                ['prod-host-1', 'prod-host-2']
+              ]
+            },
+            executionMode: {
               type: 'string',
-              title: 'Target Host',
-              description: 'Host to perform container operation on (leave empty for auto-detect)',
-              placeholder: 'Select a host'
+              title: 'Execution Mode',
+              description: 'How to execute operations on multiple containers',
+              enum: ['parallel', 'sequential'],
+              default: 'parallel',
+              examples: ['parallel', 'sequential']
             },
             timeout: {
               type: 'number',
@@ -221,36 +267,10 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
               description: 'Perform safety checks before destructive operations',
               default: true
             },
-            backupBeforeUpdate: {
-              type: 'boolean',
-              title: 'Backup Before Update',
-              description: 'Create container backup before update operations',
-              default: false
-            },
-            waitForHealthy: {
-              type: 'boolean',
-              title: 'Wait for Healthy',
-              description: 'Wait for container to be healthy after start/restart',
-              default: false
-            },
-            force: {
-              type: 'boolean',
-              title: 'Force Operation',
-              description: 'Force the operation (for stop/remove)',
-              default: false
-            },
-            logLines: {
-              type: 'number',
-              title: 'Log Lines',
-              description: 'Number of log lines to retrieve (for logs operation)',
-              minimum: 1,
-              maximum: 1000,
-              default: 100
-            },
             updateConfig: {
               type: 'object',
               title: 'Update Configuration',
-              description: 'Container update configuration',
+              description: 'Container update configuration (only used for update operation)',
               properties: {
                 image: {
                   type: 'string',
@@ -282,11 +302,25 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
               },
               default: {}
             },
-            backup: {
+            waitForHealthy: {
               type: 'boolean',
-              title: 'Create Backup',
-              description: 'Create backup before destructive operations',
+              title: 'Wait for Healthy',
+              description: 'Wait for container to be healthy after start/restart',
               default: false
+            },
+            force: {
+              type: 'boolean',
+              title: 'Force Operation',
+              description: 'Force the operation (for stop/remove)',
+              default: false
+            },
+            logLines: {
+              type: 'number',
+              title: 'Log Lines',
+              description: 'Number of log lines to retrieve (for logs operation)',
+              minimum: 1,
+              maximum: 1000,
+              default: 100
             },
             pullImage: {
               type: 'boolean',
@@ -295,7 +329,7 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
               default: false
             }
           },
-          required: ['operation', 'containerIdentifier']
+          required: ['operation', 'containerIdentifiers']
         }
       }
     };
@@ -317,15 +351,29 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
           ],
           default: 'restart'
         },
-        containerIdentifier: {
-          type: 'string',
-          title: 'Container ID/Name',
-          minLength: 1,
-          maxLength: 200
+        containerIdentifiers: {
+          type: 'array',
+          title: 'Container IDs/Names',
+          items: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 200
+          },
+          default: []
         },
-        hostId: {
+        hostIds: {
+          type: 'array',
+          title: 'Host IDs',
+          items: {
+            type: 'string'
+          },
+          default: []
+        },
+        executionMode: {
           type: 'string',
-          title: 'Host ID'
+          title: 'Execution Mode',
+          enum: ['parallel', 'sequential'],
+          default: 'parallel'
         },
         timeout: {
           type: 'number',
@@ -350,7 +398,7 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
           default: {}
         }
       },
-      required: ['operation', 'containerIdentifier'],
+      required: ['operation', 'containerIdentifiers'],
       additionalProperties: false
     };
   }
@@ -359,7 +407,7 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
    * Validate container management configuration
    */
   protected async validateCustomConfig(config: EventConfig): Promise<boolean> {
-    if (!this.validateRequiredParams(config, ['operation', 'containerIdentifier'])) {
+    if (!this.validateRequiredParams(config, ['operation', 'containerIdentifiers'])) {
       return false;
     }
     
@@ -374,9 +422,29 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
       return false;
     }
     
-    const containerIdentifier = config.params.containerIdentifier;
-    if (typeof containerIdentifier !== 'string' || containerIdentifier.trim().length === 0) {
-      this.logError('Container identifier must be a non-empty string');
+    const containerIdentifiers = config.params.containerIdentifiers;
+    if (!Array.isArray(containerIdentifiers) || containerIdentifiers.length === 0) {
+      this.logError('Container identifiers must be a non-empty array');
+      return false;
+    }
+    
+    const invalidIdentifiers = containerIdentifiers.filter(id => 
+      typeof id !== 'string' || id.trim().length === 0
+    );
+    if (invalidIdentifiers.length > 0) {
+      this.logError(`Invalid container identifiers: ${invalidIdentifiers.join(', ')}`);
+      return false;
+    }
+    
+    const hostIds = config.params.hostIds;
+    if (hostIds && (!Array.isArray(hostIds) || hostIds.some(id => typeof id !== 'string'))) {
+      this.logError('Host IDs must be an array of strings');
+      return false;
+    }
+    
+    const executionMode = config.params.executionMode;
+    if (executionMode && !['parallel', 'sequential'].includes(executionMode)) {
+      this.logError(`Invalid execution mode: ${executionMode}`);
       return false;
     }
     
@@ -729,5 +797,101 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
     }
     
     return false;
+  }
+
+  /**
+   * Get dynamic configuration options for event fields
+   */
+  public async getEventDynamicOptions(): Promise<DynamicConfigOptions> {
+    try {
+      const options: DynamicConfigOptions = {};
+
+      // Get available hosts
+      const { items: hosts } = await this.hostsService.list();
+      options.hostIds = hosts.map((host: any) => ({
+        value: host.id,
+        label: `${host.name} (${host.address})`,
+        description: `Host: ${host.address}`,
+        group: 'Hosts'
+      }));
+
+      // Get available containers
+      const { items: containers } = await this.containersService.list({});
+
+      options.containerIdentifiers = containers.map(container => ({
+        value: container.name || container.id,
+        label: `${container.name || container.id} (${container.state || 'unknown'})`,
+        description: `Host: ${container.host?.name || 'Unknown'} | State: ${container.state || 'unknown'}`,
+        group: container.host?.name || 'Unknown Host'
+      }));
+
+      return options;
+    } catch (error) {
+      this.logError('Failed to get dynamic options', error);
+      return {};
+    }
+  }
+
+  /**
+   * Find multiple containers by identifiers and hosts
+   */
+  private async findContainers(identifiers: string[], hostIds: string[]): Promise<any[]> {
+    const allContainers = [];
+    
+    for (const identifier of identifiers) {
+      const searchQuery: any = { q: identifier };
+      if (hostIds.length > 0) {
+        searchQuery.hostIds = hostIds;
+      }
+      
+      const { items: containers } = await this.containersService.list(searchQuery);
+      if (containers && containers.length > 0) {
+        allContainers.push(...containers);
+      }
+    }
+    
+    // Remove duplicates based on container ID
+    const uniqueContainers = allContainers.filter((container, index, self) =>
+      index === self.findIndex(c => c.id === container.id)
+    );
+    
+    return uniqueContainers;
+  }
+
+  /**
+   * Execute a single container operation
+   */
+  private async executeContainerOperation(container: any, operation: string, options: any): Promise<ContainerOperationResult> {
+    const { waitForHealthy, timeout, force, updateConfig, logLines } = options;
+    const previousState = container.state;
+    
+    switch (operation) {
+      case 'start':
+        return await this.startContainer(container, waitForHealthy, timeout);
+      case 'stop':
+        return await this.stopContainer(container, timeout, force);
+      case 'restart':
+        return await this.restartContainer(container, waitForHealthy, timeout);
+      case 'pause':
+        return await this.pauseContainer(container);
+      case 'unpause':
+        return await this.unpauseContainer(container);
+      case 'remove':
+        return await this.removeContainer(container, force);
+      case 'update':
+        return await this.updateContainer(container, updateConfig);
+      case 'recreate':
+        return await this.recreateContainer(container, waitForHealthy, timeout);
+      case 'logs':
+        return await this.getContainerLogs(container, logLines);
+      default:
+        return {
+          success: false,
+          operation,
+          containerId: container.id,
+          containerName: container.name,
+          error: `Unsupported operation: ${operation}`
+        };
+    }
   }
 }

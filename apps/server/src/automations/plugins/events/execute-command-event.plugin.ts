@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { BaseEventPlugin } from '../base';
-import { EventConfig, EventContext, EventResult } from '../interfaces';
+import { EventConfig, EventContext, EventResult, DynamicConfigOptions } from '../interfaces';
 import { OperationLogService } from '../../../operation-log/operation-log.service';
 import { SshService } from '../../../ssh/ssh.service';
+import { HostsService } from '../../../hosts/hosts.service';
 
 interface CommandResult {
   success: boolean;
@@ -30,7 +31,8 @@ export class ExecuteCommandEventPlugin extends BaseEventPlugin {
   
   constructor(
     private readonly operationLogService: OperationLogService,
-    private readonly sshService: SshService
+    private readonly sshService: SshService,
+    private readonly hostsService: HostsService
   ) {
     super();
   }
@@ -443,5 +445,116 @@ export class ExecuteCommandEventPlugin extends BaseEventPlugin {
     // This would implement local command execution
     // For security reasons, you might want to restrict or disable local execution
     throw new Error('Local command execution not implemented for security reasons');
+  }
+
+  /**
+   * Get dynamic configuration options for event fields
+   */
+  public async getEventDynamicOptions(): Promise<DynamicConfigOptions> {
+    try {
+      const options: DynamicConfigOptions = {};
+
+      // Get available hosts
+      const { items: hosts } = await this.hostsService.list();
+      options.hostId = hosts.map((host: any) => ({
+        value: host.id,
+        label: `${host.name} (${host.address})`,
+        description: `Host: ${host.address} | Status: ${host.status || 'unknown'}`,
+        group: 'Hosts'
+      }));
+
+      // Common system users for runAsUser field
+      options.runAsUser = [
+        { 
+          value: 'root', 
+          label: 'root', 
+          description: 'Superuser with full system access',
+          group: 'System Users'
+        },
+        { 
+          value: 'www-data', 
+          label: 'www-data', 
+          description: 'Web server user (Apache/Nginx)',
+          group: 'Web Services'
+        },
+        { 
+          value: 'nginx', 
+          label: 'nginx', 
+          description: 'Nginx web server user',
+          group: 'Web Services'
+        },
+        { 
+          value: 'apache', 
+          label: 'apache', 
+          description: 'Apache web server user',
+          group: 'Web Services'
+        },
+        { 
+          value: 'docker', 
+          label: 'docker', 
+          description: 'Docker container management user',
+          group: 'Container Services'
+        },
+        { 
+          value: 'postgres', 
+          label: 'postgres', 
+          description: 'PostgreSQL database user',
+          group: 'Database Services'
+        },
+        { 
+          value: 'mysql', 
+          label: 'mysql', 
+          description: 'MySQL database user',
+          group: 'Database Services'
+        },
+        { 
+          value: 'redis', 
+          label: 'redis', 
+          description: 'Redis cache service user',
+          group: 'Cache Services'
+        },
+        { 
+          value: 'node', 
+          label: 'node', 
+          description: 'Node.js application user',
+          group: 'Application Users'
+        },
+        { 
+          value: 'ubuntu', 
+          label: 'ubuntu', 
+          description: 'Default Ubuntu user',
+          group: 'System Users'
+        },
+        { 
+          value: 'ec2-user', 
+          label: 'ec2-user', 
+          description: 'AWS EC2 default user',
+          group: 'Cloud Users'
+        },
+        { 
+          value: 'centos', 
+          label: 'centos', 
+          description: 'CentOS default user',
+          group: 'System Users'
+        },
+        { 
+          value: 'daemon', 
+          label: 'daemon', 
+          description: 'System daemon user',
+          group: 'System Users'
+        },
+        { 
+          value: 'bin', 
+          label: 'bin', 
+          description: 'Binary system user',
+          group: 'System Users'
+        }
+      ];
+
+      return options;
+    } catch (error) {
+      this.logError('Failed to get dynamic options', error);
+      return {};
+    }
   }
 }

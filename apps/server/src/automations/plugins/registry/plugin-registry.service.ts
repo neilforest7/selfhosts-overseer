@@ -94,8 +94,13 @@ export class PluginRegistry implements OnModuleInit {
     }
     
     try {
-      // Create plugin instance
-      const pluginInstance = new pluginClass();
+      // Get plugin instance from NestJS dependency injection container
+      // This ensures proper dependency injection
+      const pluginInstance = this.moduleRef.get(pluginClass, { strict: false });
+      
+      if (!pluginInstance) {
+        throw new Error(`Failed to create plugin instance for '${metadata.id}'. Make sure the plugin is registered as a provider in the module.`);
+      }
       
       // Validate plugin configuration
       if (pluginInstance.validateConfig) {
@@ -332,24 +337,25 @@ export class PluginRegistry implements OnModuleInit {
       
       for (const PluginClass of pluginClasses) {
         try {
-          // Create plugin instance using NestJS dependency injection
-          const plugin = await this.moduleRef.create(PluginClass);
-          
+          // Get plugin instance from NestJS dependency injection container
+          // This ensures proper dependency injection
+          const plugin = this.moduleRef.get(PluginClass, { strict: false });
+
           // Register plugin
           this.plugins.set(plugin.id, plugin);
-          
+
           // Register type-specific plugins
           if (this.isTriggerPlugin(plugin)) {
             await this.registerTriggerPlugin(plugin);
           }
-          
+
           if (this.isEventPlugin(plugin)) {
             await this.registerEventPlugin(plugin);
           }
-          
+
           // Initialize plugin
           await plugin.initialize();
-          
+
           this.logger.log(`Registered built-in plugin: ${plugin.name} (${plugin.id})`);
         } catch (error) {
           this.logger.error(`Failed to register built-in plugin '${PluginClass.name}': ${error.message}`);

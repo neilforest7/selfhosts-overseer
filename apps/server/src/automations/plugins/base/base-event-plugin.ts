@@ -5,14 +5,15 @@ import {
   EventContext,
   EventResult,
   IPluginValidator,
-  ValidationResult
+  ValidationResult,
+  DynamicConfigOptions
 } from '../interfaces';
 
 /**
  * Base class for event plugins
  * Provides common event functionality and utilities
  */
-export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin, IPluginValidator {
+export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin {
   public abstract readonly eventType: string;
   
   /**
@@ -48,54 +49,7 @@ export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin
    */
   public abstract getEventConfigSchema(): Record<string, any>;
 
-  /**
-   * Implement IPluginValidator interface
-   * Validates event configuration with detailed results
-   */
-  async validateConfig(config: any): Promise<ValidationResult> {
-    try {
-      const errors: string[] = [];
-      const warnings: string[] = [];
-      const suggestions: string[] = [];
-
-      // Basic structure validation
-      if (!config || typeof config !== 'object') {
-        errors.push('Configuration must be a valid object');
-      } else {
-        // Validate event-specific configuration
-        const isValid = await this.validateEventConfig(config as EventConfig);
-        if (!isValid) {
-          errors.push('Event configuration validation failed');
-        }
-      }
-
-      return {
-        isValid: errors.length === 0,
-        errors,
-        warnings,
-        suggestions,
-        metadata: {
-          pluginId: this.id,
-          pluginVersion: this.version,
-          validatedAt: new Date(),
-          context: 'event-validation'
-        }
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        isValid: false,
-        errors: [`Event validation error: ${errorMessage}`],
-        metadata: {
-          pluginId: this.id,
-          pluginVersion: this.version,
-          validatedAt: new Date(),
-          context: 'event-validation-error'
-        }
-      };
-    }
-  }
-
+  
   /**
    * Get validation schema (implements IPluginValidator)
    */
@@ -108,6 +62,14 @@ export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin
    * Override in subclasses to provide specific parameter schema
    */
   public abstract getEventParamsSchema(): Record<string, any>;
+
+  /**
+   * Get dynamic configuration options for event fields
+   * Override in subclasses to provide dynamic data
+   */
+  public async getEventDynamicOptions(): Promise<DynamicConfigOptions> {
+    return this.getDynamicConfigOptions();
+  }
   
   /**
    * Check if this event can be executed safely

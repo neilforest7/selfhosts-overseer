@@ -30,7 +30,8 @@
     "fix:compatibility": "tsx scripts/fix-compatibility-issues.ts",
     "audit:legacy-rules": "tsx scripts/audit-legacy-rules.ts",
     "seed:automation-data": "tsx scripts/seed-automation-data.ts",
-    "audit:legacy-rules": "tsx scripts/audit-legacy-rules.ts"
+    "seed:plugin-metadata": "tsx scripts/seed-plugin-metadata.ts",
+    "seed:plugin-metadata:dry-run": "tsx scripts/seed-plugin-metadata.ts --dry-run"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",

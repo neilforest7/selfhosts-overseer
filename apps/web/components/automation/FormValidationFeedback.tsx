@@ -116,14 +116,29 @@ export function FormValidationFeedback({
           ConfigSerializer['extractNestedConfig'](formData, 'eventConfig')
         );
 
-        if (eventPlugin?.configSchema) {
+        // 根据插件类型选择正确的schema进行验证
+        let eventSchema = null;
+        if (eventPlugin?.paramsSchema) {
+          // 优先使用paramsSchema（新版本插件）
+          eventSchema = eventPlugin.paramsSchema;
+        } else if (eventPlugin?.configSchema) {
+          // 向后兼容，使用configSchema（旧版本插件）
+          eventSchema = eventPlugin.configSchema;
+        }
+
+        if (eventSchema) {
           const eventValidation = ConfigSerializer.validateConfig(
             eventConfig, 
-            eventPlugin.configSchema
+            eventSchema
           );
           
           if (!eventValidation.isValid) {
             errors.push(...eventValidation.errors.map(e => `事件配置: ${e}`));
+          }
+        } else {
+          // 如果没有schema，进行基本验证
+          if (Object.keys(eventConfig).length === 0) {
+            warnings.push('事件配置为空，请确认是否需要配置参数');
           }
         }
 
@@ -278,6 +293,7 @@ export function FormValidationFeedback({
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm">配置预览</CardTitle>
               <Button
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowPreview(!showPreview)}

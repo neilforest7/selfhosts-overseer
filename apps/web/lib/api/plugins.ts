@@ -29,6 +29,7 @@ export interface TriggerPlugin extends Plugin {
   configSchema?: Record<string, any>;
   availableConditions?: string[];
   dbPluginId?: string | null; // Database plugin metadata ID for foreign key references
+  dynamicOptions?: Record<string, any>; // Dynamic configuration options for dropdowns
 }
 
 export interface EventPlugin extends Plugin {
@@ -38,6 +39,7 @@ export interface EventPlugin extends Plugin {
   paramsSchema?: Record<string, any>;
   availableActions?: string[];
   dbPluginId?: string | null; // Database plugin metadata ID for foreign key references
+  dynamicOptions?: Record<string, any>; // Dynamic configuration options for dropdowns
 }
 
 /**
@@ -157,4 +159,17 @@ export async function unregisterPlugin(id: string): Promise<void> {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.message || 'Failed to unregister plugin');
   }
+}
+
+/**
+ * Fetch dynamic options for a specific plugin
+ */
+export async function fetchPluginDynamicOptions(id: string): Promise<Record<string, any>> {
+  const response = await fetch(`/api/v1/plugins/${id}/dynamic-options`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || `Failed to fetch dynamic options for plugin ${id}`);
+  }
+  const result = await response.json();
+  return result.dynamicOptions || {};
 }

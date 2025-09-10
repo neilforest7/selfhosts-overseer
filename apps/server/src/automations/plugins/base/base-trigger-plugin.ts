@@ -5,14 +5,15 @@ import {
   TriggerContext,
   TriggerResult,
   IPluginValidator,
-  ValidationResult
+  ValidationResult,
+  DynamicConfigOptions
 } from '../interfaces';
 
 /**
  * Base class for trigger plugins
  * Provides common trigger functionality and utilities
  */
-export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPlugin, IPluginValidator {
+export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPlugin {
   public abstract readonly triggerType: string;
   
   /**
@@ -52,54 +53,7 @@ export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPl
    */
   public abstract getTriggerConfigSchema(): Record<string, any>;
 
-  /**
-   * Implement IPluginValidator interface
-   * Validates trigger configuration with detailed results
-   */
-  async validateConfig(config: any): Promise<ValidationResult> {
-    try {
-      const errors: string[] = [];
-      const warnings: string[] = [];
-      const suggestions: string[] = [];
-
-      // Basic structure validation
-      if (!config || typeof config !== 'object') {
-        errors.push('Configuration must be a valid object');
-      } else {
-        // Validate trigger-specific configuration
-        const isValid = await this.validateTriggerConfig(config as TriggerConfig);
-        if (!isValid) {
-          errors.push('Trigger configuration validation failed');
-        }
-      }
-
-      return {
-        isValid: errors.length === 0,
-        errors,
-        warnings,
-        suggestions,
-        metadata: {
-          pluginId: this.id,
-          pluginVersion: this.version,
-          validatedAt: new Date(),
-          context: 'trigger-validation'
-        }
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        isValid: false,
-        errors: [`Trigger validation error: ${errorMessage}`],
-        metadata: {
-          pluginId: this.id,
-          pluginVersion: this.version,
-          validatedAt: new Date(),
-          context: 'trigger-validation-error'
-        }
-      };
-    }
-  }
-
+  
   /**
    * Get validation schema (implements IPluginValidator)
    */
@@ -113,6 +67,14 @@ export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPl
    */
   public getAvailableConditions(): Record<string, any> {
     return {};
+  }
+
+  /**
+   * Get dynamic configuration options for trigger fields
+   * Override in subclasses to provide dynamic data
+   */
+  public async getTriggerDynamicOptions(): Promise<DynamicConfigOptions> {
+    return this.getDynamicConfigOptions();
   }
   
   /**
@@ -159,13 +121,27 @@ export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPl
   /**
    * Helper to validate required config fields
    */
-  protected validateRequiredFields(config: TriggerConfig, requiredFields: string[]): boolean {
+  protected validateRequiredFields(
+    config: any,
+    requiredFields: string[],
+    fieldDisplayNames?: Record<string, string>
+  ): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
     for (const field of requiredFields) {
-      if (config.config[field] === undefined || config.config[field] === null) {
-        this.logError(`Required field '${field}' is missing from trigger configuration`);
-        return false;
+      const value = config?.config?.[field] || config?.[field];
+      const displayName = fieldDisplayNames?.[field] || field;
+
+      if (value === undefined || value === null) {
+        errors.push(`Required field '${displayName}' is missing`);
+      } else if (typeof value === 'string' && value.trim() === '') {
+        errors.push(`Required field '${displayName}' cannot be empty`);
       }
     }
-    return true;
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
   }
 }

@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTriggerPlugin } from '../base';
-import { TriggerConfig, TriggerContext, TriggerResult } from '../interfaces';
+import { TriggerConfig, TriggerContext, TriggerResult, DynamicConfigOptions } from '../interfaces';
 import { SshService } from '../../../ssh/ssh.service';
+import { HostsService } from '../../../hosts/hosts.service';
 import * as path from 'path';
 
 interface FileSystemEvent {
@@ -27,7 +28,8 @@ export class FileSystemTriggerPlugin extends BaseTriggerPlugin {
   public readonly triggerType = 'filesystem';
   
   constructor(
-    private readonly sshService: SshService
+    private readonly sshService: SshService,
+    private readonly hostsService: HostsService
   ) {
     super();
   }
@@ -148,7 +150,7 @@ export class FileSystemTriggerPlugin extends BaseTriggerPlugin {
           description: 'File patterns to exclude from monitoring',
           items: {
             type: 'string',
-            title: 'Pattern',
+            title: 'Exclude Pattern',
             placeholder: '*.tmp'
           },
           default: [],
@@ -187,6 +189,29 @@ export class FileSystemTriggerPlugin extends BaseTriggerPlugin {
     };
   }
   
+  /**
+   * Get dynamic configuration options for trigger fields
+   */
+  public async getTriggerDynamicOptions(): Promise<DynamicConfigOptions> {
+    try {
+      const options: DynamicConfigOptions = {};
+
+      // Get available hosts
+      const { items: hosts } = await this.hostsService.list();
+      options.hostId = hosts.map((host: any) => ({
+        value: host.id,
+        label: `${host.name} (${host.address})`,
+        description: `Host: ${host.address}`,
+        group: 'Hosts'
+      }));
+
+      return options;
+    } catch (error) {
+      this.logError('Failed to get dynamic options', error);
+      return {};
+    }
+  }
+
   /**
    * Get next evaluation time based on check interval
    */

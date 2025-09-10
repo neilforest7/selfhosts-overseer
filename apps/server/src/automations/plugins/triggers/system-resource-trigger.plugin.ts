@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BaseTriggerPlugin } from '../base';
-import { TriggerConfig, TriggerContext, TriggerResult } from '../interfaces';
+import { TriggerConfig, TriggerContext, TriggerResult, DynamicConfigOptions } from '../interfaces';
 import { HostsService } from '../../../hosts/hosts.service';
 
 interface SystemStats {
@@ -176,6 +176,29 @@ export class SystemResourceTriggerPlugin extends BaseTriggerPlugin {
     };
   }
   
+  /**
+   * Get dynamic configuration options for trigger fields
+   */
+  public async getTriggerDynamicOptions(): Promise<DynamicConfigOptions> {
+    try {
+      const options: DynamicConfigOptions = {};
+
+      // Get available hosts
+      const { items: hosts } = await this.hostsService.list();
+      options.hostId = hosts.map((host: any) => ({
+        value: host.id,
+        label: `${host.name} (${host.address})`,
+        description: `Host: ${host.address}`,
+        group: 'Hosts'
+      }));
+
+      return options;
+    } catch (error) {
+      this.logError('Failed to get dynamic options', error);
+      return {};
+    }
+  }
+
   /**
    * Get next evaluation time based on check interval
    */

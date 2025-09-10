@@ -114,8 +114,64 @@ export function PluginConfigField({
 
     // Special handling for common field types
     if (fieldName.includes('host') && fieldName.includes('id')) {
+      // Handle both single and array selections
+      if (schema.type === 'array' || fieldName.includes('ids')) {
+        const selectedValues = Array.isArray(value) ? value : [];
+        return (
+          <Popover open={multiSelectOpen} onOpenChange={setMultiSelectOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={multiSelectOpen}
+                className="w-full justify-between"
+              >
+                {selectedValues.length > 0
+                  ? `已选择 ${selectedValues.length} 个主机`
+                  : '选择主机'}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+              <Command>
+                <CommandInput placeholder="搜索主机..." />
+                <CommandEmpty>未找到主机</CommandEmpty>
+                <CommandGroup>
+                  {availableHosts.map((host) => (
+                    <CommandItem
+                      key={host.id}
+                      onSelect={() => {
+                        const newValues = selectedValues.includes(host.id)
+                          ? selectedValues.filter(v => v !== host.id)
+                          : [...selectedValues, host.id];
+                        onChange(newValues);
+                      }}
+                    >
+                      <Check
+                        className={`mr-2 h-4 w-4 ${
+                          selectedValues.includes(host.id) ? "opacity-100" : "opacity-0"
+                        }`}
+                      />
+                      <div className="flex items-center gap-2">
+                        <Server className="h-4 w-4" />
+                        <div>
+                          <div>{host.name}</div>
+                        </div>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        );
+      }
+      
+      // Single selection
+      const selectValue = typeof value === 'object' ? value?.id || value?.value || '' : String(value || '');
+      
       return (
-        <Select value={value || ''} onValueChange={onChange}>
+        <Select value={selectValue} onValueChange={onChange}>
           <SelectTrigger>
             <SelectValue placeholder="选择主机" />
           </SelectTrigger>
@@ -133,9 +189,70 @@ export function PluginConfigField({
       );
     }
 
-    if (fieldName.includes('container') && fieldName.includes('id')) {
+    if (fieldName.includes('container') && (fieldName.includes('id') || fieldName.includes('identifier'))) {
+      // Handle both single and array selections
+      if (schema.type === 'array' || fieldName.includes('ids')) {
+        const selectedValues = Array.isArray(value) ? value : [];
+        return (
+          <Popover open={multiSelectOpen} onOpenChange={setMultiSelectOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={multiSelectOpen}
+                className="w-full justify-between"
+              >
+                {selectedValues.length > 0
+                  ? `已选择 ${selectedValues.length} 个容器`
+                  : '选择容器'}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+              <Command >
+                <CommandInput placeholder="搜索容器..." />
+                <CommandEmpty>未找到容器</CommandEmpty>
+                <CommandGroup>
+                  {availableContainers.map((container) => (
+                    <CommandItem
+                      key={container.id}
+                      onSelect={() => {
+                        const newValues = selectedValues.includes(container.id)
+                          ? selectedValues.filter(v => v !== container.id)
+                          : [...selectedValues, container.id];
+                        onChange(newValues);
+                      }}
+                    >
+                      <Check
+                        className={`h-4 w-4 ${
+                          selectedValues.includes(container.id) ? "opacity-100" : "opacity-0"
+                        }`}
+                      />
+                      <div className="flex items-center gap-2">
+                        <Container className="h-4 w-4" />
+                        <div>
+                          <div>{container.name}</div>
+                          {container.hostName && (
+                            <div className="text-xs text-muted-foreground">
+                              {container.hostName}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        );
+      }
+      
+      // Single selection
+      const selectValue = typeof value === 'object' ? value?.id || value?.value || '' : String(value || '');
+      
       return (
-        <Select value={value || ''} onValueChange={onChange}>
+        <Select value={selectValue} onValueChange={onChange}>
           <SelectTrigger>
             <SelectValue placeholder="选择容器" />
           </SelectTrigger>
@@ -159,8 +276,11 @@ export function PluginConfigField({
     }
 
     if (fieldName.includes('user') || fieldName === 'allowedusers') {
+      // Ensure value is a scalar string for Select component
+      const selectValue = typeof value === 'object' ? value?.id || value?.value || '' : String(value || '');
+      
       return (
-        <Select value={value || ''} onValueChange={onChange}>
+        <Select value={selectValue} onValueChange={onChange}>
           <SelectTrigger>
             <SelectValue placeholder="选择用户" />
           </SelectTrigger>

@@ -38,7 +38,7 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
       
       const url = this.getConfigValue(config, 'url', '');
       const _method = this.getConfigValue(config, 'method', 'GET');
-      const expectedStatus = this.getConfigValue(config, 'expectedStatus', [200]);
+      const expectedStatus = this.ensureArray(this.getConfigValue(config, 'expectedStatus', [200]));
       const maxResponseTime = this.getConfigValue(config, 'maxResponseTime', 5000);
       const triggerOn = this.getConfigValue(config, 'triggerOn', 'unhealthy') as 'healthy' | 'unhealthy';
       const _timeout = this.getConfigValue(config, 'timeout', 10000);
@@ -275,6 +275,13 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
   }
   
   /**
+   * Ensure value is an array
+   */
+  private ensureArray<T>(value: T | T[]): T[] {
+    return Array.isArray(value) ? value : [value];
+  }
+
+  /**
    * Get available trigger conditions
    */
   public getAvailableConditions(): Record<string, any> {
@@ -303,7 +310,7 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
   private async performHealthCheck(config: TriggerConfig): Promise<HealthCheckResult> {
     const url = this.getConfigValue(config, 'url', '');
     const method = this.getConfigValue(config, 'method', 'GET');
-    const expectedStatus = this.getConfigValue(config, 'expectedStatus', [200]);
+    const expectedStatus = this.ensureArray(this.getConfigValue(config, 'expectedStatus', [200]));
     const maxResponseTime = this.getConfigValue(config, 'maxResponseTime', 5000);
     const timeout = this.getConfigValue(config, 'timeout', 10000);
     const headers = this.getConfigValue(config, 'headers', {});

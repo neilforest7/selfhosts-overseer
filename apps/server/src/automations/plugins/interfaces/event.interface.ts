@@ -135,6 +135,12 @@ export interface IEventPlugin extends IPlugin {
    * @returns boolean indicating if elevated privileges are needed
    */
   requiresElevatedPrivileges?(config: EventConfig): boolean;
+
+  /**
+   * Get dynamic configuration options for event fields
+   * This allows events to provide dynamic data for dropdowns, etc.
+   */
+  getEventDynamicOptions?(): Promise<import('./base.interface').DynamicConfigOptions>;
 }
 
 /**

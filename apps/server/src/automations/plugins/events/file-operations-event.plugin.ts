@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { BaseEventPlugin } from '../base';
-import { EventConfig, EventContext, EventResult } from '../interfaces';
+import { EventConfig, EventContext, EventResult, DynamicConfigOptions } from '../interfaces';
 import { OperationLogService } from '../../../operation-log/operation-log.service';
 import { SshService } from '../../../ssh/ssh.service';
+import { HostsService } from '../../../hosts/hosts.service';
 import * as path from 'path';
 
 interface FileOperationResult {
@@ -31,7 +32,8 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
   
   constructor(
     private readonly operationLogService: OperationLogService,
-    private readonly sshService: SshService
+    private readonly sshService: SshService,
+    private readonly hostsService: HostsService
   ) {
     super();
   }
@@ -344,6 +346,29 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
     return true;
   }
   
+  /**
+   * Get dynamic configuration options for event fields
+   */
+  public async getEventDynamicOptions(): Promise<DynamicConfigOptions> {
+    try {
+      const options: DynamicConfigOptions = {};
+
+      // Get available hosts
+      const { items: hosts } = await this.hostsService.list();
+      options.hostId = hosts.map((host: any) => ({
+        value: host.id,
+        label: `${host.name} (${host.address})`,
+        description: `Host: ${host.address}`,
+        group: 'Hosts'
+      }));
+
+      return options;
+    } catch (error) {
+      this.logError('Failed to get dynamic options', error);
+      return {};
+    }
+  }
+
   /**
    * File operations typically execute quickly
    */

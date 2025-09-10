@@ -93,6 +93,12 @@ export interface ITriggerPlugin extends IPlugin {
    * Used for UI generation
    */
   getAvailableConditions?(): Record<string, any>;
+
+  /**
+   * Get dynamic configuration options for trigger fields
+   * This allows triggers to provide dynamic data for dropdowns, etc.
+   */
+  getTriggerDynamicOptions?(): Promise<import('./base.interface').DynamicConfigOptions>;
 }
 
 /**
