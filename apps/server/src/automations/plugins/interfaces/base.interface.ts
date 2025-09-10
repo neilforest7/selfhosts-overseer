@@ -1,3 +1,5 @@
+import { ValidationResult } from './validation.interface';
+
 /**
  * Base plugin interface that all automation plugins must implement
  */
@@ -43,8 +45,9 @@ export interface IPlugin {
   
   /**
    * Validate plugin configuration
+   * @deprecated Use the new ValidationResult interface instead
    */
-  validateConfig?(config: any): boolean | Promise<boolean>;
+  validateConfig?(config: any): boolean | Promise<boolean> | ValidationResult | Promise<ValidationResult>;
 }
 
 /**

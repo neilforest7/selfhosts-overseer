@@ -11,7 +11,6 @@ import { AUTOMATION_QUEUE_NAME } from './plugins/processors/plugin-automations.p
 import { PluginRegistry } from './plugins/registry/plugin-registry.service';
 import { AutomationEngine } from './plugins/engine/automation-engine.service';
 import { PluginsController } from './plugins/plugins.controller';
-import { PluginMetadataService } from './plugin-metadata.service';
 
 // Built-in trigger plugins
 import { 
@@ -69,7 +68,6 @@ import { AuditLogService } from './services/audit-log.service';
     // Core services
     AutomationsService,
     ContainerUpdateAutomationService,
-    PluginMetadataService,
 
     // Validators and Services
     UpdateValidator,

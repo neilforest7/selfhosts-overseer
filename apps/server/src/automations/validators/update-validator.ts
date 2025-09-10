@@ -45,7 +45,7 @@ export class UpdateValidator {
           isValid: false,
           errors,
           warnings,
-          pluginValidation: { triggers: [], events: [] }
+          pluginValidations: { triggers: [], events: [] }
         };
       }
 
@@ -91,7 +91,7 @@ export class UpdateValidator {
         isValid: errors.length === 0,
         errors,
         warnings,
-        pluginValidation
+        pluginValidations: pluginValidation
       };
 
     } catch (error) {
@@ -103,7 +103,7 @@ export class UpdateValidator {
         isValid: false,
         errors,
         warnings,
-        pluginValidation: { triggers: [], events: [] }
+        pluginValidations: { triggers: [], events: [] }
       };
     }
   }
@@ -244,11 +244,8 @@ export class UpdateValidator {
 
     return {
       pluginId: trigger.pluginId,
-      pluginVersion: trigger.pluginVersion,
+      pluginType: 'trigger',
       isValid: errors.length === 0,
-      exists,
-      versionMatch,
-      configValid,
       errors
     };
   }
@@ -281,11 +278,8 @@ export class UpdateValidator {
 
     return {
       pluginId: event.pluginId,
-      pluginVersion: event.pluginVersion,
+      pluginType: 'event',
       isValid: errors.length === 0,
-      exists,
-      versionMatch,
-      configValid,
       errors
     };
   }
@@ -410,8 +404,8 @@ export class UpdateValidator {
 
     // 验证规则不能同时有多个相同类型的触发器
     if (data.triggers) {
-      const triggerTypes = data.triggers.map(t => t.type);
-      const duplicateTypes = triggerTypes.filter((type, index) => triggerTypes.indexOf(type) !== index);
+      const triggerTypes = data.triggers.map((t: any) => t.type);
+      const duplicateTypes = triggerTypes.filter((type: string, index: number) => triggerTypes.indexOf(type) !== index);
       if (duplicateTypes.length > 0) {
         errors.push(`Duplicate trigger types found: ${duplicateTypes.join(', ')}`);
       }

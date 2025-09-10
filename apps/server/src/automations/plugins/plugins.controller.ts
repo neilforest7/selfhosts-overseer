@@ -11,13 +11,11 @@ import {
 } from '@nestjs/common';
 import { PluginRegistry } from './registry/plugin-registry.service';
 import { PluginRegistration } from './interfaces';
-import { PluginMetadataService } from '../plugin-metadata.service';
 
 @Controller('/api/v1/plugins')
 export class PluginsController {
   constructor(
-    private readonly pluginRegistry: PluginRegistry,
-    private readonly pluginMetadataService: PluginMetadataService
+    private readonly pluginRegistry: PluginRegistry
   ) {}
 
   @Get()
@@ -42,14 +40,11 @@ export class PluginsController {
   }
 
   @Get('triggers')
-  async getTriggerPlugins() {
+  getTriggerPlugins() {
     const triggerPlugins = this.pluginRegistry.getTriggerPlugins();
     const result = [];
 
     for (const [type, plugin] of triggerPlugins.entries()) {
-      // Find the corresponding database plugin metadata by name (type)
-      const dbPlugin = await this.pluginMetadataService.findByName(type);
-
       result.push({
         type: 'trigger',
         triggerType: type,
@@ -59,9 +54,7 @@ export class PluginsController {
         version: plugin.version,
         enabled: plugin.enabled,
         configSchema: plugin.getTriggerConfigSchema?.() || plugin.configSchema,
-        availableConditions: plugin.getAvailableConditions?.(),
-        // Add database plugin metadata ID for foreign key references
-        dbPluginId: dbPlugin ? (dbPlugin as any).id : null
+        availableConditions: plugin.getAvailableConditions?.()
       });
     }
 
@@ -69,14 +62,11 @@ export class PluginsController {
   }
 
   @Get('events')
-  async getEventPlugins() {
+  getEventPlugins() {
     const eventPlugins = this.pluginRegistry.getEventPlugins();
     const result = [];
 
     for (const [type, plugin] of eventPlugins.entries()) {
-      // Find the corresponding database plugin metadata by name (type)
-      const dbPlugin = await this.pluginMetadataService.findByName(type);
-
       result.push({
         type: 'event',
         eventType: type,
@@ -87,9 +77,7 @@ export class PluginsController {
         enabled: plugin.enabled,
         configSchema: plugin.getEventConfigSchema?.() || plugin.configSchema,
         paramsSchema: plugin.getEventParamsSchema?.(),
-        availableActions: (plugin as any).getAvailableActions?.(),
-        // Add database plugin metadata ID for foreign key references
-        dbPluginId: dbPlugin ? (dbPlugin as any).id : null
+        availableActions: (plugin as any).getAvailableActions?.()
       });
     }
 
