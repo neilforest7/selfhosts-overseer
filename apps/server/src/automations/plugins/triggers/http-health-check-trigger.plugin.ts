@@ -37,11 +37,11 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
       }
       
       const url = this.getConfigValue(config, 'url', '');
-      const method = this.getConfigValue(config, 'method', 'GET');
+      const _method = this.getConfigValue(config, 'method', 'GET');
       const expectedStatus = this.getConfigValue(config, 'expectedStatus', [200]);
       const maxResponseTime = this.getConfigValue(config, 'maxResponseTime', 5000);
-      const triggerOn = this.getConfigValue(config, 'triggerOn', 'unhealthy'); // 'healthy' or 'unhealthy'
-      const timeout = this.getConfigValue(config, 'timeout', 10000);
+      const triggerOn = this.getConfigValue(config, 'triggerOn', 'unhealthy') as 'healthy' | 'unhealthy';
+      const _timeout = this.getConfigValue(config, 'timeout', 10000);
       
       if (!url) {
         return this.createTriggerResult(false, { reason: 'URL is required' });
@@ -65,9 +65,10 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
       });
       
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logError('Error evaluating HTTP health check trigger', error);
-      return this.createTriggerResult(false, { 
-        reason: `HTTP health check evaluation error: ${error.message}` 
+      return this.createTriggerResult(false, {
+        reason: `HTTP health check evaluation error: ${errorMessage}`
       });
     }
   }
@@ -81,37 +82,43 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
       properties: {
         url: {
           type: 'string',
-          title: 'URL',
-          description: 'HTTP endpoint URL to check',
+          title: 'Health Check URL',
+          description: 'HTTP endpoint URL to monitor for health status',
           format: 'uri',
           minLength: 1,
+          placeholder: 'https://example.com/health',
           examples: [
             'https://example.com/health',
             'http://localhost:3000/api/status',
-            'https://api.service.com/ping'
+            'https://api.service.com/ping',
+            'http://nginx/health',
+            'https://app.domain.com/api/health'
           ]
         },
         method: {
           type: 'string',
           title: 'HTTP Method',
-          description: 'HTTP method to use for the request',
+          description: 'HTTP method to use for the health check request',
           enum: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'],
-          default: 'GET'
+          default: 'GET',
+          examples: ['GET', 'POST', 'HEAD']
         },
         expectedStatus: {
           type: 'array',
           title: 'Expected Status Codes',
-          description: 'HTTP status codes that indicate healthy status',
+          description: 'HTTP status codes that indicate a healthy service',
           items: {
             type: 'integer',
             minimum: 100,
-            maximum: 599
+            maximum: 599,
+            title: 'Status Code'
           },
           default: [200],
           examples: [
             [200],
             [200, 201, 204],
-            [200, 302]
+            [200, 302],
+            [200, 201, 202, 204]
           ]
         },
         maxResponseTime: {
@@ -120,42 +127,66 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
           description: 'Maximum acceptable response time in milliseconds',
           minimum: 100,
           maximum: 60000,
-          default: 5000
+          default: 5000,
+          examples: [1000, 3000, 5000, 10000]
         },
         triggerOn: {
           type: 'string',
           title: 'Trigger Condition',
-          description: 'When to trigger the automation',
+          description: 'When should this health check trigger the automation?',
           enum: ['healthy', 'unhealthy'],
-          default: 'unhealthy'
+          default: 'unhealthy',
+          examples: ['unhealthy', 'healthy']
         },
         timeout: {
           type: 'number',
           title: 'Request Timeout (ms)',
-          description: 'HTTP request timeout in milliseconds',
+          description: 'Maximum time to wait for HTTP response',
           minimum: 1000,
           maximum: 60000,
-          default: 10000
+          default: 10000,
+          examples: [5000, 10000, 15000, 30000]
         },
         headers: {
           type: 'object',
           title: 'Custom Headers',
-          description: 'Custom HTTP headers to send with the request',
+          description: 'Additional HTTP headers to send with the request',
           additionalProperties: {
             type: 'string'
           },
-          default: {}
+          default: {},
+          examples: [
+            { 'Authorization': 'Bearer token123' },
+            { 'User-Agent': 'HealthChecker/1.0', 'Accept': 'application/json' },
+            { 'X-API-Key': 'your-api-key' }
+          ]
         },
         body: {
           type: 'string',
           title: 'Request Body',
-          description: 'Request body for POST/PUT requests'
+          description: 'Request body content for POST/PUT requests (JSON format)',
+          format: 'textarea',
+          placeholder: '{"ping": "health-check"}',
+          examples: [
+            '{"ping": "health-check"}',
+            '{"service": "status"}',
+            'ping'
+          ]
         },
         followRedirects: {
           type: 'boolean',
           title: 'Follow Redirects',
-          description: 'Whether to follow HTTP redirects',
+          description: 'Whether to automatically follow HTTP redirects (3xx responses)',
           default: true
+        },
+        retryAttempts: {
+          type: 'number',
+          title: 'Retry Attempts',
+          description: 'Number of retry attempts on failure',
+          minimum: 0,
+          maximum: 5,
+          default: 1,
+          examples: [0, 1, 2, 3]
         },
         validateSsl: {
           type: 'boolean',
@@ -323,7 +354,7 @@ export class HttpHealthCheckTriggerPlugin extends BaseTriggerPlugin {
         status: 0,
         responseTime,
         isHealthy: false,
-        error: error.message || 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }

@@ -148,44 +148,76 @@ export class CheckContainerUpdatesEventPlugin extends BaseEventPlugin {
           properties: {
             hostIds: {
               type: 'array',
-              title: 'Host IDs',
-              description: 'List of host IDs to check for updates',
+              title: 'Target Hosts',
+              description: 'Hosts to check for container updates (empty = all hosts)',
               items: {
                 type: 'string',
-                minLength: 1
+                minLength: 1,
+                title: 'Host',
+                placeholder: 'Select hosts'
               },
-              default: []
+              default: [],
+              examples: [
+                ['web-server', 'api-server'],
+                ['prod-host-1', 'prod-host-2', 'prod-host-3']
+              ]
             },
             containerIds: {
               type: 'array',
-              title: 'Container IDs',
-              description: 'List of specific container IDs to check',
+              title: 'Specific Containers',
+              description: 'Specific containers to check (empty = all containers)',
               items: {
                 type: 'string',
-                minLength: 1
+                minLength: 1,
+                title: 'Container',
+                placeholder: 'Container name or ID'
               },
-              default: []
+              default: [],
+              examples: [
+                ['nginx', 'redis', 'postgres'],
+                ['web-app-prod', 'api-service']
+              ]
             },
             composeProjects: {
               type: 'array',
               title: 'Compose Projects',
-              description: 'List of compose project names to check',
+              description: 'Docker Compose projects to check for updates',
               items: {
                 type: 'string',
-                minLength: 1
+                minLength: 1,
+                title: 'Project Name',
+                placeholder: 'Compose project name'
               },
-              default: []
+              default: [],
+              examples: [
+                ['webapp', 'monitoring'],
+                ['production-stack', 'logging-stack']
+              ]
+            },
+            updateStrategy: {
+              type: 'string',
+              title: 'Update Strategy',
+              description: 'How to handle available updates',
+              enum: ['check-only', 'notify', 'auto-update', 'schedule'],
+              default: 'check-only',
+              examples: ['check-only', 'notify', 'auto-update']
             },
             skipCritical: {
               type: 'boolean',
-              title: 'Skip Critical',
-              description: 'Skip critical containers during update check',
+              title: 'Skip Critical Containers',
+              description: 'Skip containers marked as critical during update check',
               default: false
             },
             onlyOutdated: {
               type: 'boolean',
-              title: 'Only Outdated',
+              title: 'Only Check Outdated',
               description: 'Only check containers that are already known to be outdated',
+              default: false
+            },
+            includePrerelease: {
+              type: 'boolean',
+              title: 'Include Prerelease',
+              description: 'Include prerelease/beta versions in update check',
               default: false
             }
           },

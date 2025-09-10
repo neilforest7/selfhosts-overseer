@@ -41,7 +41,7 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
    */
   public async execute(config: EventConfig, context: EventContext): Promise<EventResult> {
     try {
-      const operation = this.getParam(config, 'operation', 'restart');
+      const operation = this.getParam(config, 'operation', 'restart') as string;
       const containerIdentifier = this.getParam(config, 'containerIdentifier', '');
       const hostId = this.getParam(config, 'hostId', null);
       const waitForHealthy = this.getParam(config, 'waitForHealthy', false);
@@ -176,34 +176,56 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
           properties: {
             operation: {
               type: 'string',
-              title: 'Operation',
-              description: 'Container operation to perform',
+              title: 'Container Operation',
+              description: 'Management operation to perform on the container',
               enum: [
-                'start', 'stop', 'restart', 'pause', 'unpause', 
-                'remove', 'update', 'recreate', 'logs'
+                'start', 'stop', 'restart', 'pause', 'unpause',
+                'remove', 'update', 'recreate', 'logs', 'inspect', 'stats'
               ],
-              default: 'restart'
+              default: 'restart',
+              examples: ['restart', 'stop', 'start', 'update']
             },
             containerIdentifier: {
               type: 'string',
               title: 'Container ID/Name',
-              description: 'Container ID, name, or partial match',
+              description: 'Container ID, name, or pattern to match',
               minLength: 1,
               maxLength: 200,
-              examples: ['nginx', 'web-server', 'abc123def456']
+              placeholder: 'nginx or container-id',
+              examples: [
+                'nginx',
+                'web-server',
+                'app-prod',
+                'database-primary',
+                'redis-cache'
+              ]
             },
             hostId: {
               type: 'string',
-              title: 'Host ID (Optional)',
-              description: 'Limit search to specific host'
+              title: 'Target Host',
+              description: 'Host to perform container operation on (leave empty for auto-detect)',
+              placeholder: 'Select a host'
             },
             timeout: {
               type: 'number',
-              title: 'Timeout (ms)',
-              description: 'Operation timeout in milliseconds',
+              title: 'Operation Timeout (ms)',
+              description: 'Maximum time to wait for operation completion',
               minimum: 10000,
               maximum: 300000,
-              default: 60000
+              default: 60000,
+              examples: [30000, 60000, 120000, 180000]
+            },
+            safetyChecks: {
+              type: 'boolean',
+              title: 'Enable Safety Checks',
+              description: 'Perform safety checks before destructive operations',
+              default: true
+            },
+            backupBeforeUpdate: {
+              type: 'boolean',
+              title: 'Backup Before Update',
+              description: 'Create container backup before update operations',
+              default: false
             },
             waitForHealthy: {
               type: 'boolean',
@@ -365,7 +387,7 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
    * Container operations can take significant time
    */
   public getEstimatedExecutionTime(config: EventConfig): number {
-    const operation = this.getParam(config, 'operation', 'restart');
+    const operation = this.getParam(config, 'operation', 'restart') as string;
     const timeout = this.getParam(config, 'timeout', 60000);
     
     // Estimate based on operation type
@@ -694,7 +716,8 @@ export class ContainerManagementEventPlugin extends BaseEventPlugin {
         const container = await this.containersService.getById(containerId);
         if (container && container.state === 'running') {
           // If no health check defined, consider running as healthy
-          if (!container.health || container.health === 'healthy') {
+          const health = (container as any).health;
+          if (!health || health === 'healthy') {
             return true;
           }
         }

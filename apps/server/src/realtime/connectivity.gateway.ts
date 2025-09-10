@@ -18,7 +18,7 @@ import { HostConnectivityEvent } from '../hosts/connectivity.service';
 })
 export class ConnectivityGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private readonly logger = new Logger(ConnectivityGateway.name);
   private readonly room = 'connectivity';

@@ -649,4 +649,52 @@ export class ContainersService {
 
     return { createdProjects, updatedContainers };
   }
+
+  // Plugin-compatible method aliases
+  async start(containerId: string, hostId?: string) {
+    const host = hostId ? { id: hostId } : await this.getHostForContainer(containerId);
+    return this.startOne(host, containerId);
+  }
+
+  async stop(containerId: string, hostId?: string) {
+    const host = hostId ? { id: hostId } : await this.getHostForContainer(containerId);
+    return this.stopOne(host, containerId);
+  }
+
+  async restart(containerId: string, hostId?: string) {
+    const host = hostId ? { id: hostId } : await this.getHostForContainer(containerId);
+    return this.restartOne(host, containerId);
+  }
+
+  async remove(containerId: string, hostId?: string) {
+    const _host = hostId ? { id: hostId } : await this.getHostForContainer(containerId);
+    // Note: remove functionality needs to be implemented in lifecycle service
+    throw new Error(`Container removal not yet implemented for ${containerId}`);
+  }
+
+  async logs(containerId: string, options?: { lines?: number }) {
+    // Note: logs functionality needs to be implemented
+    const _lines = options?.lines || 100;
+    throw new Error(`Container logs not yet implemented for ${containerId}`);
+  }
+
+  async getById(containerId: string) {
+    return this.prisma.container.findUnique({
+      where: { id: containerId },
+      include: {
+        host: true
+      }
+    });
+  }
+
+  private async getHostForContainer(containerId: string) {
+    const container = await this.prisma.container.findUnique({
+      where: { id: containerId },
+      select: { hostId: true }
+    });
+    if (!container) {
+      throw new Error(`Container ${containerId} not found`);
+    }
+    return { id: container.hostId };
+  }
 }

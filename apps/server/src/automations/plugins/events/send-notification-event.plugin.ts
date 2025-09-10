@@ -123,30 +123,47 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
               type: 'string',
               title: 'Notification Channel',
               description: 'Channel to send notification through',
-              enum: ['email', 'slack', 'discord', 'webhook', 'teams'],
-              default: 'email'
+              enum: ['email', 'slack', 'discord', 'webhook', 'teams', 'sms'],
+              default: 'email',
+              examples: ['email', 'slack', 'webhook']
             },
             message: {
               type: 'string',
-              title: 'Message',
-              description: 'Notification message content',
+              title: 'Message Content',
+              description: 'The notification message content (supports markdown for some channels)',
+              format: 'textarea',
               minLength: 1,
-              maxLength: 4000
+              maxLength: 4000,
+              placeholder: 'Enter your notification message here',
+              examples: [
+                'Alert: Container {{container_name}} is down',
+                'System backup completed successfully',
+                'High CPU usage detected on {{host_name}}: {{cpu_usage}}%'
+              ]
             },
             subject: {
               type: 'string',
-              title: 'Subject',
-              description: 'Message subject (for email and some channels)',
+              title: 'Subject/Title',
+              description: 'Message subject or title (used for email, Slack, Teams)',
               maxLength: 200,
-              default: 'Automation Notification'
+              default: 'Automation Notification',
+              placeholder: 'Enter notification subject',
+              examples: [
+                'System Alert',
+                'Backup Status',
+                'Container Status Update',
+                'Resource Alert'
+              ]
             },
             recipients: {
               type: 'array',
               title: 'Recipients',
-              description: 'List of recipients (emails, user IDs, or webhook URLs)',
+              description: 'List of recipients (emails, Slack channels, webhook URLs, etc.)',
               items: {
                 type: 'string',
-                minLength: 1
+                minLength: 1,
+                title: 'Recipient',
+                placeholder: 'email@example.com or #channel'
               },
               minItems: 1
             },
@@ -378,7 +395,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
       
       return { success: true, details: { recipients: recipients.length } };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
   

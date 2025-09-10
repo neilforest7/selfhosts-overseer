@@ -153,7 +153,7 @@ export default function OverviewSection() {
           value={stats?.containers.total || 0}
           subtitle={`${stats?.containers.running || 0} running, ${stats?.containers.stopped || 0} stopped`}
           icon={<Container className="h-4 w-4 text-muted-foreground" />}
-          trend={stats?.containers.running > 0 ? 'up' : 'neutral'}
+          trend={(stats?.containers.running || 0) > 0 ? 'up' : 'neutral'}
         />
         
         <StatCard
@@ -161,7 +161,7 @@ export default function OverviewSection() {
           value={stats?.containers.updateAvailable || 0}
           subtitle="Container updates pending"
           icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
-          trend={stats?.containers.updateAvailable > 0 ? 'down' : 'up'}
+          trend={(stats?.containers.updateAvailable || 0) > 0 ? 'down' : 'up'}
         />
         
         <StatCard

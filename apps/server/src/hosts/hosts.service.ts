@@ -157,6 +157,7 @@ export class HostsService {
       sshAuthMethod: (created as any).sshAuthMethod ?? 'password',
       hasPassword: Boolean((created as any).sshPassword),
       hasPrivateKey: Boolean((created as any).sshPrivateKey),
+      status: 'UNKNOWN' as any, // Default status
     };
   }
 
@@ -241,7 +242,8 @@ export class HostsService {
       sshPrivateKey: null,
       sshPrivateKeyPassphrase: null,
       hasPassword: Boolean((updated as any).sshPassword),
-      hasPrivateKey: Boolean((updated as any).sshPrivateKey)
+      hasPrivateKey: Boolean((updated as any).sshPrivateKey),
+      status: 'UNKNOWN' as any, // Default status
     };
   }
 

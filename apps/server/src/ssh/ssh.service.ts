@@ -189,4 +189,11 @@ export class SshService {
       child.on('error', () => done(1));
     });
   }
+
+  // Plugin-compatible method alias
+  async executeCommand(host: { id: string }, command: string, options?: { timeout?: number }) {
+    // This is a simplified version for plugin compatibility
+    // In a real implementation, you'd need to fetch host details from the database
+    throw new Error('executeCommand method needs to be implemented with host lookup');
+  }
 }

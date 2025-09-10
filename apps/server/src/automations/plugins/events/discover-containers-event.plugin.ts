@@ -41,10 +41,7 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
         this.operationLogService.log('info', `Starting container discovery for ${hostIds.length} hosts: ${hostIds.join(', ')}`);
         
         return await this.executeWithRetry(async () => {
-          await this.containersService.discoverMultiple(hostIds, {
-            includeStoppedContainers,
-            refreshMetadata
-          });
+          await this.containersService.discoverMultiple(hostIds);
           
           const successMessage = `Container discovery completed successfully for ${hostIds.length} hosts`;
           this.operationLogService.log('info', successMessage);
@@ -65,10 +62,7 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
         this.operationLogService.log('info', `Starting container discovery for host: ${hostId}`);
         
         return await this.executeWithRetry(async () => {
-          await this.containersService.discover({ id: hostId }, {
-            includeStoppedContainers,
-            refreshMetadata
-          });
+          await this.containersService.discover({ id: hostId });
           
           const successMessage = `Container discovery completed successfully for host: ${hostId}`;
           this.operationLogService.log('info', successMessage);
@@ -159,25 +153,51 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
           properties: {
             hostId: {
               type: 'string',
-              title: 'Host ID',
-              description: 'Single host ID for discovery (legacy)',
-              minLength: 1
+              title: 'Single Host',
+              description: 'Single host to discover containers on (use this OR hostIds)',
+              placeholder: 'Select a host'
             },
             hostIds: {
               type: 'array',
-              title: 'Host IDs',
-              description: 'List of host IDs for discovery',
+              title: 'Multiple Hosts',
+              description: 'Multiple hosts to discover containers on (use this OR hostId)',
               items: {
                 type: 'string',
-                minLength: 1
+                minLength: 1,
+                title: 'Host',
+                placeholder: 'Select hosts'
               },
-              minItems: 1
+              minItems: 1,
+              examples: [
+                ['host1', 'host2'],
+                ['web-server', 'db-server', 'cache-server']
+              ]
             },
             includeStoppedContainers: {
               type: 'boolean',
               title: 'Include Stopped Containers',
-              description: 'Whether to include stopped containers in discovery',
+              description: 'Whether to include stopped/exited containers in discovery results',
               default: true
+            },
+            includeSystemContainers: {
+              type: 'boolean',
+              title: 'Include System Containers',
+              description: 'Whether to include system containers (Docker daemon, etc.)',
+              default: false
+            },
+            containerNameFilter: {
+              type: 'string',
+              title: 'Container Name Filter',
+              description: 'Filter containers by name pattern (glob syntax)',
+              placeholder: '*web*',
+              examples: ['*web*', 'app-*', '*-prod', 'nginx*']
+            },
+            imageFilter: {
+              type: 'string',
+              title: 'Image Filter',
+              description: 'Filter containers by image name pattern',
+              placeholder: 'nginx:*',
+              examples: ['nginx:*', '*:latest', 'myapp/*', 'registry.com/*']
             },
             refreshMetadata: {
               type: 'boolean',
@@ -253,7 +273,7 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
   /**
    * Container discovery requires SSH access to hosts
    */
-  public requiresElevatedPrivileges(config: EventConfig): boolean {
+  public requiresElevatedPrivileges(_config: EventConfig): boolean {
     return true; // Requires SSH access to hosts
   }
 }

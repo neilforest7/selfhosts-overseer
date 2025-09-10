@@ -41,7 +41,7 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
    */
   public async execute(config: EventConfig, context: EventContext): Promise<EventResult> {
     try {
-      const operation = this.getParam(config, 'operation', 'create');
+      const operation = this.getParam(config, 'operation', 'create') as string;
       const sourcePath = this.getParam(config, 'sourcePath', '');
       const targetPath = this.getParam(config, 'targetPath', '');
       const content = this.getParam(config, 'content', '');
@@ -148,49 +148,79 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
           properties: {
             operation: {
               type: 'string',
-              title: 'Operation',
-              description: 'File operation to perform',
-              enum: ['create', 'copy', 'move', 'delete', 'chmod', 'chown', 'mkdir', 'append'],
-              default: 'create'
+              title: 'File Operation',
+              description: 'Type of file system operation to perform',
+              enum: ['create', 'copy', 'move', 'delete', 'chmod', 'chown', 'mkdir', 'append', 'backup'],
+              default: 'create',
+              examples: ['create', 'copy', 'move', 'delete', 'backup']
             },
             sourcePath: {
               type: 'string',
               title: 'Source Path',
-              description: 'Source file or directory path',
+              description: 'Source file or directory path (absolute path recommended)',
               minLength: 1,
               maxLength: 1000,
-              examples: ['/home/user/config.json', '/var/log/app.log', '/etc/nginx/nginx.conf']
+              placeholder: '/path/to/source/file',
+              examples: [
+                '/home/user/config.json',
+                '/var/log/app.log',
+                '/etc/nginx/nginx.conf',
+                '/opt/app/data',
+                '/backup/database.sql'
+              ]
             },
             targetPath: {
               type: 'string',
               title: 'Target Path',
-              description: 'Target file or directory path (for copy/move operations)',
+              description: 'Target file or directory path (required for copy/move/backup operations)',
               maxLength: 1000,
-              examples: ['/backup/config.json', '/tmp/app.log.backup']
+              placeholder: '/path/to/target/file',
+              examples: [
+                '/backup/config.json',
+                '/tmp/app.log.backup',
+                '/etc/nginx/nginx.conf.bak',
+                '/archive/data-backup'
+              ]
             },
             content: {
               type: 'string',
-              title: 'Content',
-              description: 'File content (for create/append operations)',
-              maxLength: 10000
+              title: 'File Content',
+              description: 'Content to write to file (for create/append operations)',
+              format: 'textarea',
+              maxLength: 10000,
+              placeholder: 'Enter file content here',
+              examples: [
+                'Hello World',
+                '{"config": "value"}',
+                'server {\n  listen 80;\n  server_name example.com;\n}'
+              ]
             },
             permissions: {
               type: 'string',
-              title: 'Permissions',
-              description: 'File permissions in octal format (e.g., 644, 755)',
+              title: 'File Permissions',
+              description: 'File permissions in octal format (3-4 digits)',
               pattern: '^[0-7]{3,4}$',
-              examples: ['644', '755', '600', '700']
+              placeholder: '644',
+              examples: ['644', '755', '600', '700', '0644', '0755']
             },
             owner: {
               type: 'string',
-              title: 'Owner',
-              description: 'File owner (user:group format)',
-              examples: ['www-data:www-data', 'nginx:nginx', 'user:users']
+              title: 'File Owner',
+              description: 'File owner in user:group format (requires sudo)',
+              placeholder: 'user:group',
+              examples: [
+                'www-data:www-data',
+                'nginx:nginx',
+                'user:users',
+                'root:root',
+                'app:app'
+              ]
             },
             hostId: {
               type: 'string',
-              title: 'Host ID (Optional)',
-              description: 'ID of host to perform operation on'
+              title: 'Target Host',
+              description: 'Host to perform file operation on (leave empty for local)',
+              placeholder: 'Select a host'
             },
             createDirectories: {
               type: 'boolean',
@@ -318,7 +348,7 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
    * File operations typically execute quickly
    */
   public getEstimatedExecutionTime(config: EventConfig): number {
-    const operation = this.getParam(config, 'operation', 'create');
+    const operation = this.getParam(config, 'operation', 'create') as string;
     
     // Estimate based on operation type
     switch (operation) {
@@ -396,7 +426,7 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
         success: result.success,
         operation: 'create',
         sourcePath: filePath,
-        permissions,
+        permissions: permissions || undefined,
         error: result.success ? undefined : result.stderr
       };
     } catch (error) {
@@ -632,7 +662,7 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
         success: result.success,
         operation: 'mkdir',
         sourcePath: dirPath,
-        permissions,
+        permissions: permissions || undefined,
         error: result.success ? undefined : result.stderr
       };
     } catch (error) {
@@ -682,10 +712,17 @@ export class FileOperationsEventPlugin extends BaseEventPlugin {
       throw new Error('Local file operations not supported');
     }
     
-    const result = await this.sshService.executeCommand({ id: hostId }, command);
-    return {
-      success: result.success,
-      stderr: result.stderr || ''
-    };
+    try {
+      await this.sshService.executeCommand({ id: hostId }, command);
+      return {
+        success: true,
+        stderr: ''
+      };
+    } catch (error) {
+      return {
+        success: false,
+        stderr: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 }

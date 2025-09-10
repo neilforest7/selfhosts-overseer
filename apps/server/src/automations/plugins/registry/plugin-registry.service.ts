@@ -332,8 +332,8 @@ export class PluginRegistry implements OnModuleInit {
       
       for (const PluginClass of pluginClasses) {
         try {
-          // Create plugin instance directly
-          const plugin = new PluginClass();
+          // Create plugin instance using NestJS dependency injection
+          const plugin = await this.moduleRef.create(PluginClass);
           
           // Register plugin
           this.plugins.set(plugin.id, plugin);

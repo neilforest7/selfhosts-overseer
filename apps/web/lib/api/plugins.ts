@@ -28,13 +28,16 @@ export interface TriggerPlugin extends Plugin {
   triggerType: string;
   configSchema?: Record<string, any>;
   availableConditions?: string[];
+  dbPluginId?: string | null; // Database plugin metadata ID for foreign key references
 }
 
 export interface EventPlugin extends Plugin {
   type: 'event';
   eventType: string;
   configSchema?: Record<string, any>;
+  paramsSchema?: Record<string, any>;
   availableActions?: string[];
+  dbPluginId?: string | null; // Database plugin metadata ID for foreign key references
 }
 
 /**

@@ -1,16 +1,18 @@
 import { BasePlugin } from './base-plugin';
-import { 
-  ITriggerPlugin, 
-  TriggerConfig, 
-  TriggerContext, 
-  TriggerResult 
+import {
+  ITriggerPlugin,
+  TriggerConfig,
+  TriggerContext,
+  TriggerResult,
+  IPluginValidator,
+  ValidationResult
 } from '../interfaces';
 
 /**
  * Base class for trigger plugins
  * Provides common trigger functionality and utilities
  */
-export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPlugin {
+export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPlugin, IPluginValidator {
   public abstract readonly triggerType: string;
   
   /**
@@ -49,6 +51,61 @@ export abstract class BaseTriggerPlugin extends BasePlugin implements ITriggerPl
    * Override in subclasses to provide specific schema
    */
   public abstract getTriggerConfigSchema(): Record<string, any>;
+
+  /**
+   * Implement IPluginValidator interface
+   * Validates trigger configuration with detailed results
+   */
+  async validateConfig(config: any): Promise<ValidationResult> {
+    try {
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      const suggestions: string[] = [];
+
+      // Basic structure validation
+      if (!config || typeof config !== 'object') {
+        errors.push('Configuration must be a valid object');
+      } else {
+        // Validate trigger-specific configuration
+        const isValid = await this.validateTriggerConfig(config as TriggerConfig);
+        if (!isValid) {
+          errors.push('Trigger configuration validation failed');
+        }
+      }
+
+      return {
+        isValid: errors.length === 0,
+        errors,
+        warnings,
+        suggestions,
+        metadata: {
+          pluginId: this.id,
+          pluginVersion: this.version,
+          validatedAt: new Date(),
+          context: 'trigger-validation'
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        isValid: false,
+        errors: [`Trigger validation error: ${errorMessage}`],
+        metadata: {
+          pluginId: this.id,
+          pluginVersion: this.version,
+          validatedAt: new Date(),
+          context: 'trigger-validation-error'
+        }
+      };
+    }
+  }
+
+  /**
+   * Get validation schema (implements IPluginValidator)
+   */
+  getValidationSchema(): Record<string, any> {
+    return this.getTriggerConfigSchema();
+  }
   
   /**
    * Get available trigger conditions for this trigger type

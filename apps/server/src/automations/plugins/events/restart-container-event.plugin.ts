@@ -54,9 +54,8 @@ export class RestartContainerEventPlugin extends BaseEventPlugin {
       // Execute restart with retry logic if enabled
       return await this.executeWithRetry(async () => {
         await this.containersService.restartOne(
-          { id: targetContainer.hostId }, 
-          targetContainer.id,
-          { force, timeout }
+          { id: targetContainer.hostId },
+          targetContainer.id
         );
         
         const successMessage = `Container "${targetContainer.name}" restarted successfully`;
@@ -146,22 +145,43 @@ export class RestartContainerEventPlugin extends BaseEventPlugin {
             containerId: {
               type: 'string',
               title: 'Container ID/Name',
-              description: 'Container ID or name to restart',
-              minLength: 1
+              description: 'Container ID, name, or pattern to restart',
+              minLength: 1,
+              placeholder: 'nginx, web-app, or container-id',
+              examples: ['nginx', 'web-app-prod', 'database-primary', 'redis-cache']
+            },
+            hostId: {
+              type: 'string',
+              title: 'Target Host',
+              description: 'Specific host to restart container on (leave empty for auto-detect)',
+              placeholder: 'Select a host'
             },
             force: {
               type: 'boolean',
               title: 'Force Restart',
-              description: 'Force restart even if container is not running',
+              description: 'Force restart even if container is not running or healthy',
               default: false
             },
             timeout: {
               type: 'number',
               title: 'Timeout (seconds)',
-              description: 'Timeout for restart operation',
+              description: 'Maximum time to wait for restart operation',
               minimum: 1,
               maximum: 300,
-              default: 30
+              default: 30,
+              examples: [30, 60, 120]
+            },
+            gracefulShutdown: {
+              type: 'boolean',
+              title: 'Graceful Shutdown',
+              description: 'Allow container to shutdown gracefully before forcing',
+              default: true
+            },
+            waitForHealthy: {
+              type: 'boolean',
+              title: 'Wait for Healthy',
+              description: 'Wait for container to become healthy after restart',
+              default: false
             }
           },
           required: ['containerId']

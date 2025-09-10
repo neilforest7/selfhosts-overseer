@@ -118,7 +118,7 @@ export class DnsProviderService {
       data: {
         displayName: updateData.displayName,
         isEnabled: updateData.isEnabled,
-        apiConfig: encryptedConfig,
+        apiConfig: encryptedConfig as any,
         rateLimitPerMinute: updateData.rateLimitPerMinute,
         timeoutSeconds: updateData.timeoutSeconds,
       },

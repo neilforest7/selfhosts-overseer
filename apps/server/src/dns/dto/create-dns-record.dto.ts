@@ -3,13 +3,13 @@ import { DnsRecordType } from '@prisma/client';
 
 export class CreateDnsRecordDto {
   @IsString()
-  domain: string;
+  domain!: string;
 
   @IsEnum(DnsRecordType)
-  recordType: DnsRecordType;
+  recordType!: DnsRecordType;
 
   @IsString()
-  providerId: string;
+  providerId!: string;
 
   @IsOptional()
   @IsBoolean()

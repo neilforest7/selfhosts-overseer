@@ -115,47 +115,60 @@ export class SystemResourceTriggerPlugin extends BaseTriggerPlugin {
       properties: {
         hostId: {
           type: 'string',
-          title: 'Host ID',
-          description: 'ID of the host to monitor',
-          minLength: 1
+          title: 'Target Host',
+          description: 'Host to monitor system resources on',
+          placeholder: 'Select a host to monitor'
         },
         resource: {
           type: 'string',
           title: 'Resource Type',
-          description: 'System resource to monitor',
-          enum: ['cpu', 'memory', 'disk', 'network_in', 'network_out'],
-          default: 'cpu'
+          description: 'System resource to monitor for threshold violations',
+          enum: ['cpu', 'memory', 'disk', 'network_in', 'network_out', 'load_average'],
+          default: 'cpu',
+          examples: ['cpu', 'memory', 'disk']
         },
         threshold: {
           type: 'number',
           title: 'Threshold (%)',
-          description: 'Resource usage threshold percentage',
+          description: 'Resource usage threshold percentage (0-100%)',
           minimum: 0,
           maximum: 100,
-          default: 80
+          default: 80,
+          examples: [70, 80, 90, 95]
         },
         comparison: {
           type: 'string',
-          title: 'Comparison',
-          description: 'How to compare current value with threshold',
+          title: 'Comparison Operator',
+          description: 'How to compare current usage with threshold',
           enum: ['greater_than', 'less_than', 'equal_to'],
-          default: 'greater_than'
+          default: 'greater_than',
+          examples: ['greater_than', 'less_than']
         },
         duration: {
           type: 'number',
-          title: 'Duration (seconds)',
-          description: 'How long threshold must be maintained before triggering (0 = immediate)',
+          title: 'Sustained Duration (seconds)',
+          description: 'How long threshold must be exceeded before triggering (0 = immediate)',
           minimum: 0,
           maximum: 3600,
-          default: 0
+          default: 60,
+          examples: [0, 30, 60, 300]
         },
         checkInterval: {
           type: 'number',
           title: 'Check Interval (seconds)',
-          description: 'How often to check resource usage',
+          description: 'How frequently to check resource usage',
           minimum: 30,
           maximum: 3600,
-          default: 60
+          default: 60,
+          examples: [30, 60, 120, 300]
+        },
+        alertSeverity: {
+          type: 'string',
+          title: 'Alert Severity',
+          description: 'Severity level for this resource alert',
+          enum: ['low', 'medium', 'high', 'critical'],
+          default: 'medium',
+          examples: ['medium', 'high', 'critical']
         }
       },
       required: ['hostId', 'resource', 'threshold'],

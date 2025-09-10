@@ -2,17 +2,17 @@ import { IsString, IsBoolean, IsOptional, IsInt, Min, Max, IsObject } from 'clas
 
 export class CreateDnsProviderDto {
   @IsString()
-  name: string;
+  name!: string;
 
   @IsString()
-  displayName: string;
+  displayName!: string;
 
   @IsOptional()
   @IsBoolean()
   isEnabled?: boolean;
 
   @IsObject()
-  apiConfig: Record<string, any>;
+  apiConfig!: Record<string, any>;
 
   @IsOptional()
   @IsInt()

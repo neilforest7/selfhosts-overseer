@@ -25,19 +25,22 @@ export class ManualTriggerPlugin extends BaseTriggerPlugin {
       return this.createTriggerResult(false, { reason: 'Trigger is disabled' });
     }
     
-    // Check if this is a manual execution request
+    // Check if this is a manual execution request or test mode
     const isManualExecution = context.metadata?.manual === true;
-    
-    if (isManualExecution) {
+    const isTestMode = context.metadata?.testMode === true;
+
+    if (isManualExecution || isTestMode) {
+      const reason = isTestMode ? 'Test mode execution' : 'Manual execution requested';
       return this.createTriggerResult(true, {
-        reason: 'Manual execution requested',
+        reason,
         triggerData: {
           triggeredBy: context.metadata?.triggeredBy || 'system',
-          triggeredAt: context.timestamp
+          triggeredAt: context.timestamp,
+          testMode: isTestMode
         }
       });
     }
-    
+
     return this.createTriggerResult(false, { reason: 'Not a manual execution' });
   }
   
@@ -58,33 +61,16 @@ export class ManualTriggerPlugin extends BaseTriggerPlugin {
   
   /**
    * Get trigger configuration schema
+   * Manual triggers don't need configuration parameters since they are executed on-demand
    */
   public getTriggerConfigSchema(): Record<string, any> {
     return {
       type: 'object',
       properties: {
-        requireConfirmation: {
-          type: 'boolean',
-          title: 'Require Confirmation',
-          description: 'Whether to require user confirmation before executing',
-          default: false
-        },
-        allowedUsers: {
-          type: 'array',
-          title: 'Allowed Users',
-          description: 'List of users allowed to manually trigger this rule',
-          items: {
-            type: 'string'
-          },
-          default: []
-        },
-        description: {
-          type: 'string',
-          title: 'Description',
-          description: 'Description shown to users when manually triggering'
-        }
+        // Manual triggers are executed on-demand and don't require configuration
       },
-      additionalProperties: false
+      additionalProperties: false,
+      description: 'Manual triggers are executed on-demand and do not require configuration parameters.'
     };
   }
   

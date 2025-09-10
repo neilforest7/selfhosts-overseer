@@ -1,16 +1,18 @@
 import { BasePlugin } from './base-plugin';
-import { 
-  IEventPlugin, 
-  EventConfig, 
-  EventContext, 
-  EventResult 
+import {
+  IEventPlugin,
+  EventConfig,
+  EventContext,
+  EventResult,
+  IPluginValidator,
+  ValidationResult
 } from '../interfaces';
 
 /**
  * Base class for event plugins
  * Provides common event functionality and utilities
  */
-export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin {
+export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin, IPluginValidator {
   public abstract readonly eventType: string;
   
   /**
@@ -20,19 +22,23 @@ export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin
   
   /**
    * Validate event-specific configuration
-   * Default implementation validates basic structure
+   * Default implementation validates basic structure but allows plugin-specific field requirements
    */
   public async validateEventConfig(config: EventConfig): Promise<boolean> {
-    if (!config.type || config.type !== this.eventType) {
+    // Only validate type if it's provided - some plugins may not require it
+    if (config.type && config.type !== this.eventType) {
       this.logError(`Invalid event type. Expected: ${this.eventType}, got: ${config.type}`);
       return false;
     }
-    
-    if (!config.params || typeof config.params !== 'object') {
-      this.logError('Event params must be an object');
+
+    // Allow params to be undefined or null for plugins that don't require them
+    // Only validate structure if params are provided
+    if (config.params !== undefined && config.params !== null && typeof config.params !== 'object') {
+      this.logError('Event params must be an object when provided');
       return false;
     }
-    
+
+    // Delegate to plugin-specific validation
     return this.validateCustomConfig(config);
   }
   
@@ -41,6 +47,61 @@ export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin
    * Override in subclasses to provide specific schema
    */
   public abstract getEventConfigSchema(): Record<string, any>;
+
+  /**
+   * Implement IPluginValidator interface
+   * Validates event configuration with detailed results
+   */
+  async validateConfig(config: any): Promise<ValidationResult> {
+    try {
+      const errors: string[] = [];
+      const warnings: string[] = [];
+      const suggestions: string[] = [];
+
+      // Basic structure validation
+      if (!config || typeof config !== 'object') {
+        errors.push('Configuration must be a valid object');
+      } else {
+        // Validate event-specific configuration
+        const isValid = await this.validateEventConfig(config as EventConfig);
+        if (!isValid) {
+          errors.push('Event configuration validation failed');
+        }
+      }
+
+      return {
+        isValid: errors.length === 0,
+        errors,
+        warnings,
+        suggestions,
+        metadata: {
+          pluginId: this.id,
+          pluginVersion: this.version,
+          validatedAt: new Date(),
+          context: 'event-validation'
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        isValid: false,
+        errors: [`Event validation error: ${errorMessage}`],
+        metadata: {
+          pluginId: this.id,
+          pluginVersion: this.version,
+          validatedAt: new Date(),
+          context: 'event-validation-error'
+        }
+      };
+    }
+  }
+
+  /**
+   * Get validation schema (implements IPluginValidator)
+   */
+  getValidationSchema(): Record<string, any> {
+    return this.getEventConfigSchema();
+  }
   
   /**
    * Get event parameter schema
@@ -124,6 +185,24 @@ export abstract class BaseEventPlugin extends BasePlugin implements IEventPlugin
    */
   protected getParam<T>(config: EventConfig, key: string, defaultValue: T): T {
     return config.params[key] !== undefined ? config.params[key] : defaultValue;
+  }
+
+  /**
+   * Helper to get configuration value from either direct config or nested params
+   * This supports both formats: {message: "..."} and {params: {message: "..."}}
+   */
+  protected getConfigValue<T>(config: EventConfig, key: string, defaultValue: T): T {
+    // First check if the key exists directly in the config (for direct format)
+    if ((config as any)[key] !== undefined) {
+      return (config as any)[key];
+    }
+
+    // Then check in params (for nested format)
+    if (config.params && config.params[key] !== undefined) {
+      return config.params[key];
+    }
+
+    return defaultValue;
   }
   
   /**

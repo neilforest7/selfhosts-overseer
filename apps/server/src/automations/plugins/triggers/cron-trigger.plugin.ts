@@ -22,19 +22,33 @@ export class CronTriggerPlugin extends BaseTriggerPlugin {
    */
   public async evaluate(config: TriggerConfig, context: TriggerContext): Promise<TriggerResult> {
     try {
+      // Debug logging to see what we're receiving
+      this.logDebug(`CRON trigger config received: ${JSON.stringify(config, null, 2)}`);
+      this.logDebug(`CRON trigger context: ${JSON.stringify({
+        timestamp: context.timestamp,
+        timestampISO: context.timestamp.toISOString(),
+        timestampLocal: context.timestamp.toLocaleString()
+      }, null, 2)}`);
+
       if (!this.isTriggerEnabled(config)) {
+        this.logDebug('CRON trigger is disabled');
         return this.createTriggerResult(false, { reason: 'Trigger is disabled' });
       }
-      
+
       const cronExpression = this.getConfigValue(config, 'expression', null);
+      this.logDebug(`CRON expression extracted: "${cronExpression}"`);
+
       if (!cronExpression) {
         this.logError('CRON expression is required');
+        this.logError(`Available config keys: ${Object.keys(config.config || {}).join(', ')}`);
         return this.createTriggerResult(false, { reason: 'Missing CRON expression' });
       }
-      
+
       const shouldTrigger = this.evaluateCronExpression(cronExpression, context.timestamp);
       const nextRun = this.getNextRunTime(cronExpression);
-      
+
+      this.logDebug(`CRON evaluation result: shouldTrigger=${shouldTrigger}, nextRun=${nextRun?.toISOString()}`);
+
       return this.createTriggerResult(shouldTrigger, {
         reason: shouldTrigger ? 'CRON expression matched' : 'CRON expression did not match',
         triggerData: {
@@ -44,11 +58,11 @@ export class CronTriggerPlugin extends BaseTriggerPlugin {
         },
         nextEvaluationTime: nextRun || undefined
       });
-      
+
     } catch (error) {
       this.logError('Error evaluating CRON trigger', error);
-      return this.createTriggerResult(false, { 
-        reason: `CRON evaluation error: ${error.message}` 
+      return this.createTriggerResult(false, {
+        reason: `CRON evaluation error: ${error.message}`
       });
     }
   }
@@ -147,22 +161,24 @@ export class CronTriggerPlugin extends BaseTriggerPlugin {
    */
   private evaluateCronExpression(expression: string, currentTime: Date): boolean {
     try {
+      this.logDebug(`Evaluating CRON expression: "${expression}" against time: ${currentTime.toISOString()}`);
+
       const interval = CronExpressionParser.parse(expression);
       const prevRun = interval.prev().toDate();
+      const nextRun = interval.next().toDate();
       const tolerance = 60000; // 1 minute tolerance
-      
+
+      this.logDebug(`Previous scheduled run: ${prevRun.toISOString()}`);
+      this.logDebug(`Next scheduled run: ${nextRun.toISOString()}`);
+      this.logDebug(`Current time: ${currentTime.toISOString()}`);
+
       // Check if current time is within tolerance of the scheduled time
       const timeDiff = Math.abs(currentTime.getTime() - prevRun.getTime());
       const matches = timeDiff < tolerance;
-      
-      this.logDebug(
-        `CRON evaluation: expression="${expression}", ` +
-        `now=${currentTime.toISOString()}, ` +
-        `prevRun=${prevRun.toISOString()}, ` +
-        `timeDiff=${timeDiff}ms, ` +
-        `matches=${matches}`
-      );
-      
+
+      this.logDebug(`Time difference from previous run: ${timeDiff}ms (tolerance: ${tolerance}ms)`);
+      this.logDebug(`CRON expression matches: ${matches}`);
+
       return matches;
     } catch (error) {
       this.logError(`CRON evaluation error: ${error.message}`);

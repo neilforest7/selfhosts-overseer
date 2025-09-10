@@ -28,16 +28,21 @@ export class LogMessageEventPlugin extends BaseEventPlugin {
    */
   public async execute(config: EventConfig, context: EventContext): Promise<EventResult> {
     try {
-      if (!this.validateRequiredParams(config, ['message'])) {
+      // Support both nested params format and direct config format
+      const message = this.getConfigValue(config, 'message', '');
+      if (!message) {
         return this.createFailureResult('Missing required parameter: message');
       }
+
+      const level = this.getConfigValue(config, 'level', 'info') as string;
+      const category = this.getConfigValue(config, 'category', 'automation');
       
-      const message = this.getParam(config, 'message', '');
-      const level = this.getParam(config, 'level', 'info');
-      const category = this.getParam(config, 'category', 'automation');
-      
-      // Log to operation log
-      this.operationLogService.log(level as any, message);
+      // Log to operation log (use context operationLogId if available)
+      if (context.operationLogId) {
+        this.operationLogService.log(level as any, message, undefined, context.operationLogId);
+      } else {
+        this.operationLogService.log(level as any, message);
+      }
       
       // Log to system logger with category
       const contextMessage = `[${category}] ${message}`;
@@ -72,66 +77,84 @@ export class LogMessageEventPlugin extends BaseEventPlugin {
    * Validate log message configuration
    */
   protected async validateCustomConfig(config: EventConfig): Promise<boolean> {
-    if (!this.validateRequiredParams(config, ['message'])) {
+    // Check for message in both direct config and nested params
+    const message = this.getConfigValue(config, 'message', '');
+    if (!message) {
+      this.logError('Required parameter "message" is missing');
       return false;
     }
-    
-    const level = config.params.level;
+
+    const level = this.getConfigValue(config, 'level', 'info');
     if (level && !['info', 'warn', 'error', 'debug'].includes(level)) {
       this.logError(`Invalid log level: ${level}. Must be one of: info, warn, error, debug`);
       return false;
     }
-    
+
     return true;
   }
   
   /**
    * Get event configuration schema
+   * Supports both direct format {message: "..."} and nested format {params: {message: "..."}}
    */
   public getEventConfigSchema(): Record<string, any> {
     return {
       type: 'object',
       properties: {
+        // Direct format properties
+        message: {
+          type: 'string',
+          title: 'Message',
+          description: 'The message to be logged',
+          minLength: 1,
+          placeholder: 'Enter your log message here',
+          examples: [
+            'Container restart completed successfully',
+            'System backup initiated',
+            'Alert: High CPU usage detected',
+            'Maintenance task completed',
+            'Rule executed successfully',
+            'System health check passed'
+          ]
+        },
+        level: {
+          type: 'string',
+          title: 'Log Level',
+          description: 'Severity level of the log message',
+          enum: ['info', 'warn', 'error', 'debug'],
+          default: 'info'
+        },
+        // Legacy nested format support
         type: {
           type: 'string',
           const: 'log-message'
         },
         params: {
-          $ref: '#/definitions/LogMessageParams'
+          type: 'object',
+          properties: {
+            message: {
+              type: 'string',
+              title: 'Message',
+              description: 'The message to be logged',
+              minLength: 1
+            },
+            level: {
+              type: 'string',
+              title: 'Log Level',
+              description: 'Severity level of the log message',
+              enum: ['info', 'warn', 'error', 'debug'],
+              default: 'info'
+            }
+          },
+          required: ['message']
         },
         enabled: {
           type: 'boolean',
           default: true
         }
       },
-      required: ['type', 'params'],
-      definitions: {
-        LogMessageParams: {
-          type: 'object',
-          properties: {
-            message: {
-              type: 'string',
-              title: 'Message',
-              description: 'Message to log',
-              minLength: 1
-            },
-            level: {
-              type: 'string',
-              title: 'Log Level',
-              description: 'Log level for the message',
-              enum: ['info', 'warn', 'error', 'debug'],
-              default: 'info'
-            },
-            category: {
-              type: 'string',
-              title: 'Category',
-              description: 'Log category for organization',
-              default: 'automation'
-            }
-          },
-          required: ['message']
-        }
-      }
+      required: ['message'],
+      additionalProperties: true
     };
   }
   
@@ -145,21 +168,15 @@ export class LogMessageEventPlugin extends BaseEventPlugin {
         message: {
           type: 'string',
           title: 'Message',
-          description: 'Message to log',
-          minLength: 1
-        },
-        level: {
-          type: 'string',
-          title: 'Log Level',
-          description: 'Log level for the message',
-          enum: ['info', 'warn', 'error', 'debug'],
-          default: 'info'
-        },
-        category: {
-          type: 'string',
-          title: 'Category',
-          description: 'Log category for organization',
-          default: 'automation'
+          description: 'The message to be logged',
+          minLength: 1,
+          placeholder: 'Enter your log message here',
+          examples: [
+            'Rule executed successfully',
+            'System check completed',
+            'Action performed',
+            'Task finished'
+          ]
         }
       },
       required: ['message'],

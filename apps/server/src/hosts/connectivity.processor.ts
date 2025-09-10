@@ -148,7 +148,7 @@ export class ConnectivityProcessor extends WorkerHost implements OnModuleInit {
       const repeatableJobs = await this.connectivityQueue.getRepeatableJobs();
       for (const job of repeatableJobs) {
         if (job.name === CONNECTIVITY_CHECK_JOB_NAME) {
-          await this.connectivityQueue.removeRepeatable(job.name, { every: job.every });
+          await this.connectivityQueue.removeRepeatable(job.name, { every: job.every ? Number(job.every) : undefined });
           this.logger.debug(`Removed existing repeatable job for interval update`);
         }
       }

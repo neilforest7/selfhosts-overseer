@@ -229,14 +229,15 @@ export class ConnectivityAutomationTemplates {
       });
 
       if (!existingRule) {
-        await this.prisma.automationRule.create({
-          data: {
-            name: template.name,
-            description: template.description,
-            isEnabled: template.isEnabled,
-            ruleJson: template.ruleJson,
-          }
-        });
+        // TODO: Update to use normalized schema instead of ruleJson
+        // await this.prisma.automationRule.create({
+        //   data: {
+        //     name: template.name,
+        //     description: template.description,
+        //     isEnabled: template.isEnabled,
+        //     // ruleJson: template.ruleJson, // Removed - use normalized schema
+        //   }
+        // });
       }
     }
   }

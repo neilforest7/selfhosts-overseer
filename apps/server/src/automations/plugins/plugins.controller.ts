@@ -11,10 +11,14 @@ import {
 } from '@nestjs/common';
 import { PluginRegistry } from './registry/plugin-registry.service';
 import { PluginRegistration } from './interfaces';
+import { PluginMetadataService } from '../plugin-metadata.service';
 
 @Controller('/api/v1/plugins')
 export class PluginsController {
-  constructor(private readonly pluginRegistry: PluginRegistry) {}
+  constructor(
+    private readonly pluginRegistry: PluginRegistry,
+    private readonly pluginMetadataService: PluginMetadataService
+  ) {}
 
   @Get()
   getAllPlugins() {
@@ -38,33 +42,58 @@ export class PluginsController {
   }
 
   @Get('triggers')
-  getTriggerPlugins() {
+  async getTriggerPlugins() {
     const triggerPlugins = this.pluginRegistry.getTriggerPlugins();
-    return Array.from(triggerPlugins.entries()).map(([type, plugin]) => ({
-      type,
-      id: plugin.id,
-      name: plugin.name,
-      description: plugin.description,
-      version: plugin.version,
-      enabled: plugin.enabled,
-      configSchema: plugin.getTriggerConfigSchema?.() || plugin.configSchema,
-      availableConditions: plugin.getAvailableConditions?.()
-    }));
+    const result = [];
+
+    for (const [type, plugin] of triggerPlugins.entries()) {
+      // Find the corresponding database plugin metadata by name (type)
+      const dbPlugin = await this.pluginMetadataService.findByName(type);
+
+      result.push({
+        type: 'trigger',
+        triggerType: type,
+        id: plugin.id,
+        name: plugin.name,
+        description: plugin.description,
+        version: plugin.version,
+        enabled: plugin.enabled,
+        configSchema: plugin.getTriggerConfigSchema?.() || plugin.configSchema,
+        availableConditions: plugin.getAvailableConditions?.(),
+        // Add database plugin metadata ID for foreign key references
+        dbPluginId: dbPlugin ? (dbPlugin as any).id : null
+      });
+    }
+
+    return result;
   }
 
   @Get('events')
-  getEventPlugins() {
+  async getEventPlugins() {
     const eventPlugins = this.pluginRegistry.getEventPlugins();
-    return Array.from(eventPlugins.entries()).map(([type, plugin]) => ({
-      type,
-      id: plugin.id,
-      name: plugin.name,
-      description: plugin.description,
-      version: plugin.version,
-      enabled: plugin.enabled,
-      configSchema: plugin.getEventConfigSchema?.() || plugin.configSchema,
-      availableActions: plugin.getAvailableActions?.()
-    }));
+    const result = [];
+
+    for (const [type, plugin] of eventPlugins.entries()) {
+      // Find the corresponding database plugin metadata by name (type)
+      const dbPlugin = await this.pluginMetadataService.findByName(type);
+
+      result.push({
+        type: 'event',
+        eventType: type,
+        id: plugin.id,
+        name: plugin.name,
+        description: plugin.description,
+        version: plugin.version,
+        enabled: plugin.enabled,
+        configSchema: plugin.getEventConfigSchema?.() || plugin.configSchema,
+        paramsSchema: plugin.getEventParamsSchema?.(),
+        availableActions: (plugin as any).getAvailableActions?.(),
+        // Add database plugin metadata ID for foreign key references
+        dbPluginId: dbPlugin ? (dbPlugin as any).id : null
+      });
+    }
+
+    return result;
   }
 
   @Get(':id')

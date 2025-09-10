@@ -290,14 +290,19 @@ export class SettingsService {
       // 测试 Docker Hub API 连接
       const dockerHubApiUrl = 'https://registry-1.docker.io/v2/';
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
+
       const response = await fetch(dockerHubApiUrl, {
         method: 'GET',
         agent,
-        timeout: 10000, // 10 seconds timeout
+        signal: controller.signal,
         headers: {
           'User-Agent': 'SelfHost-Serv-Agent/1.0',
         },
       });
+
+      clearTimeout(timeoutId);
 
       const responseTime = Date.now() - startTime;
 

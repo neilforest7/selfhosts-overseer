@@ -50,15 +50,35 @@ export class ContainerUpdateAutomationService {
   async createUpdateSchedule(config: ContainerUpdateScheduleConfig): Promise<string> {
     this.logger.log(`Creating container update schedule: ${config.name}`);
 
-    // Build the automation rule JSON
-    const ruleJson = this.buildUpdateScheduleRule(config);
 
-    // Create the automation rule
+
+    // Create the automation rule using the new normalized format
     const rule = await this.automationsService.create({
       name: config.name,
       description: config.description || `Automated container update schedule: ${config.name}`,
       isEnabled: config.enabled !== false,
-      ruleJson: ruleJson as any,
+      triggers: [{
+        type: 'cron-trigger',
+        name: 'Schedule Trigger',
+        pluginId: 'cron-trigger-plugin',
+        pluginVersion: '1.0.0',
+        config: {
+          cronExpression: config.cronExpression || '0 2 * * *', // Default to 2 AM daily
+          timezone: 'UTC'
+        }
+      }],
+      events: [{
+        type: 'container-update-event',
+        name: 'Update Containers',
+        pluginId: 'container-update-plugin',
+        pluginVersion: '1.0.0',
+        params: {
+          hostIds: config.hostIds || [],
+          containerIds: config.containerIds || [],
+          composeProjects: config.composeProjects || [],
+          updateOptions: config.updateOptions || {}
+        }
+      }]
     });
 
     this.logger.log(`Created container update schedule with rule ID: ${rule.id}`);
@@ -131,126 +151,58 @@ export class ContainerUpdateAutomationService {
     hostIds?: string[];
     enabled?: boolean;
   }): Promise<string> {
-    const ruleJson = {
-      conditions: {
-        all: [
-          {
-            fact: 'time',
-            operator: 'matchesCron',
-            value: config.cronExpression,
-          },
-        ],
-      },
-      event: {
-        type: 'check-container-updates',
-        params: {
-          hostIds: config.hostIds,
-        },
-      },
-    };
+
 
     const rule = await this.automationsService.create({
       name: config.name,
       description: `Automated container update check: ${config.name}`,
       isEnabled: config.enabled !== false,
-      ruleJson: ruleJson as any,
+      triggers: [{
+        type: 'cron-trigger',
+        name: 'Schedule Trigger',
+        pluginId: 'cron-trigger-plugin',
+        pluginVersion: '1.0.0',
+        config: {
+          cronExpression: config.cronExpression,
+          timezone: 'UTC'
+        }
+      }],
+      events: [{
+        type: 'check-container-updates-event',
+        name: 'Check Container Updates',
+        pluginId: 'check-container-updates-plugin',
+        pluginVersion: '1.0.0',
+        params: {
+          hostIds: config.hostIds
+        }
+      }]
     });
 
     this.logger.log(`Created update check schedule with rule ID: ${rule.id}`);
     return rule.id;
   }
 
-  /**
-   * Build automation rule JSON for container update schedule
-   */
-  private buildUpdateScheduleRule(config: ContainerUpdateScheduleConfig): any {
-    const conditions: any = {
-      all: [
-        {
-          fact: 'time',
-          operator: 'matchesCron',
-          value: config.cronExpression,
-        },
-      ],
-    };
 
-    // Add maintenance window conditions if specified
-    if (config.maintenanceWindow) {
-      const { start, end, days } = config.maintenanceWindow;
-      const [startHour, startMinute] = start.split(':').map(Number);
-      const [endHour, endMinute] = end.split(':').map(Number);
-
-      // Add day of week condition
-      if (days && days.length > 0) {
-        conditions.all.push({
-          fact: 'time',
-          path: '$.dayOfWeek',
-          operator: 'in',
-          value: days,
-        });
-      }
-
-      // Add time range condition
-      conditions.all.push({
-        any: [
-          {
-            all: [
-              {
-                fact: 'time',
-                path: '$.hour',
-                operator: 'greaterThanInclusive',
-                value: startHour,
-              },
-              {
-                fact: 'time',
-                path: '$.hour',
-                operator: 'lessThanInclusive',
-                value: endHour,
-              },
-            ],
-          },
-        ],
-      });
-    }
-
-    // Determine the event type based on configuration
-    let eventType = 'batch-update-containers';
-    if (config.composeProjects && config.composeProjects.length > 0 && !config.containerIds) {
-      eventType = 'batch-update-containers'; // Still use batch update for compose projects
-    }
-
-    const eventParams: any = {
-      hostIds: config.hostIds,
-      containerIds: config.containerIds,
-      composeProjects: config.composeProjects,
-      ...config.updateOptions,
-    };
-
-    return {
-      conditions,
-      event: {
-        type: eventType,
-        params: eventParams,
-      },
-    };
-  }
 
   /**
    * List all container update automation rules
    */
   async listUpdateSchedules(): Promise<any[]> {
     const rules = await this.automationsService.findAll();
-    
-    // Filter rules that are related to container updates
+
+    // Filter rules that are related to container updates by checking events
     return rules.filter(rule => {
-      const ruleJson = rule.ruleJson as any;
-      const eventType = ruleJson?.event?.type;
-      return [
-        'check-container-updates',
-        'update-container',
-        'batch-update-containers',
-        'update-compose-project',
-      ].includes(eventType);
+      const hasContainerUpdateEvents = rule.events?.some(event =>
+        [
+          'check-container-updates',
+          'check-container-updates-event',
+          'update-container',
+          'container-update-event',
+          'batch-update-containers',
+          'update-compose-project',
+        ].includes(event.type)
+      );
+      return hasContainerUpdateEvents || rule.category === 'container-updates';
     });
   }
 
@@ -280,18 +232,20 @@ export class ContainerUpdateAutomationService {
     for (const schedule of schedules) {
       if (!schedule.isEnabled) continue;
 
-      const ruleJson = schedule.ruleJson as any;
-      const cronExpression = this.extractCronFromRule(ruleJson);
-      
+      // Extract CRON expression from triggers
+      const cronTrigger = schedule.triggers?.find((trigger: any) => trigger.type === 'cron-trigger');
+      const cronExpression = cronTrigger?.config?.cronExpression;
+
       if (cronExpression) {
-        // Calculate next run times (this would need a proper CRON parser)
-        // For now, just return the schedule info
+        // Get the first event for event type and params
+        const firstEvent = schedule.events?.[0];
+
         upcoming.push({
           scheduleId: schedule.id,
           scheduleName: schedule.name,
           cronExpression,
-          eventType: ruleJson.event?.type,
-          params: ruleJson.event?.params,
+          eventType: firstEvent?.type,
+          params: firstEvent?.params,
         });
       }
     }
@@ -299,30 +253,5 @@ export class ContainerUpdateAutomationService {
     return upcoming;
   }
 
-  private extractCronFromRule(ruleJson: any): string | null {
-    const conditions = ruleJson?.conditions;
-    if (!conditions) return null;
 
-    // Look for CRON condition in the rule
-    const findCronCondition = (obj: any): string | null => {
-      if (obj.operator === 'matchesCron') {
-        return obj.value;
-      }
-      if (obj.all) {
-        for (const condition of obj.all) {
-          const result = findCronCondition(condition);
-          if (result) return result;
-        }
-      }
-      if (obj.any) {
-        for (const condition of obj.any) {
-          const result = findCronCondition(condition);
-          if (result) return result;
-        }
-      }
-      return null;
-    };
-
-    return findCronCondition(conditions);
-  }
 }

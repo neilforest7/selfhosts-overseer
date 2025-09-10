@@ -5,12 +5,13 @@ import { BullModule } from '@nestjs/bullmq';
 import { AutomationsService } from './automations.service';
 import { AutomationsController } from './automations.controller';
 import { ContainerUpdateAutomationService } from './container-update-automation.service';
-import { AUTOMATION_QUEUE_NAME } from './automations.processor';
+import { AUTOMATION_QUEUE_NAME } from './plugins/processors/plugin-automations.processor';
 
 // Plugin system
 import { PluginRegistry } from './plugins/registry/plugin-registry.service';
 import { AutomationEngine } from './plugins/engine/automation-engine.service';
 import { PluginsController } from './plugins/plugins.controller';
+import { PluginMetadataService } from './plugin-metadata.service';
 
 // Built-in trigger plugins
 import { 
@@ -47,6 +48,10 @@ import { ContextModule } from '../context/context.module';
 import { SshModule } from '../ssh/ssh.module';
 import { ModuleRef } from '@nestjs/core';
 
+// Validators and Services
+import { UpdateValidator } from './validators/update-validator';
+import { AuditLogService } from './services/audit-log.service';
+
 @Module({
   imports: [
     PrismaModule,
@@ -64,7 +69,12 @@ import { ModuleRef } from '@nestjs/core';
     // Core services
     AutomationsService,
     ContainerUpdateAutomationService,
-    
+    PluginMetadataService,
+
+    // Validators and Services
+    UpdateValidator,
+    AuditLogService,
+
     // Plugin system
     {
       provide: PluginRegistry,

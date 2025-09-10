@@ -1,15 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PluginRegistry } from '../registry/plugin-registry.service';
-import { 
-  TriggerContext, 
-  EventContext, 
-  TriggerConfig, 
+import {
+  TriggerContext,
+  EventContext,
+  TriggerConfig,
   EventConfig,
   TriggerResult,
   EventResult
 } from '../interfaces';
 import { OperationLogService } from '../../../operation-log/operation-log.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ContextService } from '../../../context/context.service';
 import { TriggerType } from '@prisma/client';
 
 export interface AutomationRule {
@@ -56,11 +57,16 @@ export class AutomationEngine implements OnModuleInit {
   constructor(
     private readonly pluginRegistry: PluginRegistry,
     private readonly operationLogService: OperationLogService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly contextService: ContextService
   ) {}
   
   async onModuleInit(): Promise<void> {
     this.logger.log('Automation Engine initialized');
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
   
   /**
@@ -86,13 +92,14 @@ export class AutomationEngine implements OnModuleInit {
             this.logger.log(`Rule '${rule.name}' triggered ${result.eventResults.length} events`);
           }
         } catch (error) {
-          this.logger.error(`Error evaluating rule '${rule.name}': ${error.message}`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Error evaluating rule '${rule.name}': ${errorMessage}`, error);
           results.push({
             rule,
             triggered: false,
             triggerResults: [],
             executionTime: Date.now() - startTime,
-            error: error.message
+            error: error instanceof Error ? error.message : String(error)
           });
         }
       }
@@ -157,13 +164,14 @@ export class AutomationEngine implements OnModuleInit {
       };
       
     } catch (error) {
-      this.logger.error(`Error evaluating rule '${rule.name}': ${error.message}`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error evaluating rule '${rule.name}': ${errorMessage}`, error);
       return {
         rule,
         triggered: false,
         triggerResults: [],
         executionTime: Date.now() - startTime,
-        error: error.message
+        error: errorMessage
       };
     }
   }
@@ -195,7 +203,8 @@ export class AutomationEngine implements OnModuleInit {
       return this.evaluateRule(rule, facts, testMetadata);
       
     } catch (error) {
-      this.logger.error(`Error testing rule '${ruleId}': ${error.message}`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error testing rule '${ruleId}': ${errorMessage}`, error);
       throw error;
     }
   }
@@ -225,7 +234,7 @@ export class AutomationEngine implements OnModuleInit {
       return this.evaluateRule(rule, facts, executionMetadata);
       
     } catch (error) {
-      this.logger.error(`Error executing rule '${ruleId}': ${error.message}`, error);
+      this.logger.error(`Error executing rule '${ruleId}': ${this.getErrorMessage(error)}`, error);
       throw error;
     }
   }
@@ -310,7 +319,7 @@ export class AutomationEngine implements OnModuleInit {
               errors.push(`Invalid trigger configuration at index ${i}`);
             }
           } catch (error) {
-            errors.push(`Trigger validation error at index ${i}: ${error.message}`);
+            errors.push(`Trigger validation error at index ${i}: ${this.getErrorMessage(error)}`);
           }
         }
       }
@@ -332,13 +341,13 @@ export class AutomationEngine implements OnModuleInit {
               errors.push(`Invalid event configuration at index ${i}`);
             }
           } catch (error) {
-            errors.push(`Event validation error at index ${i}: ${error.message}`);
+            errors.push(`Event validation error at index ${i}: ${this.getErrorMessage(error)}`);
           }
         }
       }
       
     } catch (error) {
-      errors.push(`Rule validation error: ${error.message}`);
+      errors.push(`Rule validation error: ${this.getErrorMessage(error)}`);
     }
     
     return {
@@ -378,12 +387,12 @@ export class AutomationEngine implements OnModuleInit {
         });
         
       } catch (error) {
-        this.logger.error(`Error evaluating trigger '${triggerConfig.type}': ${error.message}`, error);
+        this.logger.error(`Error evaluating trigger '${triggerConfig.type}': ${this.getErrorMessage(error)}`, error);
         results.push({
           triggerType: triggerConfig.type,
           result: {
             shouldTrigger: false,
-            reason: `Error: ${error.message}`
+            reason: `Error: ${this.getErrorMessage(error)}`
           }
         });
       }
@@ -396,23 +405,30 @@ export class AutomationEngine implements OnModuleInit {
    * Execute events for a rule
    */
   private async executeEvents(
-    events: EventConfig[], 
+    events: EventConfig[],
     context: RuleEvaluationContext,
     triggerResults: Array<{ triggerType: string; result: TriggerResult; }>
   ): Promise<Array<{ eventType: string; result: EventResult; }>> {
     const results: Array<{ eventType: string; result: EventResult; }> = [];
-    
-    // Create operation log for tracking
-    const opLog = await this.operationLogService.create({
-      title: `Automation: ${context.rule.name}`,
-      triggerType: TriggerType.EVENT,
-      automationRuleId: context.rule.id,
-      triggerContext: {
-        triggers: triggerResults,
-        timestamp: context.timestamp,
-        metadata: context.metadata
-      } as any,
-    });
+
+    // Only create operation log for non-test mode executions
+    // In test mode, we use the existing operation log from the test request
+    const isTestMode = context.metadata?.testMode === true;
+    let opLog: any = null;
+
+    if (!isTestMode) {
+      // Create operation log for tracking
+      opLog = await this.operationLogService.create({
+        title: `Automation: ${context.rule.name}`,
+        triggerType: TriggerType.EVENT,
+        automationRuleId: context.rule.id,
+        triggerContext: {
+          triggers: triggerResults,
+          timestamp: context.timestamp,
+          metadata: context.metadata
+        } as any,
+      });
+    }
     
     for (const eventConfig of events) {
       try {
@@ -430,12 +446,12 @@ export class AutomationEngine implements OnModuleInit {
             name: context.rule.name,
             description: context.rule.description
           },
-          operationLogId: opLog.id,
+          operationLogId: opLog?.id || (isTestMode ? this.contextService.getOpId() : undefined), // Use current context opId in test mode
           metadata: context.metadata
         };
         
         // Check if event can be executed
-        const canExecute = await plugin.canExecute(eventConfig, eventContext);
+        const canExecute = plugin.canExecute ? await plugin.canExecute(eventConfig, eventContext) : true;
         if (!canExecute) {
           results.push({
             eventType: eventConfig.type,
@@ -455,43 +471,108 @@ export class AutomationEngine implements OnModuleInit {
         });
         
       } catch (error) {
-        this.logger.error(`Error executing event '${eventConfig.type}': ${error.message}`, error);
+        this.logger.error(`Error executing event '${eventConfig.type}': ${this.getErrorMessage(error)}`, error);
         results.push({
           eventType: eventConfig.type,
           result: {
             success: false,
-            error: error.message
+            error: this.getErrorMessage(error)
           }
         });
       }
     }
     
-    // Update operation log status
-    const hasErrors = results.some(r => !r.result.success);
-    await this.operationLogService.updateStatus(opLog.id, hasErrors ? 'ERROR' : 'COMPLETED');
+    // Update operation log status (only for non-test mode)
+    if (opLog) {
+      const hasErrors = results.some(r => !r.result.success);
+      await this.operationLogService.updateStatus(opLog.id, hasErrors ? 'ERROR' : 'COMPLETED');
+    }
     
     return results;
   }
   
   /**
-   * Get all enabled automation rules from database
+   * Get all enabled automation rules from database with normalized schema
    */
   private async getEnabledRules(): Promise<AutomationRule[]> {
+    this.logger.debug('Fetching enabled automation rules from database...');
+
     const rules = await this.prisma.automationRule.findMany({
-      where: { isEnabled: true }
+      where: { isEnabled: true },
+      include: {
+        triggers: {
+          where: { isEnabled: true },
+          include: {
+            plugin: true
+          },
+          orderBy: { priority: 'desc' }
+        },
+        events: {
+          where: { isEnabled: true },
+          include: {
+            plugin: true
+          },
+          orderBy: { priority: 'desc' }
+        },
+        notifications: {
+          where: { isEnabled: true },
+          include: {
+            channels: {
+              where: { isEnabled: true }
+            }
+          }
+        }
+      },
+      orderBy: [
+        { priority: 'desc' },
+        { updatedAt: 'desc' }
+      ]
     });
-    
-    return rules.map(rule => this.convertDatabaseRule(rule));
+
+    this.logger.debug(`Found ${rules.length} enabled rules in database`);
+
+    for (const rule of rules) {
+      this.logger.debug(`Rule: ${rule.name} (${rule.id}) - Triggers: ${rule.triggers.length}, Events: ${rule.events.length}`);
+    }
+
+    const convertedRules = rules.map(rule => this.convertDatabaseRule(rule));
+    this.logger.debug(`Converted ${convertedRules.length} rules for evaluation`);
+
+    return convertedRules;
   }
   
   /**
-   * Get rule by ID
+   * Get rule by ID with all relations
    */
   private async getRuleById(ruleId: string): Promise<AutomationRule | null> {
     const rule = await this.prisma.automationRule.findUnique({
-      where: { id: ruleId }
+      where: { id: ruleId },
+      include: {
+        triggers: {
+          where: { isEnabled: true },
+          include: {
+            plugin: true
+          },
+          orderBy: { priority: 'desc' }
+        },
+        events: {
+          where: { isEnabled: true },
+          include: {
+            plugin: true
+          },
+          orderBy: { priority: 'desc' }
+        },
+        notifications: {
+          where: { isEnabled: true },
+          include: {
+            channels: {
+              where: { isEnabled: true }
+            }
+          }
+        }
+      }
     });
-    
+
     return rule ? this.convertDatabaseRule(rule) : null;
   }
   
@@ -499,25 +580,99 @@ export class AutomationEngine implements OnModuleInit {
    * Convert database rule to AutomationRule format
    */
   private convertDatabaseRule(dbRule: any): AutomationRule {
-    // For now, we'll support both old json-rules-engine format and new plugin format
-    const ruleJson = dbRule.ruleJson as any;
-    
-    // Check if it's new plugin format
-    if (ruleJson.triggers && ruleJson.events) {
+    // Check if rule uses new normalized schema (has triggers/events relations)
+    if (dbRule.triggers && dbRule.events) {
+      // New normalized schema format
       return {
         id: dbRule.id,
         name: dbRule.name,
         description: dbRule.description,
         isEnabled: dbRule.isEnabled,
-        triggers: ruleJson.triggers,
-        events: ruleJson.events,
-        conditions: ruleJson.conditions,
-        metadata: ruleJson.metadata
+        triggers: dbRule.triggers.map((trigger: any) => ({
+          type: trigger.type,
+          config: trigger.config,
+          enabled: trigger.isEnabled,
+          conditions: trigger.conditions,
+          metadata: {
+            pluginId: trigger.pluginId,
+            pluginVersion: trigger.pluginVersion,
+            name: trigger.name,
+            description: trigger.description,
+            priority: trigger.priority
+          }
+        })),
+        events: dbRule.events.map((event: any) => ({
+          type: event.type,
+          params: event.params,
+          enabled: event.isEnabled,
+          metadata: {
+            pluginId: event.pluginId,
+            pluginVersion: event.pluginVersion,
+            name: event.name,
+            description: event.description,
+            priority: event.priority,
+            options: event.options
+          }
+        })),
+        conditions: {},
+        metadata: {
+          normalized: true,
+          priority: dbRule.priority,
+          category: dbRule.category,
+          tags: dbRule.tags,
+          version: dbRule.version,
+          templateId: dbRule.templateId,
+          organizationId: dbRule.organizationId,
+          notifications: dbRule.notifications
+        }
       };
     }
-    
-    // Legacy format - convert to plugin format
-    return this.convertLegacyRule(dbRule);
+
+    // Check if it's legacy JSON format
+    if (dbRule.ruleJson) {
+      const ruleJson = dbRule.ruleJson as any;
+
+      // Check if it's new plugin format in JSON
+      if (ruleJson.triggers && ruleJson.events) {
+        return {
+          id: dbRule.id,
+          name: dbRule.name,
+          description: dbRule.description,
+          isEnabled: dbRule.isEnabled,
+          triggers: ruleJson.triggers,
+          events: ruleJson.events,
+          conditions: ruleJson.conditions,
+          metadata: ruleJson.metadata
+        };
+      }
+
+      // Legacy json-rules-engine format - convert to plugin format
+      return this.convertLegacyRule(dbRule);
+    }
+
+    // Fallback - create a manual trigger rule
+    this.logger.warn(`Rule ${dbRule.id} has no triggers or events, creating manual trigger`);
+    return {
+      id: dbRule.id,
+      name: dbRule.name,
+      description: dbRule.description,
+      isEnabled: dbRule.isEnabled,
+      triggers: [{
+        type: 'manual',
+        config: {},
+        enabled: true
+      }],
+      events: [{
+        type: 'log-message',
+        params: {
+          message: `Rule ${dbRule.name} executed manually`,
+          level: 'info'
+        },
+        enabled: true
+      }],
+      conditions: {},
+      metadata: { fallback: true }
+    };
   }
   
   /**
@@ -537,6 +692,15 @@ export class AutomationEngine implements OnModuleInit {
         config: {
           expression: this.extractCronExpression(ruleJson.conditions) || '0 * * * *'
         },
+        enabled: true
+      });
+    }
+
+    // Look for manual trigger conditions
+    if (this.hasManualTriggerCondition(ruleJson.conditions)) {
+      triggers.push({
+        type: 'manual',
+        config: {},
         enabled: true
       });
     }
@@ -567,7 +731,7 @@ export class AutomationEngine implements OnModuleInit {
    */
   private hasTimeCondition(conditions: any): boolean {
     if (!conditions) return false;
-    
+
     const checkCondition = (condition: any): boolean => {
       if (condition.fact === 'time' || condition.fact === 'time-schedule') {
         return true;
@@ -580,7 +744,29 @@ export class AutomationEngine implements OnModuleInit {
       }
       return false;
     };
-    
+
+    return checkCondition(conditions);
+  }
+
+  /**
+   * Check if conditions contain manual trigger rules
+   */
+  private hasManualTriggerCondition(conditions: any): boolean {
+    if (!conditions) return false;
+
+    const checkCondition = (condition: any): boolean => {
+      if (condition.fact === 'trigger' && condition.params?.type === 'manual') {
+        return true;
+      }
+      if (condition.all) {
+        return condition.all.some(checkCondition);
+      }
+      if (condition.any) {
+        return condition.any.some(checkCondition);
+      }
+      return false;
+    };
+
     return checkCondition(conditions);
   }
   

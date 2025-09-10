@@ -43,7 +43,9 @@ export class ConnectivityCleanupService {
       // Also clean up orphaned records (where host no longer exists)
       const orphanedResult = await this.prisma.hostConnectivityCheck.deleteMany({
         where: {
-          host: null,
+          hostId: {
+            notIn: (await this.prisma.host.findMany({ select: { id: true } })).map(h => h.id)
+          }
         },
       });
 
@@ -80,7 +82,9 @@ export class ConnectivityCleanupService {
     // Delete orphaned records
     const orphanedResult = await this.prisma.hostConnectivityCheck.deleteMany({
       where: {
-        host: null,
+        hostId: {
+          notIn: (await this.prisma.host.findMany({ select: { id: true } })).map(h => h.id)
+        }
       },
     });
 

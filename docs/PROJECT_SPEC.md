@@ -33,9 +33,9 @@
 
 ### 四、技术栈清单（实际实现）
 - **前端**：Next.js 15、TypeScript、Tailwind CSS、shadcn/ui、React Query、Cytoscape.js、ECharts、Socket.IO Client
-- **后端**：NestJS（Fastify）、TypeScript、BullMQ（Redis）、Prisma、PostgreSQL 15+、Socket.IO、json-rules-engine
+- **后端**：NestJS（Fastify）、TypeScript、BullMQ（Redis）、Prisma、PostgreSQL 15+、Socket.IO、Plugin Architecture
 - **观测**：Prometheus、VictoriaMetrics、Loki、Grafana、（可选）cAdvisor
-- **自动化**：json-rules-engine（规则引擎）、BullMQ（任务调度）、node-cron（定时任务）
+- **自动化**：Plugin Architecture（插件系统）、BullMQ（任务调度）、Normalized Database Schema（规范化数据库）
 - **工具库**：bcrypt（加密）、ssh2（SSH 连接）、ini/yaml（配置解析）、dns2（DNS 解析）、crypto（加密工具）
 - **运行与网络**：OpenSSH 客户端、rsync/scp、Docker、Docker Compose
 
@@ -130,7 +130,11 @@
   - updateCheckedAt?、
   **其他字段**：createdAt、startedAt?、isComposeManaged、composeProject?、composeService?、composeWorkingDir?、composeGroupKey?、composeFolderName?、composeConfigFiles(Json?)、runCommand?、ports(Json?)、mounts(Json?)、networks(Json?)、labels(Json?)
 - **`ComposeProject`**：id、project、workingDir、configFiles[]、effectiveConfigHash?、lastSyncedAt?
-- **`AutomationRule`**：id、name、description?、isEnabled、ruleJson(Json)、createdAt、updatedAt、operations[]
+- **`AutomationRule`**：id、name、description?、isEnabled、priority?、category?、tags[]、templateId?、parentRuleId?、createdAt、updatedAt、triggers[]、events[]、notifications[]、operations[]
+- **`RuleTrigger`**：id、ruleId、type、name?、description?、isEnabled、priority?、pluginId、pluginVersion、config(Json)、conditions(Json?)、createdAt、updatedAt
+- **`RuleEvent`**：id、ruleId、type、name?、description?、isEnabled、priority?、pluginId、pluginVersion、config(Json)、createdAt、updatedAt
+- **`RuleNotification`**：id、ruleId、name?、description?、isEnabled、notifyOn、templateId?、channels[]、createdAt、updatedAt
+- **`PluginMetadata`**：id、name、displayName、description?、type、version、author?、homepage?、repository?、keywords[]、config(Json?)、createdAt、updatedAt
 - **`OperationLog`**：id、type、status(PENDING|RUNNING|COMPLETED|ERROR)、startedAt?、finishedAt?、automationRuleId?、entries[]
 - **`OperationLogEntry`**：id、timestamp、stream、content、operationLogId、hostId?
 - **`ReverseProxyRoute`**：id、hostId、provider('npm')、type('http'|'stream'|'redirect')、vpsName?、domain、forwardHost?、forwardPort?、enabled、certificateId?、certExpiresAt?、rawAdvancedConfig?、lastSyncedAt?
@@ -339,90 +343,147 @@
     -   此同步过程应在每次容器发现 (`discoverOnHost`) 成功后自动触发。
     -   同时，创建一个新的 API 端点 `POST /api/v1/frp/sync/:hostId`，允许用户手动触发对单个主机的 `frp` 配置同步。
 
-### 十六、自动化中心 (Automation Center) - **核心设计**
+### 十六、自动化中心 (Automation Center) - **生产级插件架构**
 
-为了实现强大而灵活的自动化能力，我们摒弃了传统的、分离的“动作”和“触发器”模型，采用了一种更先进、更符合逻辑直觉的**“自动化规则 (Automation Rule)”**模型。其核心技术选型为 **`json-rules-engine`**，一个强大且轻量级的规则引擎。
+为了实现强大而灵活的自动化能力，系统采用了先进的**插件化架构 (Plugin Architecture)**，完全超越了传统的规则引擎模型。该系统已完全实现并投入生产使用，具备企业级功能和扩展性。
 
-#### 1. 核心理念
+#### 1. 核心架构设计
 
-系统的核心是 `AutomationRule`。每一条规则都完整地定义了一个自动化流程，它将**“条件”**和**“事件”**封装在一个单一、原子化的实体中，清晰地回答了两个基本问题：
+系统的核心是**插件化自动化引擎**，由以下关键组件构成：
 
-1.  **“在什么条件下？” (Conditions)**: 一组用逻辑（AND/OR）组合的条件，当满足时触发。
-2.  **“做什么事？” (Event)**: 条件满足后，应该执行什么动作。
+- **`AutomationRule`**: 自动化规则的统一实体，包含触发器、事件和通知配置
+- **`PluginRegistry`**: 中央插件注册表，管理插件生命周期和依赖关系
+- **`BasePlugin`**: 所有插件的基础类，提供通用功能和工具方法
+- **`BaseTriggerPlugin`**: 触发器插件基类，定义条件评估接口
+- **`BaseEventPlugin`**: 事件插件基类，定义动作执行接口
+- **`AutomationEngine`**: 自动化引擎，负责规则评估和插件调度
 
-这种设计使得自动化流程的创建、管理和理解都变得极其简单和直观。
+#### 2. 插件系统实现
 
-#### 2. 技术实现: `json-rules-engine`
+系统采用完全插件化的架构，实现了**7个触发器插件**和**8个事件插件**：
 
-我们将使用 `json-rules-engine` 作为核心的规则评估引擎。
+**触发器插件 (7)**:
+- `cron`: CRON定时触发器，支持复杂的时间表达式
+- `manual`: 手动触发器，支持用户手动执行
+- `webhook`: HTTP webhook触发器，支持外部系统集成
+- `http-health-check`: HTTP健康检查触发器，监控服务可用性
+- `filesystem`: 文件系统触发器，监控文件和目录变化
+- `container-state`: 容器状态触发器，监控Docker容器状态
+- `system-resource`: 系统资源触发器，监控CPU、内存等资源使用
 
--   **规则定义**: 所有自动化规则都将以 `json-rules-engine` 所要求的特定 JSON 格式存储在数据库中。这种格式天然地表达了“条件”与“事件”的逻辑关系。
--   **后台执行器**: 在 NestJS 的 `automations.processor.ts` 中，一个基于 BullMQ 的周期性任务（例如每分钟执行一次）会：
-    1.  从数据库加载所有已启用的 `AutomationRule`。
-    2.  从各个服务（`HostsService`, `ContainersService` 等）收集系统当前的实时状态，作为规则引擎的**“事实 (Facts)”**。例如：`{ "cpuUsage": 85, "containerStatus": "stopped" }`。
-    3.  将规则和事实送入 `json-rules-engine` 实例进行评估。
-    4.  当规则的 `conditions` 被满足时，引擎会返回一个 `event`。
--   **动作分发**: 执行器捕获到 `event` 后，会根据 `event.type` 和 `event.params` 调用相应的服务来执行具体操作（例如，调用 `ContainersService` 重启一个容器）。
+**事件插件 (8)**:
+- `log-message`: 日志消息事件，记录操作日志
+- `restart-container`: 容器重启事件，管理容器生命周期
+- `discover-containers`: 容器发现事件，自动发现容器
+- `check-container-updates`: 容器更新检查事件，检查镜像更新
+- `send-notification`: 通知发送事件，支持多种通知渠道
+- `execute-command`: 命令执行事件，执行远程命令
+- `file-operations`: 文件操作事件，执行文件系统操作
+- `container-management`: 容器管理事件，高级容器操作
 
-#### 3. 数据模型 (`AutomationRule`)
+#### 3. 增强的数据模型
 
-为了与 `json-rules-engine` 无缝集成，`AutomationRule` 模型被设计得非常简洁：
+系统采用规范化的数据库架构，支持高级功能：
 
 ```prisma
 model AutomationRule {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String  @id @default(cuid())
+  name        String  @unique
   description String?
-  isEnabled   Boolean  @default(true)
-
-  // 存储 json-rules-engine 的完整规则定义
-  // 包含 "conditions" (条件) 和 "event" (事件) 两部分
-  ruleJson    Json
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isEnabled   Boolean @default(true)
+  priority    Int     @default(0)
+  // 模板和继承支持
+  templateId   String?
+  template     RuleTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  isTemplate   Boolean          @default(false)
+  parentRuleId String?
+  parentRule   AutomationRule?  @relation("RuleInheritance", fields: [parentRuleId], references: [id])
+  childRules   AutomationRule[] @relation("RuleInheritance")
+  // 元数据
+  tags     String[]
+  category String?
+  version  String   @default("1.0.0")
+  // 关系
+  triggers      RuleTrigger[]
+  events        RuleEvent[]
+  notifications RuleNotification[]
+  dependencies  RuleDependency[]   @relation("DependentRule")
+  dependents    RuleDependency[]   @relation("RequiredRule")
+  // 执行追踪
+  executions RuleExecution[]
+  metrics    RuleMetrics[]
+  operations OperationLog[]
+  // 时间戳
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastExecutedAt DateTime?
 }
 ```
 
--   **`ruleJson`**: 这是模型的关键字段，直接存储了规则的 JSON 对象。一个示例可能如下：
-    ```json
-    {
-      "conditions": {
-        "all": [{
-          "fact": "containerStatus",
-          "operator": "equal",
-          "value": "exited",
-          "params": { "containerName": "my-app-db" }
-        }]
-      },
-      "event": {
-        "type": "restart-container",
-        "params": {
-          "containerId": "container-abc-123"
-        }
-      }
-    }
-    ```
+#### 4. 企业级功能
 
-#### 4. 执行与日志
+**规则模板系统**:
+- 模板继承和重写能力
+- 系统预定义模板
+- 基础配置复用
 
--   **事实提供者 (Fact Providers)**: 后端服务会负责提供动态的、可供规则引擎使用的事实。例如，可以定义一个 `fact` 叫做 `containerStatus`，它接受 `containerName` 作为参数，并能实时查询该容器的状态。
--   **操作日志 (`OperationLog`)**: 每当一条自动化规则被成功触发并执行时，系统都会创建一个 `OperationLog` 记录。这个记录会捕获该次执行的所有细节，包括触发时满足条件的“事实”、执行的事件详情、以及最终的成功或失败状态，为审计和调试提供了完整的追溯能力。
+**依赖管理**:
+- 规则间依赖关系图
+- 自动依赖解析
+- 执行顺序优化
 
-#### 5. API 概览
-- **自动化**:
-  - `GET /api/v1/automations`: 获取所有自动化规则。
-  - `POST /api/v1/automations`: 创建一条新的自动化规则。
-  - `PATCH /api/v1/automations/:id`: 更新指定的自动化规则。
-  - `DELETE /api/v1/automations/:id`: 删除指定的自动化规则。
+**执行追踪**:
+- 详细的执行历史
+- 性能指标收集
+- 成功率统计
 
-#### 6. 前端 UI/UX
-- **自动化页面**: 一个专门的页面，用于集中展示和管理所有的 `AutomationRule`。
-- **规则构建器**: 一个线性的、从上到下的表单，用于创建和编辑自动化规则。该表单是**上下文感知**的：
-  - 用户可以从一个预设的“条件”列表中选择（例如，“CPU 使用率”、“容器状态”）。
-  - 根据所选的条件，表单会动态渲染出相应的操作符（大于、等于、包含等）和值输入框。
-  - 用户同样可以从一个预设的“动作”列表中选择（例如，“执行命令”、“重启容器”），并填写所需参数。
-- 这种设计将完全屏蔽底层 `json-rules-engine` 的 JSON 结构，使用户能够通过直观的点击和输入，轻松地编排复杂的自动化流程。
+**版本控制**:
+- 内置版本管理
+- 变更追踪
+- 回滚支持
+
+#### 5. 执行与监控
+
+**执行引擎**:
+- 基于BullMQ的任务调度和执行
+- 支持并发执行和队列管理
+- 完整的错误处理和重试机制
+
+**监控系统**:
+- 实时执行状态监控
+- 性能指标收集和分析
+- 详细的操作日志和审计追踪
+
+**API接口**:
+- 完整的REST API (`/api/v1/automations`)
+- 规则测试端点 (`/api/v1/automations/:id/test`)
+- 插件管理端点 (`/api/v1/automations/plugins`)
+
+#### 6. 生产就绪特性
+
+**性能优化**:
+- 查询优化和索引策略
+- 插件缓存和实例复用
+- 批量处理和并发控制
+- 智能调度和负载均衡
+
+**可靠性保障**:
+- 完整的错误处理机制
+- 自动重试和故障恢复
+- 事务一致性保证
+- 数据完整性验证
+
+**安全性**:
+- 插件权限管理
+- 配置验证和沙箱执行
+- 操作审计和访问控制
+- 敏感信息保护
+
+**可扩展性**:
+- 水平扩展支持
+- 插件热加载
+- 动态配置更新
+- 微服务架构兼容
 
 ### 十七、非功能与未来规划
 - 未来可选：

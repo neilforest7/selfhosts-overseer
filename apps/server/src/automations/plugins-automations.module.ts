@@ -6,7 +6,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { AutomationsService } from './automations.service';
 import { AutomationsController } from './automations.controller';
 import { ContainerUpdateAutomationService } from './container-update-automation.service';
-import { AUTOMATION_QUEUE_NAME } from './automations.processor';
+import { AUTOMATION_QUEUE_NAME } from './plugins/processors/plugin-automations.processor';
 
 // Plugin system
 import { PluginRegistry } from './plugins/registry/plugin-registry.service';

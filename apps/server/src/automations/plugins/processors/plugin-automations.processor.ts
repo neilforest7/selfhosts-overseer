@@ -57,16 +57,17 @@ export class PluginAutomationsProcessor extends WorkerHost implements OnModuleIn
           await this.executeRule(ruleId, metadata);
           break;
           
-        case 'test-rule':
+        case 'test-automation-rule':
           const { ruleId: testRuleId, opId, customFacts } = job.data;
           await this.testRule(testRuleId, opId, customFacts);
           break;
-          
+
         default:
           this.logger.warn(`Unknown job type: ${job.name}`);
       }
     } catch (error) {
-      this.logger.error(`Error processing job ${job.name}: ${error.message}`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error processing job ${job.name}: ${errorMessage}`, error);
       throw error;
     }
   }
@@ -109,7 +110,8 @@ export class PluginAutomationsProcessor extends WorkerHost implements OnModuleIn
       }
       
     } catch (error) {
-      this.logger.error(`Error executing rule ${ruleId}: ${error.message}`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Error executing rule ${ruleId}: ${errorMessage}`, error);
       throw error;
     }
   }

@@ -34,7 +34,7 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
       
       const containerIdentifier = this.getConfigValue(config, 'containerIdentifier', '');
       const expectedState = this.getConfigValue(config, 'expectedState', 'running');
-      const triggerOn = this.getConfigValue(config, 'triggerOn', 'match'); // 'match' or 'mismatch'
+      const triggerOn = this.getConfigValue(config, 'triggerOn', 'match') as 'match' | 'mismatch';
       const hostId = this.getConfigValue(config, 'hostId', null);
       
       if (!containerIdentifier) {
@@ -55,7 +55,7 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
       }
       
       const container = containers[0];
-      const currentState = this.normalizeState(container.state);
+      const currentState = this.normalizeState(container.state || 'unknown');
       
       const stateMatches = currentState === expectedState;
       const shouldTrigger = (triggerOn === 'match' && stateMatches) || 
@@ -98,18 +98,21 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
         containerIdentifier: {
           type: 'string',
           title: 'Container ID/Name',
-          description: 'Container ID, name, or partial match',
-          minLength: 1
+          description: 'Container ID, name, or partial match pattern',
+          minLength: 1,
+          placeholder: 'nginx, web-app, or container-id',
+          examples: ['nginx', 'web-app-*', 'database', 'redis-cache']
         },
         hostId: {
           type: 'string',
-          title: 'Host ID (Optional)',
-          description: 'Limit search to specific host'
+          title: 'Target Host',
+          description: 'Limit search to specific host (leave empty for all hosts)',
+          placeholder: 'Select a host'
         },
         expectedState: {
           type: 'string',
-          title: 'Expected State',
-          description: 'Container state to check for',
+          title: 'Expected Container State',
+          description: 'Container state to monitor for',
           enum: [
             'running',
             'stopped',
@@ -121,28 +124,40 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
             'exited',
             'unhealthy'
           ],
-          default: 'running'
+          default: 'running',
+          examples: ['running', 'stopped', 'unhealthy']
         },
         triggerOn: {
           type: 'string',
           title: 'Trigger Condition',
-          description: 'When to trigger the rule',
+          description: 'When should this trigger activate?',
           enum: ['match', 'mismatch'],
-          default: 'match'
+          default: 'match',
+          examples: ['match', 'mismatch']
         },
         checkInterval: {
           type: 'number',
           title: 'Check Interval (seconds)',
-          description: 'How often to check container state',
+          description: 'How often to check container state (minimum 10 seconds)',
           minimum: 10,
           maximum: 3600,
-          default: 30
+          default: 30,
+          examples: [30, 60, 300]
         },
         includeHealth: {
           type: 'boolean',
           title: 'Include Health Status',
-          description: 'Also consider container health status',
+          description: 'Also monitor container health status (requires healthcheck)',
           default: false
+        },
+        consecutiveFailures: {
+          type: 'number',
+          title: 'Consecutive Failures',
+          description: 'Number of consecutive state mismatches before triggering',
+          minimum: 1,
+          maximum: 10,
+          default: 1,
+          examples: [1, 2, 3]
         }
       },
       required: ['containerIdentifier', 'expectedState'],

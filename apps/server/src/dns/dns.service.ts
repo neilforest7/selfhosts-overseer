@@ -179,7 +179,7 @@ export class DnsService {
       metadata: {
         domain: record.domain,
         recordType: record.recordType,
-        provider: record.provider.displayName,
+        provider: record.provider?.displayName || 'Unknown',
       },
     });
   }

@@ -9,7 +9,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
-import { CreateEditAutomationRuleDialog } from './CreateEditAutomationRuleDialog';
 import { PluginBasedAutomationRuleDialog } from './PluginBasedAutomationRuleDialog';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 
@@ -19,13 +18,52 @@ export type AutomationRule = {
   name: string;
   description: string | null;
   isEnabled: boolean;
-  ruleJson: any;
+  ruleJson?: any; // Legacy field, optional for backward compatibility
   createdAt: string;
   updatedAt: string;
   _count: {
     operations: number;
   };
   errorCount: number;
+  // Normalized schema fields
+  triggers?: Array<{
+    id?: string; // Optional for new records
+    type: string;
+    name?: string;
+    description?: string;
+    isEnabled: boolean;
+    priority: number;
+    pluginId: string;
+    pluginVersion: string;
+    config: Record<string, any>;
+    conditions?: Record<string, any>;
+  }>;
+  events?: Array<{
+    id?: string; // Optional for new records
+    type: string;
+    name?: string;
+    description?: string;
+    isEnabled: boolean;
+    priority: number;
+    pluginId: string;
+    pluginVersion: string;
+    params?: Record<string, any>;
+    options?: Record<string, any>;
+  }>;
+  notifications?: Array<{
+    id?: string; // Optional for new records
+    name?: string;
+    description?: string;
+    isEnabled: boolean;
+    notifyOn: string;
+    templateId?: string;
+    channels: Array<{
+      id?: string; // Optional for new records
+      type: string;
+      config: Record<string, any>;
+      isEnabled: boolean;
+    }>;
+  }>;
 };
 
 async function fetchAutomationRules(): Promise<AutomationRule[]> {
@@ -38,7 +76,6 @@ async function fetchAutomationRules(): Promise<AutomationRule[]> {
 export default function AutomationsSection() {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [usePluginDialog, setUsePluginDialog] = useState(true); // Toggle between old and new dialog
   const [selectedRule, setSelectedRule] = useState<AutomationRule | null>(null);
   const { startOperation, fetchTasks, selectTask, setOpen } = useTaskDrawerStore((s) => s.actions);
 
@@ -60,12 +97,36 @@ export default function AutomationsSection() {
   };
 
   const createMutation = useMutation({
-    mutationFn: (data: Partial<AutomationRule>) => fetch('/api/v1/automations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
+    mutationFn: async (data: Partial<AutomationRule>) => {
+      console.log('Creating automation rule with data:', data);
+      const response = await fetch('/api/v1/automations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create rule: ${response.status} ${errorText}`);
+      }
+      return response.json();
+    },
     ...mutationOptions,
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<AutomationRule> }) => fetch(`/api/v1/automations/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }),
+    mutationFn: async ({ id, data }: { id: string; data: Partial<AutomationRule> }) => {
+      console.log('Updating automation rule with data:', data);
+      const response = await fetch(`/api/v1/automations/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update rule: ${response.status} ${errorText}`);
+      }
+      return response.json();
+    },
     ...mutationOptions,
   });
 
@@ -93,9 +154,14 @@ export default function AutomationsSection() {
   });
 
   const handleSave = (data: Partial<AutomationRule>) => {
+    console.log('handleSave called with data:', data);
+    console.log('selectedRule:', selectedRule);
+
     if (selectedRule) {
+      console.log('Updating existing rule:', selectedRule.id);
       updateMutation.mutate({ id: selectedRule.id, data });
     } else {
+      console.log('Creating new rule');
       createMutation.mutate(data);
     }
   };
@@ -145,18 +211,10 @@ export default function AutomationsSection() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>自动化规则</CardTitle>
-          <div className="flex gap-2">
-            <Button onClick={() => { setSelectedRule(null); setIsDialogOpen(true); }}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              新建规则
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setUsePluginDialog(!usePluginDialog)}
-            >
-              {usePluginDialog ? '传统界面' : '插件界面'}
-            </Button>
-          </div>
+          <Button onClick={() => { setSelectedRule(null); setIsDialogOpen(true); }}>
+            <PlusCircle className="mr-2 h-4 w-4" />
+            新建规则
+          </Button>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
@@ -220,23 +278,13 @@ export default function AutomationsSection() {
           </div>
         </CardContent>
       </Card>
-      {usePluginDialog ? (
-        <PluginBasedAutomationRuleDialog
-          isOpen={isDialogOpen}
-          onOpenChange={setIsDialogOpen}
-          rule={selectedRule}
-          onSave={handleSave}
-          isSaving={createMutation.isPending || updateMutation.isPending}
-        />
-      ) : (
-        <CreateEditAutomationRuleDialog
-          isOpen={isDialogOpen}
-          onOpenChange={setIsDialogOpen}
-          rule={selectedRule}
-          onSave={handleSave}
-          isSaving={createMutation.isPending || updateMutation.isPending}
-        />
-      )}
+      <PluginBasedAutomationRuleDialog
+        isOpen={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        rule={selectedRule}
+        onSave={handleSave}
+        isSaving={createMutation.isPending || updateMutation.isPending}
+      />
     </>
   );
 }
