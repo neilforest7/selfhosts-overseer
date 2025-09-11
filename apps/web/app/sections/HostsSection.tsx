@@ -114,7 +114,7 @@ export default function HostsSection() {
         <CardTitle>主机</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex gap-2">
+        <div className="flex flex-row items-center justify-end gap-2">
           <Input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="按标签筛选" className="max-w-xs" />
           <ClientOnly>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -187,7 +187,7 @@ export default function HostsSection() {
               </DialogContent>
             </Dialog>
           </ClientOnly>
-          <Button variant="destructive" onClick={bulkDelete} disabled={!Object.values(selected).some(Boolean)}>删除所选</Button>
+          <Button variant="secondary" onClick={bulkDelete} disabled={!Object.values(selected).some(Boolean)}>删除所选</Button>
         </div>
         <Table>
           <TableHeader>
@@ -245,14 +245,15 @@ export default function HostsSection() {
                   </Button>
                   <Button onClick={() => { setEditing(h); setDialogOpen(true); }}>编辑</Button>
                   <Button variant="destructive" onClick={async ()=>{
-  const response = await apiClient.delete(`/api/v1/hosts/${h.id}`);
-  if (!response.success) {
-    toast.error(`删除失败: ${response.error}`);
-    return;
-  }
-  qc.invalidateQueries({ queryKey: ['hosts'] });
-  toast.success('删除成功');
-}}>删除</Button>
+                    const response = await apiClient.delete(`/api/v1/hosts/${h.id}`);
+                    if (!response.success) {
+                      toast.error(`删除失败: ${response.error}`);
+                      return;
+                    }
+                    qc.invalidateQueries({ queryKey: ['hosts'] });
+                    toast.success('删除成功');
+                  }}>删除
+                  </Button>
                 </TableCell>
               </TableRow>
               );

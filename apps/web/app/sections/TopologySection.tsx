@@ -1173,7 +1173,7 @@ export default function TopologySection() {
       };
 
   return (
-    <div style={{ marginTop: '-32px' }}>
+    <div>
       <Card>
         <CardHeader>
           <CardTitle>网络拓扑</CardTitle>

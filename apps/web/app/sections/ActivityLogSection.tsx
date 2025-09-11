@@ -8,7 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { ActivityLog, ActivityCategory, ActivityLogQueryParams, ActivityLogResponse } from '@/lib/types';
 import { Search, Filter, RefreshCw, Clock, Server, Container, Network, Settings } from 'lucide-react';
 
@@ -87,7 +86,7 @@ export function ActivityLogSection({
   hostId, 
   limit = 50, 
   showFilters = true, 
-  title = "Activity Log" 
+  title = "活动日志" 
 }: ActivityLogSectionProps) {
   const [filters, setFilters] = useState<ActivityLogQueryParams>({
     hostId,
@@ -138,9 +137,9 @@ export function ActivityLogSection({
   return (
     <Card className="w-full">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
+        <div className="flex flex-row items-center justify-between">
+          <CardTitle>
+            {/* <Clock className="h-5 w-5" /> */}
             {title}
           </CardTitle>
           <Button

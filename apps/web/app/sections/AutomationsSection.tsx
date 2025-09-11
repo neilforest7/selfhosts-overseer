@@ -194,12 +194,14 @@ export default function AutomationsSection() {
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>自动化规则</CardTitle>
-          <Button onClick={() => { setSelectedRule(null); setIsDialogOpen(true); }}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            新建规则
-          </Button>
+        <CardHeader>
+          <div className="flex flex-row items-center justify-between">
+            <CardTitle>自动化规则</CardTitle>
+            <Button onClick={() => { setSelectedRule(null); setIsDialogOpen(true); }} size="sm">
+              <PlusCircle className="mr-2 h-4 w-4" />
+              新建规则
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">

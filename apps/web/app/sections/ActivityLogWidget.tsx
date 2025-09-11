@@ -113,7 +113,7 @@ export function ActivityLogWidget({ className }: ActivityLogWidgetProps) {
 
   return (
     <Card className={className}>
-      <CardHeader className="pb-3">
+      <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
             <Clock className="h-4 w-4" />
@@ -165,49 +165,51 @@ export function ActivityLogWidget({ className }: ActivityLogWidgetProps) {
           )}
 
           {displayActivities && displayActivities.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {displayActivities.map((activity, index) => (
-                <div key={`${activity.id}-${index}`} className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
-                  <div className="flex-shrink-0 mt-0.5">
-                    {categoryIcons[activity.category] || <Settings className="h-3 w-3" />}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1 mb-1">
-                      <Badge className={categoryColors[activity.category]}>
-                        {activity.category.replace('_', ' ')}
-                      </Badge>
-                      <Badge 
-                        variant="outline" 
-                        className={`text-xs px-2 ${getActionColor(activity.action)}`}
-                      >
-                        {activity.action}
-                      </Badge>
-                      {activity.hostName && (
-                        <Badge variant="secondary" className="text-xs px-2">
-                          {activity.hostName}
-                        </Badge>
-                      )}
-                    </div>
+                <div key={`${activity.id}-${index}`} className="flex items-start p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
+                  <div className="flex-1 min-w-0 space-y-2 items-center m-2">
                     <div className='flex space-x-4 justify-between pr-2'>
-                      <p className="text-sm font-medium leading-tight">
-                        {activity.title}
-                      </p>
-                      
+                      <div className='flex gap-2 items-center'>
+                        <div>
+                          {categoryIcons[activity.category] || <Settings className="h-4 w-4" />}
+                        </div>
+                        <p className="text-sm font-medium leading-tight">
+                          {activity.title}
+                        </p>
+
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {formatTimestamp(activity.timestamp)}
+                      </span>                      
+                    </div>
+                    <div className="flex space-x-4">
+
                       {activity.description && (
                         <p className="text-xs text-gray-400 dark:text-gray-400 leading-tight">
                           {activity.description}
                         </p>
                       )}
-                    </div>
-                    <div className="flex space-x-4">
-                      <span className="text-xs text-gray-500">
-                        {formatTimestamp(activity.timestamp)}
-                      </span>
                       {activity.resourceName && (
                         <span className="text-xs text-gray-500 truncate max-w-[100px]">
                           {activity.resourceName}
                         </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 mb-1">
+                      <Badge className={categoryColors[activity.category]}>
+                        {activity.category.toUpperCase()}
+                      </Badge>
+                      <Badge 
+                        variant="outline" 
+                        className={`text-xs px-2 ${getActionColor(activity.action)}`}
+                      >
+                        {activity.action.toUpperCase()}
+                      </Badge>
+                      {activity.hostName && (
+                        <Badge variant="secondary" className="text-xs px-2">
+                          {activity.hostName}
+                        </Badge>
                       )}
                     </div>
                   </div>

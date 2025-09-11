@@ -71,8 +71,8 @@ export function DnsOverviewWidget() {
 
   const healthyRecords = stats.statusDistribution?.RESOLVED || 0;
   const failedRecords = (stats.statusDistribution?.FAILED || 0) + 
-                       (stats.statusDistribution?.TIMEOUT || 0) + 
-                       (stats.statusDistribution?.NO_RECORD || 0);
+                        (stats.statusDistribution?.TIMEOUT || 0) + 
+                        (stats.statusDistribution?.NO_RECORD || 0);
 
   const getHealthStatus = () => {
     if (stats.enabledRecords === 0) return { label: 'No Records', color: 'secondary' };

@@ -13,15 +13,15 @@ export default function DnsPage() {
   const [activeTab, setActiveTab] = useState('records');
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      {/* <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">DNS Management</h1>
           <p className="text-muted-foreground">
             Monitor and manage DNS resolution for your domains
           </p>
         </div>
-      </div>
+      </div> */}
 
       <DnsStatsSection />
 

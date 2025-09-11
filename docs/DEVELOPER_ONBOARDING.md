@@ -150,7 +150,7 @@ app/
 ├── layout.tsx              # Root layout
 ├── page.tsx                # Home page
 ├── providers.tsx           # React Query provider
-├── app-shell.tsx           # Main application shell
+├── dashboard/page.tsx      # Main dashboard page with sidebar navigation
 ├── sections/               # Feature sections
 ├── components/             # Reusable components
 ├── hooks/                  # Custom React hooks

@@ -200,18 +200,6 @@ export default function PluginsSection() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">插件管理</h2>
-          <p className="text-muted-foreground">
-            管理自动化系统的触发器和事件插件
-          </p>
-        </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          安装插件
-        </Button>
-      </div>
 
       {/* Summary Cards */}
       {summary && (
@@ -266,11 +254,17 @@ export default function PluginsSection() {
 
       {/* Plugin Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="overview">全部插件</TabsTrigger>
-          <TabsTrigger value="triggers">触发器</TabsTrigger>
-          <TabsTrigger value="events">事件</TabsTrigger>
-        </TabsList>
+        <div className='flex flex-row items-center justify-between pb-2'>
+          <TabsList>
+            <TabsTrigger value="overview">全部插件</TabsTrigger>
+            <TabsTrigger value="triggers">触发器</TabsTrigger>
+            <TabsTrigger value="events">事件</TabsTrigger>
+          </TabsList>
+          <Button size="sm" >
+            <Plus className="h-4 w-4 mr-2"/>
+            安装插件
+          </Button>
+        </div>
 
         <TabsContent value="overview" className="space-y-4">
           <Card>
