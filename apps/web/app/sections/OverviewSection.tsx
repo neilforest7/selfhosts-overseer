@@ -5,8 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ActivityLogWidget } from './ActivityLogWidget';
 import { DnsOverviewWidget } from './DnsOverviewWidget';
-import { HostStatusSummary } from '@/components/HostStatusIndicator';
 import { useHostConnectivity } from '@/lib/hooks/useHostConnectivity';
+import { apiClient } from '@/src/lib/api-client';
 import { Server, Container, Network, Activity, TrendingUp, AlertTriangle, Wifi } from 'lucide-react';
 
 interface SystemStats {
@@ -29,16 +29,19 @@ interface SystemStats {
 
 async function fetchSystemStats(): Promise<SystemStats> {
   // Fetch hosts
-  const hostsResponse = await fetch('/api/v1/hosts');
-  const hostsData = await hostsResponse.json();
+  const hostsResponse = await apiClient.get('/api/v1/hosts');
+  if (!hostsResponse.success) throw new Error('Failed to fetch hosts');
+  const hostsData = hostsResponse.data;
   
   // Fetch containers
-  const containersResponse = await fetch('/api/v1/containers');
-  const containersData = await containersResponse.json();
+  const containersResponse = await apiClient.get('/api/v1/containers');
+  if (!containersResponse.success) throw new Error('Failed to fetch containers');
+  const containersData = containersResponse.data;
   
   // Fetch activity stats
-  const activityResponse = await fetch('/api/v1/activity-logs/stats?days=1');
-  const activityData = await activityResponse.json();
+  const activityResponse = await apiClient.get('/api/v1/activity-logs/stats?days=1');
+  if (!activityResponse.success) throw new Error('Failed to fetch activity stats');
+  const activityData = activityResponse.data;
 
   return {
     hosts: {

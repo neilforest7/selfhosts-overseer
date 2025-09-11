@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { apiClient } from '@/src/lib/api-client';
 import { Globe, CheckCircle, XCircle, AlertTriangle, ExternalLink } from 'lucide-react';
 
 interface DnsStats {
@@ -15,11 +16,11 @@ interface DnsStats {
 }
 
 async function fetchDnsStats(): Promise<DnsStats> {
-  const response = await fetch('/api/v1/dns/stats');
-  if (!response.ok) {
+  const response = await apiClient.get('/api/v1/dns/stats');
+  if (!response.success) {
     throw new Error('Failed to fetch DNS stats');
   }
-  return response.json();
+  return response.data;
 }
 
 export function DnsOverviewWidget() {

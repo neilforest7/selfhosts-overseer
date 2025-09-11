@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import OverviewSection from './sections/OverviewSection';
 import HostsSection from './sections/HostsSection';

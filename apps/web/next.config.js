@@ -10,6 +10,30 @@ const nextConfig = {
       },
     ];
   },
+  webpack: (config, { isServer }) => {
+    // Handle node: protocol imports
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        child_process: false,
+        crypto: false,
+        path: false,
+        os: false,
+        stream: false,
+        buffer: false,
+        util: false,
+        assert: false,
+        process: false,
+      };
+    }
+    
+        
+    return config;
+  },
+  experimental: {
+    serverComponentsExternalPackages: ['bcryptjs'],
+  },
 };
 
 module.exports = nextConfig;

@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { ManualPortDialog } from './ManualPortDialog';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import { DiscoverHostsDialog } from './DiscoverHostsDialog';
+import { apiClient, ApiResponse } from '@/src/lib/api-client';
 import { ChevronDown, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { getUpdateStatusDisplay, ImageUpdateStatus } from '@selfhost-serv-agent/shared';
 
@@ -65,16 +66,16 @@ export default function ContainersSection() {
   // Helper function to execute task operations and automatically open TaskDrawer
   const executeTaskOperation = useCallback(async (
     title: string,
-    apiCall: () => Promise<Response>,
+    apiCall: () => Promise<ApiResponse>,
     onSuccess?: (result: any) => void,
     onError?: (error: Error) => void
   ) => {
     try {
       const response = await apiCall();
-      if (!response.ok) {
-        throw new Error(await response.text());
+      if (!response.success) {
+        throw new Error(response.error || '操作失败');
       }
-      const result = await response.json();
+      const result = response.data;
       
       // If the API returns a taskId, add it to TaskDrawer and select it
       if (result.taskId) {
@@ -93,9 +94,9 @@ export default function ContainersSection() {
         // Monitor the task status
         const monitorTask = async () => {
           try {
-            const statusResponse = await fetch(`http://localhost:3001/api/v1/operations/${result.taskId}`);
-            if (statusResponse.ok) {
-              const taskData = await statusResponse.json();
+            const statusResponse = await apiClient.get(`/api/v1/operations/${result.taskId}`);
+            if (statusResponse.success) {
+              const taskData = statusResponse.data;
               if (taskData.status === 'COMPLETED' || taskData.status === 'ERROR') {
                 return; // Task finished, stop monitoring
               }
@@ -145,10 +146,10 @@ export default function ContainersSection() {
 
     while (attempts < maxAttempts) {
       try {
-        const response = await fetch(`http://localhost:3001/api/v1/operations/${taskId}`);
-        if (!response.ok) break;
+        const response = await apiClient.get(`/api/v1/operations/${taskId}`);
+        if (!response.success) break;
 
-        const operation = await response.json();
+        const operation = response.data;
 
         if (operation.status === 'COMPLETED') {
           toast.success(`${operationName}完成`);
@@ -176,15 +177,11 @@ export default function ContainersSection() {
   // Mutation for triggering actual container status refresh operation
   const refreshStatusMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch('http://localhost:3001/api/v1/containers/refresh-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: { id: 'all' } }),
-      });
-      if (!response.ok) {
-        throw new Error(`刷新失败: ${response.statusText}`);
+      const response = await apiClient.post('/api/v1/containers/refresh-status', { host: { id: 'all' } });
+      if (!response.success) {
+        throw new Error(`刷新失败: ${response.error}`);
       }
-      return response.json();
+      return response.data;
     },
     onSuccess: async (data) => {
       toast.success('容器状态刷新已启动');
@@ -208,18 +205,19 @@ export default function ContainersSection() {
   const listQuery = useQuery<{ items: ContainerItem[] }>({
     queryKey: ['containers', q, updateOnly, hostFilter, filterMode],
     queryFn: async () => {
-      const url = new URL('http://localhost:3001/api/v1/containers');
-      if (q) url.searchParams.set('q', q);
-      if (updateOnly) url.searchParams.set('updateAvailable', 'true');
-      if (hostFilter) url.searchParams.set('hostName', hostFilter);
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      if (updateOnly) params.set('updateAvailable', 'true');
+      if (hostFilter) params.set('hostName', hostFilter);
       if (filterMode === 'compose') {
-        url.searchParams.set('composeManaged', 'true');
+        params.set('composeManaged', 'true');
       } else if (filterMode === 'cli') {
-        url.searchParams.set('composeManaged', 'false');
+        params.set('composeManaged', 'false');
       }
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('加载失败');
-      return r.json();
+      
+      const response = await apiClient.get<{ items: ContainerItem[] }>(`/api/v1/containers?${params.toString()}`);
+      if (!response.success) throw new Error(response.error || '加载失败');
+      return response.data;
     },
     refetchInterval: 30000, // 减少到30秒自动刷新，避免竞态条件
     refetchIntervalInBackground: false, // 页面在后台时停止刷新，减少竞态条件
@@ -228,9 +226,9 @@ export default function ContainersSection() {
   const hostsQuery = useQuery<{ items: HostItem[] }>({ 
     queryKey: ['hosts'],
     queryFn: async () => {
-      const r = await fetch('http://localhost:3001/api/v1/hosts');
-      if (!r.ok) throw new Error('加载主机失败');
-      return r.json();
+      const response = await apiClient.get<{ items: HostItem[] }>('/api/v1/hosts');
+      if (!response.success) throw new Error(response.error || '加载主机失败');
+      return response.data;
     }
   });
 
@@ -394,13 +392,9 @@ export default function ContainersSection() {
         body = { host: { id: hostTarget } };
       }
 
-      const r = await fetch('http://localhost:3001/api/v1/containers/discover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error('发现失败');
-      return r.json();
+      const response = await apiClient.post('/api/v1/containers/discover', body);
+      if (!response.success) throw new Error(response.error || '发现失败');
+      return response.data;
     },
     onMutate: (hostTarget) => {
       let hostName: string;
@@ -466,13 +460,9 @@ export default function ContainersSection() {
   const checkUpdates = useMutation({
     mutationFn: async (hostTarget: string | 'all') => {
       const body = hostTarget === 'all' ? {} : { host: { id: hostTarget } };
-      const r = await fetch('http://localhost:3001/api/v1/containers/check-updates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) throw new Error('检查失败');
-      return r.json();
+      const response = await apiClient.post('/api/v1/containers/check-updates', body);
+      if (!response.success) throw new Error(response.error || '检查失败');
+      return response.data;
     },
     onMutate: (hostTarget) => {
       const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
@@ -505,13 +495,11 @@ export default function ContainersSection() {
   // Compose 操作（改为直接调用后端 compose/operate 接口）
   const composeOperation = useMutation({
     mutationFn: async ({ hostId, project, workingDir, operation }: { hostId: string; project: string; workingDir: string; operation: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop' }) => {
-      const r = await fetch('http://localhost:3001/api/v1/containers/compose/operate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hostId, project, workingDir, op: operation })
+      const response = await apiClient.post('/api/v1/containers/compose/operate', {
+        hostId, project, workingDir, op: operation
       });
-      if (!r.ok) throw new Error(`${operation} 操作失败`);
-      return r.json();
+      if (!response.success) throw new Error(`${operation} 操作失败`);
+      return response.data;
     },
     onMutate: ({ project, operation }) => {
       toast.info(`正在执行 Compose ${operation}：${project}`);
@@ -536,11 +524,9 @@ export default function ContainersSection() {
 
   const analyzeNpm = useMutation({
     mutationFn: async (hostId: string) => {
-      const r = await fetch(`http://localhost:3001/api/v1/reverse-proxy/sync/${hostId}`, {
-        method: 'POST',
-      });
-      if (!r.ok) throw new Error('分析请求失败');
-      return r.json();
+      const response = await apiClient.post(`/api/v1/reverse-proxy/sync/${hostId}`);
+      if (!response.success) throw new Error('分析请求失败');
+      return response.data;
     },
     onMutate: (hostId) => {
       const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
@@ -559,11 +545,9 @@ export default function ContainersSection() {
 
   const analyzeFrp = useMutation({
     mutationFn: async (hostId: string) => {
-      const r = await fetch(`http://localhost:3001/api/v1/frp/sync/${hostId}`, {
-        method: 'POST',
-      });
-      if (!r.ok) throw new Error('分析请求失败');
-      return r.json();
+      const response = await apiClient.post(`/api/v1/frp/sync/${hostId}`);
+      if (!response.success) throw new Error('分析请求失败');
+      return response.data;
     },
     onMutate: (hostId) => {
       const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
@@ -981,11 +965,7 @@ export default function ContainersSection() {
                             <DropdownMenuItem onClick={async ()=>{
                               await executeTaskOperation(
                                 `重启 ${first.name}`,
-                                () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/restart`, { 
-                                  method:'POST', 
-                                  headers:{'Content-Type':'application/json'}, 
-                                  body: JSON.stringify({ host: { id: first.hostId } }) 
-                                }),
+                                () => apiClient.post(`/api/v1/containers/${first.id}/restart`, { host: { id: first.hostId } }),
                                 (result) => {
                                   if (result.taskId) {
                                     // TaskDrawer already opened and task selected by executeTaskOperation
@@ -1007,11 +987,7 @@ export default function ContainersSection() {
                                         <DropdownMenuItem onClick={async ()=>{
                                           await executeTaskOperation(
                                             `启动 ${first.name}`,
-                                            () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/start`, { 
-                                              method:'POST', 
-                                              headers:{'Content-Type':'application/json'}, 
-                                              body: JSON.stringify({ host: { id: first.hostId } }) 
-                                            }),
+                                            () => apiClient.post(`/api/v1/containers/${first.id}/start`, { host: { id: first.hostId } }),
                                             (result) => {
                                               if (result.taskId) {
                                                 // TaskDrawer already opened and task selected by executeTaskOperation
@@ -1037,11 +1013,7 @@ export default function ContainersSection() {
                                         <DropdownMenuItem onClick={async ()=>{
                                           await executeTaskOperation(
                                             `停止 ${first.name}`,
-                                            () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/stop`, { 
-                                              method:'POST', 
-                                              headers:{'Content-Type':'application/json'}, 
-                                              body: JSON.stringify({ host: { id: first.hostId } }) 
-                                            }),
+                                            () => apiClient.post(`/api/v1/containers/${first.id}/stop`, { host: { id: first.hostId } }),
                                             (result) => {
                                               if (result.taskId) {
                                                 // TaskDrawer already opened and task selected by executeTaskOperation
@@ -1061,11 +1033,7 @@ export default function ContainersSection() {
                               const i = first;
                               await executeTaskOperation(
                                 `更新 ${i.name}`,
-                                () => fetch(`http://localhost:3001/api/v1/containers/${i.id}/update`, { 
-                                  method:'POST', 
-                                  headers:{'Content-Type':'application/json'}, 
-                                  body: JSON.stringify({ host: { id: i.hostId } }) 
-                                }),
+                                () => apiClient.post(`/api/v1/containers/${i.id}/update`, { host: { id: i.hostId } }),
                                 (result) => {
                                   if (result.taskId) {
                                     // TaskDrawer already opened and task selected by executeTaskOperation
@@ -1089,11 +1057,7 @@ export default function ContainersSection() {
                                 const body: any = { hostId: first.hostId };
                                 if (first.composeProjectId) body.composeProjectId = first.composeProjectId;
                                 else body.composeProject = first.composeProject || '';
-                                return fetch('http://localhost:3001/api/v1/containers/check-compose-updates', { 
-                                  method: 'POST', 
-                                  headers: {'Content-Type': 'application/json'},
-                                  body: JSON.stringify(body)
-                                });
+                                return apiClient.post('/api/v1/containers/check-compose-updates', body);
                               },
                               (result) => {
                                 if (result.taskId) {
@@ -1115,11 +1079,7 @@ export default function ContainersSection() {
                             // 单个容器：检查该容器更新
                             await executeTaskOperation(
                               `检查更新: ${first.name}`,
-                              () => fetch(`http://localhost:3001/api/v1/containers/${first.id}/check-update`, { 
-                                method: 'POST', 
-                                headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify({})
-                              }),
+                              () => apiClient.post(`/api/v1/containers/${first.id}/check-update`, {}),
                               (result) => {
                                 if (result.taskId) {
                                   // TaskDrawer already opened and task selected by executeTaskOperation

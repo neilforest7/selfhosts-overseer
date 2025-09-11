@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { PluginBasedAutomationRuleDialog } from './PluginBasedAutomationRuleDialog';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
+import { apiClient } from '@/src/lib/api-client';
 
 // Matches the Prisma model and the backend response
 export type AutomationRule = {
@@ -67,10 +68,9 @@ export type AutomationRule = {
 };
 
 async function fetchAutomationRules(): Promise<AutomationRule[]> {
-  const r = await fetch('/api/v1/automations');
-  if (!r.ok) throw new Error('Failed to fetch automation rules');
-  const data = await r.json();
-  return data.items || data;
+  const response = await apiClient.get<{ items: AutomationRule[] }>('/api/v1/automations');
+  if (!response.success) throw new Error(response.error || 'Failed to fetch automation rules');
+  return response.data.items || response.data;
 }
 
 export default function AutomationsSection() {
@@ -99,16 +99,11 @@ export default function AutomationsSection() {
   const createMutation = useMutation({
     mutationFn: async (data: Partial<AutomationRule>) => {
       console.log('Creating automation rule with data:', data);
-      const response = await fetch('/api/v1/automations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to create rule: ${response.status} ${errorText}`);
+      const response = await apiClient.post<AutomationRule>('/api/v1/automations', data);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to create rule');
       }
-      return response.json();
+      return response.data;
     },
     ...mutationOptions,
   });
@@ -116,25 +111,20 @@ export default function AutomationsSection() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<AutomationRule> }) => {
       console.log('Updating automation rule with data:', data);
-      const response = await fetch(`/api/v1/automations/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to update rule: ${response.status} ${errorText}`);
+      const response = await apiClient.patch<AutomationRule>(`/api/v1/automations/${id}`, data);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to update rule');
       }
-      return response.json();
+      return response.data;
     },
     ...mutationOptions,
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const response = await fetch(`/api/v1/automations/${id}`, { method: 'DELETE' });
-      if (!response.ok) {
-        throw new Error('删除失败');
+      const response = await apiClient.delete(`/api/v1/automations/${id}`);
+      if (!response.success) {
+        throw new Error(response.error || '删除失败');
       }
       return response;
     },
@@ -180,18 +170,13 @@ export default function AutomationsSection() {
       const opId = await startOperation(`测试规则 ${rule.name}`);
       toast.info(`正在测试规则：${rule.name}`);
 
-      const response = await fetch(`/api/v1/automations/${rule.id}/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ opId })
-      });
+      const response = await apiClient.post(`/api/v1/automations/${rule.id}/test`, { opId });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || '测试执行失败');
+      if (!response.success) {
+        throw new Error(response.error || '测试执行失败');
       }
 
-      const result = await response.json();
+      const result = response.data;
       if (result.taskId) {
         await fetchTasks();
         selectTask(result.taskId);

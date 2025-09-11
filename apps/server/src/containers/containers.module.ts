@@ -8,6 +8,7 @@ import { CryptoService } from '../security/crypto.service';
 import { SshModule } from '../ssh/ssh.module';
 import { LogsModule } from '../logs/logs.module';
 import { SettingsModule } from '../settings/settings.module';
+import { AuthModule } from '../auth/auth.module';
 import { ReverseProxyModule } from '../reverse-proxy/reverse-proxy.module';
 import { DockerModule } from '../docker/docker.module';
 import { FrpModule } from '../frp/frp.module';
@@ -32,6 +33,7 @@ import { AutomationsModule } from '../automations/automations.module';
     SshModule,
     LogsModule,
     SettingsModule,
+    AuthModule,
     forwardRef(() => ReverseProxyModule),
     DockerModule,
     FrpModule,

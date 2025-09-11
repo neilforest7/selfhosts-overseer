@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { ClientOnly } from '@/components/ClientOnly';
 import { HostStatusIndicator } from '@/components/HostStatusIndicator';
 import { useHostConnectivity, HostStatus } from '@/lib/hooks/useHostConnectivity';
+import { apiClient } from '@/src/lib/api-client';
 
 type Host = { id: string; name: string; address: string; sshUser: string; port?: number; tags?: string[]; role?: 'local' | 'remote'; hasPassword?: boolean; hasPrivateKey?: boolean; status: HostStatus; lastConnectivityCheck?: string | Date | null; };
 
@@ -40,30 +41,31 @@ export default function HostsSection() {
   const hostsQuery = useQuery<{ items: Host[]; nextCursor: string | null }>({
     queryKey: ['hosts', tag, cursor],
     queryFn: async () => {
-      const url = new URL('http://localhost:3001/api/v1/hosts');
-      if (tag) url.searchParams.set('tag', tag);
-      if (cursor) url.searchParams.set('cursor', cursor);
-      url.searchParams.set('limit', '20');
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('加载失败');
-      return r.json();
+      const params = new URLSearchParams();
+      if (tag) params.set('tag', tag);
+      if (cursor) params.set('cursor', cursor);
+      params.set('limit', '20');
+      
+      const response = await apiClient.get<{ items: Host[]; nextCursor: string | null }>(`/api/v1/hosts?${params.toString()}`);
+      if (!response.success) throw new Error(response.error || '加载失败');
+      return response.data;
     }
   });
 
   const addMutation = useMutation({
     mutationFn: async (body: Partial<Host>) => {
-      const r = await fetch('http://localhost:3001/api/v1/hosts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error('创建失败');
-      return r.json() as Promise<Host>;
+      const response = await apiClient.post<Host>('/api/v1/hosts', body);
+      if (!response.success) throw new Error(response.error || '创建失败');
+      return response.data;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast.success('已创建主机'); setDialogOpen(false); setEditing(null); },
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...partial }: Partial<Host> & { id: string }) => {
-      const r = await fetch(`http://localhost:3001/api/v1/hosts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(partial) });
-      if (!r.ok) throw new Error('更新失败');
-      return r.json() as Promise<Host>;
+      const response = await apiClient.patch<Host>(`/api/v1/hosts/${id}`, partial);
+      if (!response.success) throw new Error(response.error || '更新失败');
+      return response.data;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['hosts'] }); toast.success('已更新主机'); setDialogOpen(false); setEditing(null); },
   });
@@ -72,7 +74,8 @@ export default function HostsSection() {
     const ids = Object.entries(selected).filter(([, v]) => v).map(([k]) => k);
     for (const id of ids) {
       // eslint-disable-next-line no-await-in-loop
-      await fetch(`http://localhost:3001/api/v1/hosts/${id}`, { method: 'DELETE' });
+      const response = await apiClient.delete(`/api/v1/hosts/${id}`);
+      if (!response.success) throw new Error(response.error || `删除失败: ${id}`);
     }
     toast.success(`已删除 ${ids.length} 项`);
     setSelected({});
@@ -90,13 +93,12 @@ export default function HostsSection() {
     try {
       toast.info(`正在测试连接：${hostName}`);
 
-      const r = await fetch(`http://localhost:3001/api/v1/hosts/${id}/test-connection`, { method: 'POST' });
-      const data = await r.json().catch(()=>({ ok:false }));
-
-      if (data.ok) {
+      const response = await apiClient.post(`/api/v1/hosts/${id}/test-connection`, {});
+      
+      if (response.success) {
         toast.success(`连通性正常：${hostName}`);
       } else {
-        const detail = (data.stderr || data.stdout || '').toString().slice(0, 200);
+        const detail = (response.data?.stderr || response.data?.stdout || '').toString().slice(0, 200);
         toast.error(`连通性失败：${hostName} - ${detail || '请检查地址/端口/认证方式'}`);
       }
     } catch (error) {
@@ -242,7 +244,15 @@ export default function HostsSection() {
                     {testing[h.id] ? '测试中...' : '测试连接'}
                   </Button>
                   <Button onClick={() => { setEditing(h); setDialogOpen(true); }}>编辑</Button>
-                  <Button variant="destructive" onClick={async ()=>{ await fetch(`http://localhost:3001/api/v1/hosts/${h.id}`, { method: 'DELETE' }); qc.invalidateQueries({ queryKey: ['hosts'] }); }}>删除</Button>
+                  <Button variant="destructive" onClick={async ()=>{
+  const response = await apiClient.delete(`/api/v1/hosts/${h.id}`);
+  if (!response.success) {
+    toast.error(`删除失败: ${response.error}`);
+    return;
+  }
+  qc.invalidateQueries({ queryKey: ['hosts'] });
+  toast.success('删除成功');
+}}>删除</Button>
                 </TableCell>
               </TableRow>
               );

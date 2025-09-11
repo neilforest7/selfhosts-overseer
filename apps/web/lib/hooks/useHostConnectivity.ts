@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
+import { apiClient } from '@/src/lib/api-client';
 
 export type HostStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
 
@@ -63,9 +64,9 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
   const { data: stats, refetch: refetchStats } = useQuery<ConnectivityStats>({
     queryKey: ['connectivity', 'stats'],
     queryFn: async () => {
-      const response = await fetch('/api/v1/hosts/connectivity/stats');
-      if (!response.ok) throw new Error('Failed to fetch connectivity stats');
-      return response.json();
+      const response = await apiClient.get('/api/v1/hosts/connectivity/stats');
+      if (!response.success) throw new Error('Failed to fetch connectivity stats');
+      return response.data;
     },
     refetchInterval: 30000, // Refetch every 30 seconds
   });
@@ -75,9 +76,9 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
     queryKey: ['connectivity', 'history', hostId],
     queryFn: async () => {
       if (!hostId) return null;
-      const response = await fetch(`/api/v1/hosts/${hostId}/connectivity?limit=50`);
-      if (!response.ok) throw new Error('Failed to fetch host connectivity history');
-      return response.json();
+      const response = await apiClient.get(`/api/v1/hosts/${hostId}/connectivity?limit=50`);
+      if (!response.success) throw new Error('Failed to fetch host connectivity history');
+      return response.data;
     },
     enabled: !!hostId,
     refetchInterval: 60000, // Refetch every minute
@@ -87,10 +88,9 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
   const { data: initialHosts } = useQuery({
     queryKey: ['hosts', 'all', 'connectivity'],
     queryFn: async () => {
-      const response = await fetch('/api/v1/hosts?limit=1000'); // Fetch a large number of hosts
-      if (!response.ok) throw new Error('Failed to fetch hosts for connectivity');
-      const data = await response.json();
-      return data.items as any[];
+      const response = await apiClient.get('/api/v1/hosts?limit=1000'); // Fetch a large number of hosts
+      if (!response.success) throw new Error('Failed to fetch hosts for connectivity');
+      return response.data.items as any[];
     },
     refetchOnWindowFocus: false,
   });
@@ -231,11 +231,9 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
       const id = targetHostId || hostId;
       if (!id) {
         // Check all hosts
-        const response = await fetch('/api/v1/hosts/check-all-connectivity', {
-          method: 'POST',
-        });
-        if (!response.ok) throw new Error('Failed to check connectivity for all hosts');
-        const results = await response.json();
+        const response = await apiClient.post('/api/v1/hosts/check-all-connectivity');
+        if (!response.success) throw new Error('Failed to check connectivity for all hosts');
+        const results = response.data;
         
         // Update local state with results
         setConnectivityData(prev => {
@@ -257,11 +255,9 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
         return results;
       } else {
         // Check specific host
-        const response = await fetch(`/api/v1/hosts/${id}/check-connectivity`, {
-          method: 'POST',
-        });
-        if (!response.ok) throw new Error('Failed to check host connectivity');
-        const result = await response.json();
+        const response = await apiClient.post(`/api/v1/hosts/${id}/check-connectivity`);
+        if (!response.success) throw new Error('Failed to check host connectivity');
+        const result = response.data;
         
         // Update local state
         setConnectivityData(prev => {

@@ -1,6 +1,7 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { OperationLog } from '@prisma/client';
+import { AuthGuard } from '../auth/auth.guard';
 
 class ExecDto {
   opId = '';
@@ -9,6 +10,7 @@ class ExecDto {
 }
 
 @Controller('/api/v1/tasks')
+@UseGuards(AuthGuard)
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 

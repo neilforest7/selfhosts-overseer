@@ -20,11 +20,13 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { ContextModule } from './context/context.module';
 import { ContextMiddleware } from './context/context.middleware';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
+    AuthModule,
     BullModule.forRoot({
       connection: {
         host: 'localhost',

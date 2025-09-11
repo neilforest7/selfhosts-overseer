@@ -1,7 +1,6 @@
 import './globals.css';
 import { Toaster } from 'sonner';
 import Providers from './providers';
-import AppShell from './app-shell';
 
 export const metadata = {
   title: 'Self-Host Serv Agent',
@@ -14,17 +13,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN" suppressHydrationWarning>
       <body suppressHydrationWarning className="min-h-screen bg-background text-foreground">
         <Providers>
-        <main className="h-screen flex flex-col p-6 space-y-8">
-          <div className="rounded-lg border p-4 flex-grow">
-            {/* 单页应用主体 */}
-            {/* 侧边栏 + 内容 */}
-            {/* 渲染 AppShell，其中包含侧边切换与各区块 */}
-            {/* 为确保 SSR 稳定性，AppShell 完全在客户端渲染 */}
-            <AppShell />
-          </div>
           {children}
-        </main>
-        <Toaster richColors closeButton />
+          <Toaster richColors closeButton />
         </Providers>
         <script dangerouslySetInnerHTML={{__html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/service-worker.js').catch(()=>{})})}`}} />
       </body>

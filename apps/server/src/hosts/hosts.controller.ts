@@ -1,8 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { HostsService, HostItem } from './hosts.service';
 import { ConnectivityService } from './connectivity.service';
+import { AuthGuard } from '../auth/auth.guard';
+import { Public } from '../auth/auth.guard';
 
 @Controller('/api/v1/hosts')
+@UseGuards(AuthGuard)
 export class HostsController {
   constructor(
     private readonly hostsService: HostsService,

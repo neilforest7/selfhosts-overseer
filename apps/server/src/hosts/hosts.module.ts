@@ -8,6 +8,7 @@ import { SshModule } from '../ssh/ssh.module';
 import { CryptoService } from '../security/crypto.service';
 import { ActivityLogModule } from '../activity-log/activity-log.module';
 import { SettingsModule } from '../settings/settings.module';
+import { AuthModule } from '../auth/auth.module';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 
@@ -16,6 +17,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     SshModule,
     ActivityLogModule,
     SettingsModule,
+    AuthModule,
     EventEmitterModule,
     BullModule.registerQueue({
       name: CONNECTIVITY_QUEUE_NAME,

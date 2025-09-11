@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ActivityLog } from '@/lib/types';
 import { useActivityLogSocket } from '@/lib/hooks/useActivityLogSocket';
+import { apiClient } from '@/src/lib/api-client';
 import { Clock, Server, Container, Network, Settings, ExternalLink, Wifi, WifiOff } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useCallback } from 'react';
@@ -59,11 +60,11 @@ const actionColors: Record<string, string> = {
 };
 
 async function fetchRecentActivities(): Promise<ActivityLog[]> {
-  const response = await fetch('/api/v1/activity-logs/recent?limit=10');
-  if (!response.ok) {
+  const response = await apiClient.get('/api/v1/activity-logs/recent?limit=10');
+  if (!response.success) {
     throw new Error('Failed to fetch recent activities');
   }
-  return response.json();
+  return response.data;
 }
 
 interface ActivityLogWidgetProps {

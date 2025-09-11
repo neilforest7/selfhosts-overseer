@@ -12,6 +12,7 @@ import { OperationLogService } from '../operation-log/operation-log.service';
 import { ContextModule } from '../context/context.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { SecurityModule } from '../security/security.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SecurityModule } from '../security/security.module';
     ContextModule,
     RealtimeModule,
     SecurityModule,
+    AuthModule,
   ],
   controllers: [TasksController],
   providers: [TasksService],

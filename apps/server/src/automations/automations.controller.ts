@@ -8,13 +8,16 @@ import {
   Delete,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { AutomationsService } from './automations.service';
 import { CreateAutomationRuleDto } from './dto/create-automation-rule.dto';
 import { UpdateAutomationRuleDto } from './dto/update-automation-rule.dto';
 import { TestAutomationRuleDto } from './dto/test-automation-rule.dto';
+import { AuthGuard } from '../auth/auth.guard';
 
 @Controller('/api/v1/automations')
+@UseGuards(AuthGuard)
 export class AutomationsController {
   constructor(private readonly automationsService: AutomationsService) {}
 

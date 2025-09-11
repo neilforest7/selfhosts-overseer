@@ -1,10 +1,12 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query, Patch, NotFoundException, Delete, HttpCode } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query, Patch, NotFoundException, Delete, HttpCode, UseGuards } from '@nestjs/common';
 import { ContainersService } from './containers.service';
 import { DockerService } from './docker.service';
 import { DockerRegistryService } from './docker-registry.service';
 import { UpdateManualPortDto } from './dto/manual-port.dto';
+import { AuthGuard } from '../auth/auth.guard';
 
 @Controller('/api/v1/containers')
+@UseGuards(AuthGuard)
 export class ContainersController {
   constructor(
     private readonly containers: ContainersService,

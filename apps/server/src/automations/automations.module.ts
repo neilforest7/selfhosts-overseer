@@ -45,6 +45,7 @@ import { ContainersModule } from '../containers/containers.module';
 import { OperationLogModule } from '../operation-log/operation-log.module';
 import { ContextModule } from '../context/context.module';
 import { SshModule } from '../ssh/ssh.module';
+import { AuthModule } from '../auth/auth.module';
 import { ModuleRef } from '@nestjs/core';
 
 // Validators and Services
@@ -62,6 +63,7 @@ import { AuditLogService } from './services/audit-log.service';
     OperationLogModule,
     ContextModule,
     SshModule,
+    AuthModule,
   ],
   controllers: [AutomationsController, PluginsController],
   providers: [

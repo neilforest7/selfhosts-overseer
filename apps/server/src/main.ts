@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ExecGateway } from './realtime/exec.gateway';
 import { Logger } from '@nestjs/common';
+import { AuthInitService } from './auth/auth-init.service';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -30,6 +31,10 @@ async function bootstrap(): Promise<void> {
   logger.log('初始化 WebSocket 网关...');
   app.get(ExecGateway);
   app.useWebSocketAdapter(new IoAdapter(app));
+  
+  logger.log('初始化认证系统...');
+  const authInitService = app.get(AuthInitService);
+  await authInitService.onModuleInit();
   
   logger.log('启动服务器，监听端口 3001...');
   await app.listen({ port: 3001, host: '0.0.0.0' });
