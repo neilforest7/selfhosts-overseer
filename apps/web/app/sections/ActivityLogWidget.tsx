@@ -64,7 +64,7 @@ async function fetchRecentActivities(): Promise<ActivityLog[]> {
   if (!response.success) {
     throw new Error('Failed to fetch recent activities');
   }
-  return response.data;
+  return response.data as ActivityLog[];
 }
 
 interface ActivityLogWidgetProps {

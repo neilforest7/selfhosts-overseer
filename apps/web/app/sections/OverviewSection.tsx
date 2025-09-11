@@ -31,17 +31,17 @@ async function fetchSystemStats(): Promise<SystemStats> {
   // Fetch hosts
   const hostsResponse = await apiClient.get('/api/v1/hosts');
   if (!hostsResponse.success) throw new Error('Failed to fetch hosts');
-  const hostsData = hostsResponse.data;
+  const hostsData = hostsResponse.data as { items: any[] };
   
   // Fetch containers
   const containersResponse = await apiClient.get('/api/v1/containers');
   if (!containersResponse.success) throw new Error('Failed to fetch containers');
-  const containersData = containersResponse.data;
+  const containersData = containersResponse.data as { items: any[] };
   
   // Fetch activity stats
   const activityResponse = await apiClient.get('/api/v1/activity-logs/stats?days=1');
   if (!activityResponse.success) throw new Error('Failed to fetch activity stats');
-  const activityData = activityResponse.data;
+  const activityData = activityResponse.data as { total?: number };
 
   return {
     hosts: {
@@ -56,8 +56,8 @@ async function fetchSystemStats(): Promise<SystemStats> {
       updateAvailable: containersData.items?.filter((c: any) => c.updateAvailable)?.length || 0,
     },
     activities: {
-      total: activityData.total || 0,
-      last24h: activityData.total || 0,
+      total: activityData?.total || 0,
+      last24h: activityData?.total || 0,
     },
   };
 }

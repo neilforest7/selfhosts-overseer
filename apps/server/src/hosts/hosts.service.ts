@@ -288,26 +288,32 @@ export class HostsService {
       });
       this.logger.log(`删除了 ${deletedHostNpmConfig.count} 个 HostNpmConfig 记录`);
 
-      // 6. 最后删除主机记录
+      // 6. 创建活动日志（在删除主机之前）
+      await tx.activityLog.create({
+        data: {
+          category: 'HOST_MANAGEMENT',
+          action: 'deleted',
+          resourceType: 'host',
+          resourceId: id,
+          resourceName: host.name,
+          hostId: id,
+          hostName: host.name,
+          title: `Host '${host.name}' deleted`,
+          description: `Host removed: ${host.address}:${host.port ?? 22} (${host.sshUser})`,
+          metadata: {
+            address: host.address,
+            port: host.port ?? 22,
+            sshUser: host.sshUser,
+            role: host.role,
+            tags: host.tags,
+          },
+        },
+      });
+
+      // 7. 最后删除主机记录
       await tx.host.delete({ where: { id } });
       this.logger.log(`✅ 主机删除成功: ${id}`);
     });
-
-    // Log activity
-    await this.activityLog.logHostActivity(
-      'deleted',
-      id,
-      host.name,
-      `Host '${host.name}' deleted`,
-      `Host removed: ${host.address}:${host.port ?? 22} (${host.sshUser})`,
-      {
-        address: host.address,
-        port: host.port ?? 22,
-        sshUser: host.sshUser,
-        role: host.role,
-        tags: host.tags,
-      }
-    );
   }
 
   async testConnection(id: string): Promise<{ ok: boolean; code: number; stdout?: string; stderr?: string }> {

@@ -70,10 +70,24 @@ export class SshService {
     const commandBin = useSshPass ? 'sshpass' : 'ssh';
     const sshpassArgs: string[] = [];
     if (useSshPass) {
-      sshpassArgs.push('-p', String(options.password ?? options.privateKeyPassphrase));
-      if (hasKeyPass && !hasPassword) {
-        // match key passphrase prompt
+      // Use password for password auth, or key passphrase for private key auth
+      if (hasPassword && !options.privateKey) {
+        // Password authentication only
+        sshpassArgs.push('-p', String(options.password));
+      } else if (hasKeyPass && options.privateKey) {
+        // Private key authentication with passphrase
+        sshpassArgs.push('-p', String(options.privateKeyPassphrase));
         sshpassArgs.push('-P', 'Enter passphrase for key');
+      } else if (hasPassword && options.privateKey) {
+        // Both provided, but we're using private key auth - need to handle this case carefully
+        // For now, prefer private key auth with passphrase if available
+        if (hasKeyPass) {
+          sshpassArgs.push('-p', String(options.privateKeyPassphrase));
+          sshpassArgs.push('-P', 'Enter passphrase for key');
+        } else {
+          // No passphrase provided for private key, try without
+          sshpassArgs.push('-p', String(options.password));
+        }
       }
     }
     // Prefer correct auth order

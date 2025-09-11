@@ -66,7 +66,7 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
     queryFn: async () => {
       const response = await apiClient.get('/api/v1/hosts/connectivity/stats');
       if (!response.success) throw new Error('Failed to fetch connectivity stats');
-      return response.data;
+      return response.data as ConnectivityStats;
     },
     refetchInterval: 30000, // Refetch every 30 seconds
   });
@@ -78,7 +78,7 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
       if (!hostId) return null;
       const response = await apiClient.get(`/api/v1/hosts/${hostId}/connectivity?limit=50`);
       if (!response.success) throw new Error('Failed to fetch host connectivity history');
-      return response.data;
+      return response.data as any[];
     },
     enabled: !!hostId,
     refetchInterval: 60000, // Refetch every minute
@@ -90,7 +90,7 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
     queryFn: async () => {
       const response = await apiClient.get('/api/v1/hosts?limit=1000'); // Fetch a large number of hosts
       if (!response.success) throw new Error('Failed to fetch hosts for connectivity');
-      return response.data.items as any[];
+      return (response.data as any)?.items as any[];
     },
     refetchOnWindowFocus: false,
   });
@@ -233,7 +233,7 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
         // Check all hosts
         const response = await apiClient.post('/api/v1/hosts/check-all-connectivity');
         if (!response.success) throw new Error('Failed to check connectivity for all hosts');
-        const results = response.data;
+        const results = response.data as any[];
         
         // Update local state with results
         setConnectivityData(prev => {
@@ -257,7 +257,7 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
         // Check specific host
         const response = await apiClient.post(`/api/v1/hosts/${id}/check-connectivity`);
         if (!response.success) throw new Error('Failed to check host connectivity');
-        const result = response.data;
+        const result = response.data as any;
         
         // Update local state
         setConnectivityData(prev => {

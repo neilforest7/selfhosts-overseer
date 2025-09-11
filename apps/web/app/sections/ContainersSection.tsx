@@ -75,13 +75,13 @@ export default function ContainersSection() {
       if (!response.success) {
         throw new Error(response.error || '操作失败');
       }
-      const result = response.data;
+      const result = response.data as { taskId?: string };
       
       // If the API returns a taskId, add it to TaskDrawer and select it
-      if (result.taskId) {
+      if (result?.taskId) {
         // Create a temporary task entry for immediate display
         const tempTask = {
-          id: result.taskId,
+          id: result.taskId!,
           title,
           status: 'RUNNING' as const,
           triggerType: 'MANUAL' as const,
@@ -94,10 +94,10 @@ export default function ContainersSection() {
         // Monitor the task status
         const monitorTask = async () => {
           try {
-            const statusResponse = await apiClient.get(`/api/v1/operations/${result.taskId}`);
+            const statusResponse = await apiClient.get(`/api/v1/operations/${result.taskId!}`);
             if (statusResponse.success) {
-              const taskData = statusResponse.data;
-              if (taskData.status === 'COMPLETED' || taskData.status === 'ERROR') {
+              const taskData = statusResponse.data as { status: string };
+              if (taskData?.status === 'COMPLETED' || taskData?.status === 'ERROR') {
                 return; // Task finished, stop monitoring
               }
             }
@@ -149,13 +149,13 @@ export default function ContainersSection() {
         const response = await apiClient.get(`/api/v1/operations/${taskId}`);
         if (!response.success) break;
 
-        const operation = response.data;
+        const operation = response.data as { status: string };
 
-        if (operation.status === 'COMPLETED') {
+        if (operation?.status === 'COMPLETED') {
           toast.success(`${operationName}完成`);
           await refreshContainers(true);
           return;
-        } else if (operation.status === 'ERROR') {
+        } else if (operation?.status === 'ERROR') {
           toast.error(`${operationName}失败`);
           return;
         }
@@ -183,10 +183,10 @@ export default function ContainersSection() {
       }
       return response.data;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       toast.success('容器状态刷新已启动');
       // Monitor the operation status and refresh UI when complete
-      if (data.taskId) {
+      if (data?.taskId) {
         await monitorOperationStatus(data.taskId);
       } else {
         // Fallback: refresh after a delay
@@ -217,7 +217,7 @@ export default function ContainersSection() {
       
       const response = await apiClient.get<{ items: ContainerItem[] }>(`/api/v1/containers?${params.toString()}`);
       if (!response.success) throw new Error(response.error || '加载失败');
-      return response.data;
+      return response.data as { items: ContainerItem[] };
     },
     refetchInterval: 30000, // 减少到30秒自动刷新，避免竞态条件
     refetchIntervalInBackground: false, // 页面在后台时停止刷新，减少竞态条件
@@ -228,7 +228,7 @@ export default function ContainersSection() {
     queryFn: async () => {
       const response = await apiClient.get<{ items: HostItem[] }>('/api/v1/hosts');
       if (!response.success) throw new Error(response.error || '加载主机失败');
-      return response.data;
+      return response.data as { items: HostItem[] };
     }
   });
 

@@ -70,7 +70,7 @@ export type AutomationRule = {
 async function fetchAutomationRules(): Promise<AutomationRule[]> {
   const response = await apiClient.get<{ items: AutomationRule[] }>('/api/v1/automations');
   if (!response.success) throw new Error(response.error || 'Failed to fetch automation rules');
-  return response.data.items || response.data;
+  return response.data?.items || (response.data as any) || [];
 }
 
 export default function AutomationsSection() {
@@ -176,8 +176,8 @@ export default function AutomationsSection() {
         throw new Error(response.error || '测试执行失败');
       }
 
-      const result = response.data;
-      if (result.taskId) {
+      const result = response.data as { taskId?: string };
+      if (result?.taskId) {
         await fetchTasks();
         selectTask(result.taskId);
         setOpen(true);

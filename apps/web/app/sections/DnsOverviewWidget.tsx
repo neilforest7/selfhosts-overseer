@@ -20,7 +20,7 @@ async function fetchDnsStats(): Promise<DnsStats> {
   if (!response.success) {
     throw new Error('Failed to fetch DNS stats');
   }
-  return response.data;
+  return response.data as DnsStats;
 }
 
 export function DnsOverviewWidget() {
