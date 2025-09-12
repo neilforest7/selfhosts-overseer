@@ -211,7 +211,9 @@ export class ContainerStatusService {
             try {
               const parsed = JSON.parse(line);
               allContainerIds.add(parsed.ID);
-            } catch {}
+            } catch {
+              // ignore invalid JSON lines
+            }
           }
         }
 

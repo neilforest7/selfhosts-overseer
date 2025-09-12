@@ -5,8 +5,6 @@ import { ActivityLogCleanupService } from './activity-log-cleanup.service';
 
 describe('ActivityLogController', () => {
   let controller: ActivityLogController;
-  let activityLogService: ActivityLogService;
-  let cleanupService: ActivityLogCleanupService;
 
   const mockActivityLogService = {
     findMany: jest.fn(),
@@ -36,8 +34,6 @@ describe('ActivityLogController', () => {
     }).compile();
 
     controller = module.get<ActivityLogController>(ActivityLogController);
-    activityLogService = module.get<ActivityLogService>(ActivityLogService);
-    cleanupService = module.get<ActivityLogCleanupService>(ActivityLogCleanupService);
   });
 
   afterEach(() => {
@@ -121,7 +117,7 @@ describe('ActivityLogController', () => {
     });
 
     it('should use default limit when not provided', async () => {
-      const mockActivities = [];
+      const mockActivities: any[] = [];
       mockActivityLogService.getRecent.mockResolvedValue(mockActivities);
 
       await controller.getRecent();
@@ -180,7 +176,7 @@ describe('ActivityLogController', () => {
     });
 
     it('should use default limit when not provided', async () => {
-      const mockActivities = [];
+      const mockActivities: any[] = [];
       mockActivityLogService.findByResource.mockResolvedValue(mockActivities);
 
       await controller.findByResource('host', 'host-123');

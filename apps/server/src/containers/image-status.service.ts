@@ -212,4 +212,53 @@ export class ImageStatusService {
 
     return stats;
   }
+
+  /**
+   * 获取状态显示信息
+   */
+  getStatusDisplay(status: ImageUpdateStatus): {
+    text: string;
+    color: string;
+    action: string | null;
+    icon: string;
+  } {
+    switch (status) {
+      case 'UP_TO_DATE':
+        return {
+          text: '最新',
+          color: 'green',
+          action: null,
+          icon: '✅'
+        };
+      case 'CONTAINER_OUTDATED':
+        return {
+          text: '容器需重启',
+          color: 'orange',
+          action: 'restart',
+          icon: '🔄'
+        };
+      case 'IMAGE_OUTDATED':
+        return {
+          text: '镜像需更新',
+          color: 'blue',
+          action: 'update',
+          icon: '⬇️'
+        };
+      case 'BOTH_OUTDATED':
+        return {
+          text: '镜像和容器都需更新',
+          color: 'red',
+          action: 'both',
+          icon: '⚠️'
+        };
+      case 'UNKNOWN':
+      default:
+        return {
+          text: '未知状态',
+          color: 'gray',
+          action: null,
+          icon: '❓'
+        };
+    }
+  }
 }

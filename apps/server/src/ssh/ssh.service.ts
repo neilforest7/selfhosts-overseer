@@ -57,7 +57,9 @@ export class SshService {
       cleanup = async () => {
         try {
           await fs.unlink(keyPath);
-        } catch {} // ignore error
+        } catch {
+          // ignore error
+        }
       };
     }
 
@@ -117,7 +119,9 @@ export class SshService {
         timeout = setTimeout(() => {
           try {
             child.kill('SIGKILL');
-          } catch {} // ignore error
+          } catch {
+            // ignore error
+          }
         }, killAfterSeconds * 1000);
       }
 
@@ -168,7 +172,9 @@ export class SshService {
         timeout = setTimeout(() => {
           try {
             child.kill('SIGKILL');
-          } catch {} // ignore error
+          } catch {
+            // ignore error
+          }
         }, killAfterSeconds * 1000);
       }
 

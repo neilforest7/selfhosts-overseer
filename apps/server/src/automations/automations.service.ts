@@ -294,7 +294,6 @@ export class AutomationsService {
 
     let beforeSnapshot: any = null;
     let afterSnapshot: any = null;
-    let success = false;
 
     try {
       // 1. Pre-validation

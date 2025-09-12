@@ -5,13 +5,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
 export class LoginDto {
-  username: string;
-  password: string;
+  username!: string;
+  password!: string;
 }
 
 export class AuthResponseDto {
-  success: boolean;
-  message: string;
+  success!: boolean;
+  message!: string;
   user?: {
     id: string;
     username: string;
@@ -19,8 +19,8 @@ export class AuthResponseDto {
 }
 
 export class LoginResponseDto {
-  success: boolean;
-  message: string;
+  success!: boolean;
+  message!: string;
   user?: {
     id: string;
     username: string;

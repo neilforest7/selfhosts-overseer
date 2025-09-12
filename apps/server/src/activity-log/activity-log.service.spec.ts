@@ -2,12 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ActivityLogService } from './activity-log.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { ActivityCategory } from '@prisma/client';
+import { ActivityCategory } from './activity-log.service';
 
 describe('ActivityLogService', () => {
   let service: ActivityLogService;
-  let prismaService: PrismaService;
-  let eventEmitter: EventEmitter2;
 
   const mockPrismaService = {
     activityLog: {
@@ -40,8 +38,6 @@ describe('ActivityLogService', () => {
     }).compile();
 
     service = module.get<ActivityLogService>(ActivityLogService);
-    prismaService = module.get<PrismaService>(PrismaService);
-    eventEmitter = module.get<EventEmitter2>(EventEmitter2);
   });
 
   afterEach(() => {

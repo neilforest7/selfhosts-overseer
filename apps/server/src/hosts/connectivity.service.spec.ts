@@ -65,7 +65,7 @@ describe('ConnectivityService', () => {
 
   describe('checkHostConnectivity', () => {
     it('should return OFFLINE status when host is not found', async () => {
-      prismaService.host.findUnique.mockResolvedValue(null);
+      (prismaService.host.findUnique as jest.Mock).mockResolvedValue(null);
 
       const result = await service.checkHostConnectivity('non-existent-host');
 
@@ -74,9 +74,9 @@ describe('ConnectivityService', () => {
     });
 
     it('should return ONLINE status for successful connection', async () => {
-      prismaService.host.findUnique.mockResolvedValue(mockHost);
-      prismaService.hostConnectivityCheck.create.mockResolvedValue({} as any);
-      prismaService.host.update.mockResolvedValue({} as any);
+      (prismaService.host.findUnique as jest.Mock).mockResolvedValue(mockHost);
+      (prismaService.hostConnectivityCheck.create as jest.Mock).mockResolvedValue({} as any);
+      (prismaService.host.update as jest.Mock).mockResolvedValue({} as any);
 
       // Mock successful SSH connection
       jest.spyOn(service as any, 'performSSHConnectivityTest').mockResolvedValue({
@@ -91,9 +91,9 @@ describe('ConnectivityService', () => {
     });
 
     it('should return OFFLINE status for failed connection', async () => {
-      prismaService.host.findUnique.mockResolvedValue(mockHost);
-      prismaService.hostConnectivityCheck.create.mockResolvedValue({} as any);
-      prismaService.host.update.mockResolvedValue({} as any);
+      (prismaService.host.findUnique as jest.Mock).mockResolvedValue(mockHost);
+      (prismaService.hostConnectivityCheck.create as jest.Mock).mockResolvedValue({} as any);
+      (prismaService.host.update as jest.Mock).mockResolvedValue({} as any);
 
       // Mock failed SSH connection
       jest.spyOn(service as any, 'performSSHConnectivityTest').mockResolvedValue({
@@ -109,9 +109,9 @@ describe('ConnectivityService', () => {
 
     it('should emit events when host status changes', async () => {
       const hostWithOfflineStatus = { ...mockHost, status: HostStatus.OFFLINE };
-      prismaService.host.findUnique.mockResolvedValue(hostWithOfflineStatus);
-      prismaService.hostConnectivityCheck.create.mockResolvedValue({} as any);
-      prismaService.host.update.mockResolvedValue({} as any);
+      (prismaService.host.findUnique as jest.Mock).mockResolvedValue(hostWithOfflineStatus);
+      (prismaService.hostConnectivityCheck.create as jest.Mock).mockResolvedValue({} as any);
+      (prismaService.host.update as jest.Mock).mockResolvedValue({} as any);
 
       // Mock successful SSH connection (host coming back online)
       jest.spyOn(service as any, 'performSSHConnectivityTest').mockResolvedValue({
@@ -126,9 +126,9 @@ describe('ConnectivityService', () => {
 
     it('should log activity when status changes', async () => {
       const hostWithOfflineStatus = { ...mockHost, status: HostStatus.OFFLINE };
-      prismaService.host.findUnique.mockResolvedValue(hostWithOfflineStatus);
-      prismaService.hostConnectivityCheck.create.mockResolvedValue({} as any);
-      prismaService.host.update.mockResolvedValue({} as any);
+      (prismaService.host.findUnique as jest.Mock).mockResolvedValue(hostWithOfflineStatus);
+      (prismaService.hostConnectivityCheck.create as jest.Mock).mockResolvedValue({} as any);
+      (prismaService.host.update as jest.Mock).mockResolvedValue({} as any);
 
       // Mock successful SSH connection
       jest.spyOn(service as any, 'performSSHConnectivityTest').mockResolvedValue({
@@ -154,7 +154,7 @@ describe('ConnectivityService', () => {
         { id: 'host-2', name: 'Host 2' },
       ];
 
-      prismaService.host.findMany.mockResolvedValue(hosts as any);
+      (prismaService.host.findMany as jest.Mock).mockResolvedValue(hosts as any);
 
       // Mock checkHostConnectivity method
       jest.spyOn(service, 'checkHostConnectivity').mockResolvedValue({
@@ -176,7 +176,7 @@ describe('ConnectivityService', () => {
         { id: 'host-2', name: 'Host 2' },
       ];
 
-      prismaService.host.findMany.mockResolvedValue(hosts as any);
+      (prismaService.host.findMany as jest.Mock).mockResolvedValue(hosts as any);
 
       // Mock one successful and one failed check
       jest.spyOn(service, 'checkHostConnectivity')
@@ -212,8 +212,8 @@ describe('ConnectivityService', () => {
         { responseTime: 150 },
       ];
 
-      prismaService.host.findMany.mockResolvedValue(hosts as any);
-      prismaService.hostConnectivityCheck.findMany.mockResolvedValue(recentChecks as any);
+      (prismaService.host.findMany as jest.Mock).mockResolvedValue(hosts as any);
+      (prismaService.hostConnectivityCheck.findMany as jest.Mock).mockResolvedValue(recentChecks as any);
 
       const stats = await service.getConnectivityStats();
 
@@ -225,8 +225,8 @@ describe('ConnectivityService', () => {
     });
 
     it('should handle empty data gracefully', async () => {
-      prismaService.host.findMany.mockResolvedValue([]);
-      prismaService.hostConnectivityCheck.findMany.mockResolvedValue([]);
+      (prismaService.host.findMany as jest.Mock).mockResolvedValue([]);
+      (prismaService.hostConnectivityCheck.findMany as jest.Mock).mockResolvedValue([]);
 
       const stats = await service.getConnectivityStats();
 
@@ -257,7 +257,7 @@ describe('ConnectivityService', () => {
         },
       ];
 
-      prismaService.hostConnectivityCheck.findMany.mockResolvedValue(mockHistory as any);
+      (prismaService.hostConnectivityCheck.findMany as jest.Mock).mockResolvedValue(mockHistory as any);
 
       const history = await service.getHostConnectivityHistory('host-1', 50);
 

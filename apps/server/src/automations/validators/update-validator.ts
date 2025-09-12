@@ -63,7 +63,7 @@ export class UpdateValidator {
 
       // 4. 验证版本控制（乐观锁）
       if (context.expectedVersion) {
-        const versionValid = this.validateVersion(existingRule.updatedAt, context.expectedVersion);
+        const versionValid = this.validateVersion(existingRule.updatedAt, context.expectedVersion.getTime());
         if (!versionValid) {
           errors.push('Rule has been modified by another user. Please refresh and try again.');
         }

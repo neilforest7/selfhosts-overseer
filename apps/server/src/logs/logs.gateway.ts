@@ -96,7 +96,9 @@ export class LogsGateway {
           });
           sinceNs = e.tsNs;
         }
-      } catch {}
+      } catch {
+        // ignore JSON parse errors
+      }
     }, 1500);
     this.timers.set(this.timerKey(client), interval);
   }

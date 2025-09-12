@@ -325,7 +325,9 @@ export class ContainerLifecycleService {
             try {
               const parsed = JSON.parse(line);
               allContainerIds.add(parsed.ID);
-            } catch {}
+            } catch {
+              // ignore invalid JSON lines
+            }
           }
         }
 

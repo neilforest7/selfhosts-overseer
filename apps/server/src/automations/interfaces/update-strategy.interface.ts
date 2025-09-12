@@ -138,6 +138,9 @@ export interface UpdateContext {
   
   /** 上下文元数据 */
   metadata?: Record<string, any>;
+  
+  /** 预期版本（用于乐观锁） */
+  expectedVersion?: Date;
 }
 
 /**

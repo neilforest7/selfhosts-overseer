@@ -133,7 +133,7 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
     } catch (error) {
       this.logError('Error evaluating container state trigger', error);
       return this.createTriggerResult(false, { 
-        reason: `Container state evaluation error: ${error.message}` 
+        reason: `Container state evaluation error: ${error instanceof Error ? error.message : String(error)}` 
       });
     }
   }
@@ -272,7 +272,7 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
     
     const containerIdentifiers = this.getConfigValue(config, 'containerIdentifiers', []);
     if (Array.isArray(containerIdentifiers) && containerIdentifiers.length > 0) {
-      const invalidIdentifiers = containerIdentifiers.filter(id => typeof id !== 'string' || id.trim() === '');
+      const invalidIdentifiers = containerIdentifiers.filter(id => typeof id !== 'string' || (id as string).trim() === '');
       if (invalidIdentifiers.length > 0) {
         this.logError(`Invalid container identifiers: ${invalidIdentifiers.join(', ')}`);
         return false;
@@ -281,7 +281,7 @@ export class ContainerStateTriggerPlugin extends BaseTriggerPlugin {
     
     const hostIds = this.getConfigValue(config, 'hostIds', []);
     if (Array.isArray(hostIds) && hostIds.length > 0) {
-      const invalidHostIds = hostIds.filter(id => typeof id !== 'string' || id.trim() === '');
+      const invalidHostIds = hostIds.filter(id => typeof id !== 'string' || (id as string).trim() === '');
       if (invalidHostIds.length > 0) {
         this.logError(`Invalid host IDs: ${invalidHostIds.join(', ')}`);
         return false;

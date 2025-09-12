@@ -492,7 +492,6 @@ export class ContainerBatchUpdateService {
     duration?: number;
   }> {
     const startTime = Date.now();
-    const operationId = this.contextService.getOpId() || 'unknown';
 
     try {
       // Update progress to indicate container update started - simplified implementation

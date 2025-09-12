@@ -57,13 +57,13 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
       const result = await this.sendNotification(channel, notificationContent, recipients, channelConfig);
       
       if (result.success) {
-        this.operationLogService.log('info', `Notification sent via ${channel} to ${recipients.length} recipients`);
+        this.operationLogService.log('info', `Notification sent via ${channel} to ${(recipients as any[]).length} recipients`);
         return this.createSuccessResult(
           `Notification sent successfully via ${channel}`,
           {
             channel,
-            recipients: recipients.length,
-            messageLength: message.length,
+            recipients: (recipients as any[]).length,
+            messageLength: (message as string).length,
             sentAt: new Date()
           }
         );
@@ -431,7 +431,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
       
       return { success: true, details: { recipients: recipients.length } };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
   
@@ -461,7 +461,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
       
       return { success: true, details: { recipients: recipients.length } };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
   
@@ -492,7 +492,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
           });
           results.push({ url: webhookUrl, success: true });
         } catch (error) {
-          results.push({ url: webhookUrl, success: false, error: error.message });
+          results.push({ url: webhookUrl, success: false, error: error instanceof Error ? error.message : String(error) });
         }
       }
       
@@ -501,7 +501,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
       
       return { success, details: { results, successCount } };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
   
@@ -534,7 +534,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
       
       return { success: true, details: { recipients: recipients.length } };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
   

@@ -36,7 +36,7 @@ export class DnsOverHttpsProvider extends BaseDnsProvider {
 
       return response.data && typeof response.data.Status === 'number';
     } catch (error) {
-      this.logger.error(`DNS over HTTPS config validation failed: ${error.message}`);
+      this.logger.error(`DNS over HTTPS config validation failed: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -81,14 +81,14 @@ export class DnsOverHttpsProvider extends BaseDnsProvider {
       }
     } catch (error) {
       const responseTime = Date.now() - startTime;
-      this.logger.error(`DNS resolution failed for ${domain}: ${error.message}`);
+      this.logger.error(`DNS resolution failed for ${domain}: ${error instanceof Error ? error.message : String(error)}`);
       
       return {
         domain,
         recordType,
         responseTime,
-        status: error.code === 'ECONNABORTED' ? DnsStatus.TIMEOUT : DnsStatus.FAILED,
-        errorMessage: error.message,
+        status: (error as any).code === 'ECONNABORTED' ? DnsStatus.TIMEOUT : DnsStatus.FAILED,
+        errorMessage: error instanceof Error ? error.message : String(error),
       };
     }
   }

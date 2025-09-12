@@ -336,7 +336,6 @@ export class ContainersService {
   // Legacy refresh status method with overloaded signature
   async refreshStatus(
     hostIdOrBodyHost: string | { id?: string } | { id: 'all' },
-    _options?: { containerIds?: string[]; containerNames?: string[]; composeProject?: string },
   ): Promise<{ taskId: string }> {
     if (typeof hostIdOrBodyHost === 'string') {
       // Legacy call with hostId and options

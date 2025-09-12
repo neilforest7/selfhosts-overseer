@@ -133,7 +133,7 @@ export class PluginRegistry implements OnModuleInit {
       this.logger.log(`Successfully registered plugin: ${metadata.name} (${metadata.id})`);
       
     } catch (error) {
-      this.logger.error(`Failed to register plugin '${metadata.id}': ${error.message}`);
+      this.logger.error(`Failed to register plugin '${metadata.id}': ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -176,7 +176,7 @@ export class PluginRegistry implements OnModuleInit {
       this.logger.log(`Successfully unregistered plugin: ${pluginId}`);
       
     } catch (error) {
-      this.logger.error(`Failed to unregister plugin '${pluginId}': ${error.message}`);
+      this.logger.error(`Failed to unregister plugin '${pluginId}': ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -266,7 +266,7 @@ export class PluginRegistry implements OnModuleInit {
       this.logger.log(`Successfully reloaded plugin: ${pluginId}`);
       
     } catch (error) {
-      this.logger.error(`Failed to reload plugin '${pluginId}': ${error.message}`);
+      this.logger.error(`Failed to reload plugin '${pluginId}': ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -358,7 +358,7 @@ export class PluginRegistry implements OnModuleInit {
 
           this.logger.log(`Registered built-in plugin: ${plugin.name} (${plugin.id})`);
         } catch (error) {
-          this.logger.error(`Failed to register built-in plugin '${PluginClass.name}': ${error.message}`);
+          this.logger.error(`Failed to register built-in plugin '${PluginClass.name}': ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       

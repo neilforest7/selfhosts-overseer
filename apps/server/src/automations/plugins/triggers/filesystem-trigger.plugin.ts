@@ -83,7 +83,7 @@ export class FileSystemTriggerPlugin extends BaseTriggerPlugin {
     } catch (error) {
       this.logError('Error evaluating file system trigger', error);
       return this.createTriggerResult(false, { 
-        reason: `File system evaluation error: ${error.message}` 
+        reason: `File system evaluation error: ${error instanceof Error ? error.message : String(error)}` 
       });
     }
   }

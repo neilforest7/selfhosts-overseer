@@ -101,7 +101,7 @@ export class SystemResourceTriggerPlugin extends BaseTriggerPlugin {
     } catch (error) {
       this.logError('Error evaluating system resource trigger', error);
       return this.createTriggerResult(false, { 
-        reason: `System resource evaluation error: ${error.message}` 
+        reason: `System resource evaluation error: ${error instanceof Error ? error.message : String(error)}` 
       });
     }
   }

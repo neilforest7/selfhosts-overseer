@@ -25,7 +25,7 @@ export class JwtValidationService {
 
       return jwt.verify(token, secret) as JwtPayload;
     } catch (error) {
-      this.logger.warn(`JWT validation failed: ${error.message}`);
+      this.logger.warn(`JWT validation failed: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }

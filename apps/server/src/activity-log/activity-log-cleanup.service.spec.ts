@@ -5,8 +5,6 @@ import { SettingsService } from '../settings/settings.service';
 
 describe('ActivityLogCleanupService', () => {
   let service: ActivityLogCleanupService;
-  let activityLogService: ActivityLogService;
-  let settingsService: SettingsService;
 
   const mockActivityLogService = {
     cleanup: jest.fn(),
@@ -38,8 +36,6 @@ describe('ActivityLogCleanupService', () => {
     }).compile();
 
     service = module.get<ActivityLogCleanupService>(ActivityLogCleanupService);
-    activityLogService = module.get<ActivityLogService>(ActivityLogService);
-    settingsService = module.get<SettingsService>(SettingsService);
   });
 
   afterEach(() => {

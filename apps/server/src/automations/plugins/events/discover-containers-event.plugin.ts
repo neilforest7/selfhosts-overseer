@@ -104,7 +104,7 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
       return false;
     }
     
-    const invalidHostIds = hostIds.filter(id => typeof id !== 'string' || id.trim() === '');
+    const invalidHostIds = hostIds.filter(id => typeof id !== 'string' || (id as string).trim() === '');
     if (invalidHostIds.length > 0) {
       this.logError(`Invalid host IDs: ${invalidHostIds.join(', ')}`);
       return false;
@@ -297,7 +297,7 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
     
     for (const hostId of hostIds) {
       try {
-        const { items: hosts } = await this.hostsService.list({ q: hostId });
+        const { items: hosts } = await this.hostsService.list(hostId);
         if (hosts && hosts.length > 0) {
           targetHosts.push(...hosts);
         }
@@ -370,8 +370,7 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
       
       // Use the containers service to discover containers on this host
       const result = await this.containersService.discover({ 
-        id: host.id,
-        includeStopped: includeStoppedContainers
+        id: host.id
       });
       
       return {

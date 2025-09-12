@@ -62,7 +62,7 @@ export class CronTriggerPlugin extends BaseTriggerPlugin {
     } catch (error) {
       this.logError('Error evaluating CRON trigger', error);
       return this.createTriggerResult(false, {
-        reason: `CRON evaluation error: ${error.message}`
+        reason: `CRON evaluation error: ${error instanceof Error ? error.message : String(error)}`
       });
     }
   }
@@ -99,7 +99,7 @@ export class CronTriggerPlugin extends BaseTriggerPlugin {
       CronExpressionParser.parse(cronExpression);
       return true;
     } catch (error) {
-      this.logError(`Invalid CRON expression '${cronExpression}': ${error.message}`);
+      this.logError(`Invalid CRON expression '${cronExpression}': ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -181,7 +181,7 @@ export class CronTriggerPlugin extends BaseTriggerPlugin {
 
       return matches;
     } catch (error) {
-      this.logError(`CRON evaluation error: ${error.message}`);
+      this.logError(`CRON evaluation error: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -194,7 +194,7 @@ export class CronTriggerPlugin extends BaseTriggerPlugin {
       const interval = CronExpressionParser.parse(expression);
       return interval.next().toDate();
     } catch (error) {
-      this.logError(`Error getting next run time: ${error.message}`);
+      this.logError(`Error getting next run time: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }

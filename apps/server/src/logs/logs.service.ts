@@ -279,7 +279,9 @@ export class LogsService {
       try {
         const { stdout: uptime } = await execAsync('uptime');
         await this.addLog('info', `系统运行时间: ${uptime.trim()}`, 'system', { source: 'uptime' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
       try {
         const { stdout: memory } = await execAsync('free -h | head -2');
@@ -287,35 +289,47 @@ export class LogsService {
         if (memLines.length >= 2) {
           await this.addLog('info', `内存使用情况: ${memLines[1].trim()}`, 'system', { source: 'memory' });
         }
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
       try {
         const { stdout: disk } = await execAsync('df -h / | tail -1');
         await this.addLog('info', `磁盘使用情况: ${disk.trim()}`, 'system', { source: 'disk' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
       try {
         const { stdout: load } = await execAsync('cat /proc/loadavg');
         await this.addLog('info', `系统负载: ${load.trim()}`, 'system', { source: 'loadavg' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
       // Docker 信息
       try {
         const { stdout: dockerInfo } = await execAsync('docker info --format "{{.Containers}} containers, {{.Images}} images"');
         await this.addLog('info', `Docker 状态: ${dockerInfo.trim()}`, 'system', { source: 'docker' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
       // 网络连接数
       try {
         const { stdout: netstat } = await execAsync('ss -tuln | wc -l');
         await this.addLog('info', `网络连接数: ${netstat.trim()} 个监听端口`, 'system', { source: 'network' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
       // 进程数
       try {
         const { stdout: processes } = await execAsync('ps aux | wc -l');
         await this.addLog('info', `运行进程数: ${processes.trim()} 个进程`, 'system', { source: 'processes' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
     } catch (error: any) {
       this.logger.warn('生成系统状态日志时出错:', error);
@@ -442,13 +456,17 @@ export class LogsService {
       try {
         const { stdout: networks } = await execAsync('docker network ls --format "{{.Name}}\t{{.Driver}}" | wc -l');
         await this.addLog('info', `Docker 网络数量: ${networks.trim()} 个`, 'container', { source: 'docker' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
       // Docker 镜像信息
       try {
         const { stdout: images } = await execAsync('docker images --format "{{.Repository}}:{{.Tag}}" | wc -l');
         await this.addLog('info', `本地镜像数量: ${images.trim()} 个`, 'container', { source: 'docker' });
-      } catch {}
+      } catch {
+        // ignore command execution errors
+      }
 
     } catch (error: any) {
       this.logger.warn('生成容器状态日志时出错:', error);

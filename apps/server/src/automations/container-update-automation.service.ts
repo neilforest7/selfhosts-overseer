@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AutomationsService } from './automations.service';
-import { Prisma } from '@prisma/client';
 
 export interface ContainerUpdateScheduleConfig {
   name: string;
@@ -225,7 +224,7 @@ export class ContainerUpdateAutomationService {
   /**
    * Get upcoming scheduled updates for the next N hours
    */
-  async getUpcomingUpdates(hours: number = 24): Promise<any[]> {
+  async getUpcomingUpdates(): Promise<any[]> {
     const schedules = await this.listUpdateSchedules();
     const upcoming: any[] = [];
 

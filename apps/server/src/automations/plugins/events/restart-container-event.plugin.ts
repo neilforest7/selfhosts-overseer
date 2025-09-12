@@ -106,7 +106,7 @@ export class RestartContainerEventPlugin extends BaseEventPlugin {
       return false;
     }
     
-    const invalidContainerIds = containerIds.filter(id => typeof id !== 'string' || id.trim() === '');
+    const invalidContainerIds = containerIds.filter(id => typeof id !== 'string' || (id as string).trim() === '');
     if (invalidContainerIds.length > 0) {
       this.logError(`Invalid container IDs: ${invalidContainerIds.join(', ')}`);
       return false;
@@ -114,7 +114,7 @@ export class RestartContainerEventPlugin extends BaseEventPlugin {
     
     const hostIds = this.getParam(config, 'hostIds', []);
     if (Array.isArray(hostIds) && hostIds.length > 0) {
-      const invalidHostIds = hostIds.filter(id => typeof id !== 'string' || id.trim() === '');
+      const invalidHostIds = hostIds.filter(id => typeof id !== 'string' || (id as string).trim() === '');
       if (invalidHostIds.length > 0) {
         this.logError(`Invalid host IDs: ${invalidHostIds.join(', ')}`);
         return false;
@@ -471,7 +471,7 @@ export class RestartContainerEventPlugin extends BaseEventPlugin {
       this.operationLogService.log('info', `Restarting container ${container.name || container.id} on host ${container.host?.name || 'Unknown'}`);
       
       // Use the containers service to restart the container
-      const result = await this.containersService.restart(container.id, { force, timeout });
+      const result = await this.containersService.restart(container.id, container.hostId);
       
       return {
         success: true,

@@ -61,4 +61,8 @@ export class TestAutomationRuleDto {
   @IsBoolean()
   @IsOptional()
   validateOnly?: boolean;
+
+  @IsJSON()
+  @IsOptional()
+  customFacts?: string;
 }

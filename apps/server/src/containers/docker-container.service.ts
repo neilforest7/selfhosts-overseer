@@ -29,7 +29,7 @@ export class DockerContainerService {
     if (code !== 0) return [];
     const lines = stdout.split('\n').filter(Boolean);
     const items: any[] = [];
-    for (const line of lines) { try { items.push(JSON.parse(line)); } catch {} }
+    for (const line of lines) { try { items.push(JSON.parse(line)); } catch { /* ignore invalid JSON lines */ } }
     return items;
   }
 
@@ -53,7 +53,7 @@ export class DockerContainerService {
       // some versions output one JSON per line
       const lines = text.split('\n').filter(Boolean);
       const arr: any[] = [];
-      for (const line of lines) { try { arr.push(JSON.parse(line)); } catch {} }
+      for (const line of lines) { try { arr.push(JSON.parse(line)); } catch { /* ignore invalid JSON lines */ } }
       return arr;
     } catch {
       // fallback: try parse table (Name\tStatus...)

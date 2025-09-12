@@ -177,7 +177,9 @@ export class DockerExecService {
         const timer = setTimeout(() => {
           try {
             p.kill('SIGKILL');
-          } catch {} 
+          } catch {
+            // ignore process kill errors
+          } 
         }, timeoutSec * 1000);
 
         p.stdout.on('data', d => stdoutChunks.push(d));
@@ -326,7 +328,9 @@ export class DockerExecService {
         const timer = setTimeout(() => {
           try {
             p.kill('SIGKILL');
-          } catch {}
+          } catch {
+            // ignore process kill errors
+          }
         }, timeoutSec * 1000);
         p.stdout.setEncoding('utf8');
         p.stderr.setEncoding('utf8');

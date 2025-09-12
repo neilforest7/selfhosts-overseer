@@ -6,7 +6,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ExecGateway } from './realtime/exec.gateway';
 import { Logger } from '@nestjs/common';
 import { AuthInitService } from './auth/auth-init.service';
-import * as fastifyMultipart from '@fastify/multipart';
+import fastifyMultipart from '@fastify/multipart';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -24,7 +24,7 @@ async function bootstrap(): Promise<void> {
   const fastifyAdapter = new FastifyAdapter({ logger: true });
   
   // Register multipart plugin for file uploads
-  await fastifyAdapter.register(fastifyMultipart, {
+  await fastifyAdapter.register(fastifyMultipart as any, {
     limits: {
       fileSize: 1 * 1024 * 1024, // 1MB
       fields: 10,
