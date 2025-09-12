@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # Unified Application - Next.js frontend + NestJS backend
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: selfhost-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXTAUTH_URL: http://localhost:3000
+      DATABASE_URL: postgresql://selfhost:${POSTGRES_PASSWORD}@postgres:5432/selfhost
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      USERNAME: ${USERNAME}
+      PASSWORD: ${PASSWORD}
+    ports:
+      - "3000:3000"  # Frontend
+      - "3001:3001"  # Backend API
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - selfhost-network
+    volumes:
+      # Mount SSH keys for host management (optional)
+      - ssh_keys:/home/nextjs/.ssh:ro
+    healthcheck:
+      test: ["/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Database - PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: selfhost-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: selfhost
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: selfhost
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - selfhost-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U selfhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - For caching and task queues
+  redis:
+    image: redis:7-alpine
+    container_name: selfhost-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - selfhost-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Database Management UI (Optional - for development)
+  pgweb:
+    image: sosedoff/pgweb:0.16.1
+    container_name: selfhost-pgweb
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://selfhost:${POSTGRES_PASSWORD}@postgres:5432/selfhost?sslmode=disable
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+    networks:
+      - selfhost-network
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  ssh_keys:
+    driver: local
+
+networks:
+  selfhost-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
