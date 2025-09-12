@@ -6,6 +6,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ExecGateway } from './realtime/exec.gateway';
 import { Logger } from '@nestjs/common';
 import { AuthInitService } from './auth/auth-init.service';
+import * as fastifyMultipart from '@fastify/multipart';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -20,9 +21,20 @@ async function bootstrap(): Promise<void> {
   }
   
   logger.log('创建 NestJS 应用实例...');
+  const fastifyAdapter = new FastifyAdapter({ logger: true });
+  
+  // Register multipart plugin for file uploads
+  await fastifyAdapter.register(fastifyMultipart, {
+    limits: {
+      fileSize: 1 * 1024 * 1024, // 1MB
+      fields: 10,
+      files: 1,
+    },
+  });
+  
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: true })
+    fastifyAdapter
   );
   
   logger.log('配置 CORS 和中间件...');

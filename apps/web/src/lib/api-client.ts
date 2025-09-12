@@ -80,10 +80,46 @@ class ApiClient {
   async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, { method: 'DELETE' })
   }
+
+  async upload<T>(endpoint: string, file: File): Promise<ApiResponse<T>> {
+    const token = getToken()
+    
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const config: RequestInit = {
+      method: 'POST',
+      body: formData,
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    }
+
+    try {
+      const response = await fetch(`${this.baseURL}${endpoint}`, config)
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        return {
+          success: false,
+          error: errorData.message || `HTTP ${response.status}`,
+        }
+      }
+
+      const data = await response.json()
+      return { success: true, data }
+    } catch (error) {
+      console.error('File upload failed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
 }
 
 // Create API client instance
-export const apiClient = new ApiClient()
+export const apiClient = new ApiClient('http://localhost:3001')
 
 // Convenience methods for common API endpoints
 export const api = {
@@ -116,6 +152,7 @@ export const api = {
   auth: {
     validate: () => apiClient.post('/api/auth/validate'),
     me: () => apiClient.get('/auth/me'),
+    uploadAvatar: (file: File) => apiClient.upload('/auth/avatar', file),
   }
 }
 

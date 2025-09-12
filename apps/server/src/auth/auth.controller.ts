@@ -119,7 +119,7 @@ export class AuthController {
   async getCurrentUser(@Req() request: any) {
     const user = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
-      select: { id: true, username: true, isActive: true, lastLoginAt: true },
+      select: { id: true, username: true, isActive: true, lastLoginAt: true, avatarUrl: true },
     });
 
     if (!user || !user.isActive) {
@@ -127,5 +127,67 @@ export class AuthController {
     }
 
     return user;
+  }
+
+  @Post('avatar')
+  @UseGuards(AuthGuard)
+  async uploadAvatar(@Req() request: any) {
+    try {
+      // Access the multipart data from fastify request
+      const multipart = await request.file();
+      
+      if (!multipart) {
+        return {
+          success: false,
+          message: 'No file uploaded',
+        };
+      }
+
+      // Validate file type (only images)
+      const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedMimeTypes.includes(multipart.mimetype)) {
+        return {
+          success: false,
+          message: 'Only image files are allowed',
+        };
+      }
+
+      // Validate file size (max 1MB to match Next.js Server Action limit)
+      const maxSize = 1 * 1024 * 1024; // 1MB
+      if (multipart.file.bytesRead > maxSize) {
+        return {
+          success: false,
+          message: 'File size must be less than 1MB',
+        };
+      }
+
+      // Read the file buffer
+      const chunks = [];
+      for await (const chunk of multipart.file) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+
+      // Store the file as base64 in the database
+      const base64Image = buffer.toString('base64');
+      const avatarUrl = `data:${multipart.mimetype};base64,${base64Image}`;
+
+      await this.prisma.user.update({
+        where: { id: request.user.sub },
+        data: { avatarUrl },
+      });
+
+      return {
+        success: true,
+        message: 'Avatar uploaded successfully',
+        data: { avatarUrl },
+      };
+    } catch (error) {
+      console.error('Avatar upload error:', error);
+      return {
+        success: false,
+        message: 'Failed to upload avatar',
+      };
+    }
   }
 }

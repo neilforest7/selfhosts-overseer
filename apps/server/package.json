@@ -34,6 +34,8 @@
     "seed:plugin-metadata:dry-run": "tsx scripts/seed-plugin-metadata.ts --dry-run"
   },
   "dependencies": {
+    "@fastify/multipart": "^7.7.3",
+    "@fastify/static": "^7.0.4",
     "@iarna/toml": "^2.2.5",
     "@nestjs/bullmq": "^10.1.0",
     "@nestjs/common": "^10.3.0",
@@ -41,6 +43,7 @@
     "@nestjs/core": "^10.3.0",
     "@nestjs/event-emitter": "^3.0.1",
     "@nestjs/mapped-types": "^2.1.0",
+    "@nestjs/platform-express": "^10.3.0",
     "@nestjs/platform-fastify": "^10.3.0",
     "@nestjs/platform-socket.io": "^10.4.20",
     "@nestjs/schedule": "^3.0.4",
@@ -48,6 +51,7 @@
     "@prisma/client": "^5.17.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
     "@types/nodemailer": "^7.0.1",
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
@@ -64,6 +68,7 @@
     "js-yaml": "^4.1.0",
     "json-rules-engine": "^7.3.1",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
     "node-fetch": "2",
     "nodemailer": "^7.0.6",
     "reflect-metadata": "^0.1.14",
