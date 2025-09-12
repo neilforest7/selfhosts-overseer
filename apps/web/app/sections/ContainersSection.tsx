@@ -16,6 +16,12 @@ import { DiscoverHostsDialog } from './DiscoverHostsDialog';
 import { apiClient, ApiResponse } from '@/src/lib/api-client';
 import { ChevronDown, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { getUpdateStatusDisplay, ImageUpdateStatus } from '@selfhost-serv-agent/shared';
+import { 
+  ContainerStatusIndicator,
+  ContainerPartialStatusIndicator 
+} from '@/components/ContainerStatusIndicator';
+import { cn } from '@/lib/utils';
+import { IconDotsVertical } from '@tabler/icons-react';
 
 
 type ContainerItem = {
@@ -42,6 +48,7 @@ type ContainerItem = {
   manualPortMapping?: { exposedPort: string; internalPort: string } | null;
   hostId: string;
   composeProjectId?: string;
+  updatedAt?: string | Date;
 };
 
 type HostItem = {
@@ -235,17 +242,17 @@ export default function ContainersSection() {
   // 主机颜色映射 - 使用更多样化的颜色
   const getHostBadgeColor = useMemo(() => {
     const colors = [
-      'bg-slate-600',     // 灰色
-      'bg-sky-600',   // 浅灰色
-      // 'bg-cyan-600', // 红色
-      'bg-teal-600',     // 边框样式
-      'bg-emerald-600',
-      // 'bg-green-600',
-      // 'bg-lime-600',
-      'bg-yellow-600',
-      'bg-amber-600',
-      'bg-orange-600',
-      'bg-red-600',
+      'border-slate-600 text-slate-600 bg-slate-100',     // 灰色
+      'border-sky-600 text-sky-600 bg-sky-100',   // 浅灰色
+      // 'border-cyan-600 text-', // 红色
+      'border-teal-600 text-teal-600 bg-teal-100',     // 边框样式
+      'border-emerald-600 text-emerald-600 bg-emerald-100',
+      // 'border-green-600 text-green-600',
+      // 'border-lime-600 text-',
+      'border-yellow-600 text-yellow-600 bg-yellow-100',
+      'border-amber-600 text-amber-600 bg-amber-100',
+      'border-orange-600 text-orange-600 bg-orange-100',
+      'border-red-600 text-red-600 bg-red-100',
     ] as const;
     const hostIds = hostsQuery.data?.items?.map(h => h.id) || [];
     const colorMap = new Map<string, typeof colors[number]>();
@@ -291,92 +298,7 @@ export default function ContainersSection() {
     return null;
   };
 
-  // 容器状态映射和颜色 - 支持新的容器生命周期状态
-  const getContainerStatusBadge = (state?: string, status?: string, isComposeManaged?: boolean) => {
-    const normalizedState = state?.toLowerCase() || '';
-    const normalizedStatus = status?.toLowerCase() || '';
-
-    // 优先处理新增的容器生命周期状态
-    if (normalizedState === 'removed') {
-      return {
-        variant: 'destructive' as const,
-        text: '已移除',
-        color: 'bg-red-600',
-        description: '容器已从Docker中移除但数据库记录仍存在'
-      };
-    } else if (normalizedState === 'compose-down') {
-      return {
-        variant: 'outline' as const,
-        text: '已下线',
-        color: 'bg-foreground',
-        description: '通过docker compose down停止的容器'
-      };
-    }
-
-    // 处理标准Docker容器状态
-    if (normalizedState.includes('running') || normalizedStatus.includes('up')) {
-      return {
-        variant: 'default' as const,
-        text: '运行中',
-        color: 'bg-green-500',
-        description: '容器正在正常运行'
-      };
-    } else if (normalizedState.includes('starting') || normalizedStatus.includes('starting')) {
-      return {
-        variant: 'secondary' as const,
-        text: '启动中',
-        color: 'bg-blue-500',
-        description: '容器正在启动过程中'
-      };
-    } else if (normalizedState.includes('exited') || normalizedState.includes('stopped') || normalizedStatus.includes('exited')) {
-      // 区分CLI容器和Compose容器的停止状态显示
-      const text = isComposeManaged ? '已停止' : '已退出';
-      const description = isComposeManaged ? 'Compose服务已停止' : 'CLI容器已退出';
-      return {
-        variant: 'outline' as const,
-        text,
-        color: 'bg-gray-500',
-        description
-      };
-    } else if (normalizedState.includes('error') || normalizedState.includes('failed') || normalizedStatus.includes('error')) {
-      return {
-        variant: 'destructive' as const,
-        text: '错误',
-        color: 'bg-red-500',
-        description: '容器运行出现错误'
-      };
-    } else if (normalizedState.includes('paused')) {
-      return {
-        variant: 'secondary' as const,
-        text: '已暂停',
-        color: 'bg-yellow-500',
-        description: '容器已暂停执行'
-      };
-    } else if (normalizedState.includes('restarting')) {
-      return {
-        variant: 'secondary' as const,
-        text: '重启中',
-        color: 'bg-orange-500',
-        description: '容器正在重启'
-      };
-    } else if (normalizedState.includes('created')) {
-      return {
-        variant: 'outline' as const,
-        text: '已创建',
-        color: 'bg-gray-400',
-        description: '容器已创建但未启动'
-      };
-    }
-
-    // 未知状态的处理
-    return {
-      variant: 'outline' as const,
-      text: normalizedState || '未知',
-      color: 'bg-gray-400',
-      description: '容器状态未知或无法识别'
-    };
-  };
-
+  
   const discover = useMutation({
     mutationFn: async (hostTarget: string | 'all' | string[]) => {
       let body: any;
@@ -819,26 +741,33 @@ export default function ContainersSection() {
               };
               
               const groupStatus = getGroupStatus();
-              const statusBadge = (groupStatus as any).meta?.partial
-                ? { variant: 'secondary' as const, text: '部分运行', color: 'bg-yellow-500', description: '部分容器正在运行，部分已停止' }
-                : getContainerStatusBadge(groupStatus.state, groupStatus.status, isCompose);
               
               return (
                 <Fragment key={key}> 
                   <TableRow>
                     <TableCell>
-                      <Badge className={getHostBadgeColor(first.hostId)}>
-                        {getHostName(first.hostId)}
+                      <Badge className={cn("justify-center", getHostBadgeColor(first.hostId))} variant={'outline'}>
+                        <div className='leading-none py-1'>
+                          {getHostName(first.hostId)}
+                        </div>
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant={statusBadge.variant}
-                        className={`text-white ${statusBadge.color}`}
-                        title={statusBadge.description}
-                      >
-                        {statusBadge.text}
-                      </Badge>
+                      {(groupStatus as any).meta?.partial ? (
+                        <ContainerPartialStatusIndicator
+                          total={items.length}
+                          running={(groupStatus as any).meta?.runningCount || 0}
+                        />
+                      ) : (
+                        <ContainerStatusIndicator
+                          state={groupStatus.state}
+                          status={groupStatus.status}
+                          isComposeManaged={isCompose}
+                          containerName={title}
+                          hostName={first.hostId}
+                          variant="compact"
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-between gap-2">
@@ -878,8 +807,9 @@ export default function ContainersSection() {
                             return null;
                           })()}
                           <Button 
+                            className='data-[state=open]:bg-muted text-muted-foreground flex size-8'
                             variant="ghost" 
-                            size="sm"
+                            size="icon"
                             onClick={() => setExpandedGroup(expandedGroup === key ? null : key)}
                           >
                             {expandedGroup === key ? <ChevronsDownUp /> : <ChevronsUpDown />}
@@ -889,15 +819,30 @@ export default function ContainersSection() {
                     </TableCell>
                     <TableCell>
                       {isCompose ? (
-                        <span><Badge variant="secondary">compose</Badge></span>
+                        <span>
+                          <Badge variant="outline">
+                            <div className='leading-none py-1'>
+                                compose
+                            </div>
+                          </Badge>
+                        </span>
                       ) : (
-                        <span><Badge variant="secondary">cli</Badge></span>
+                        <span>
+                            <Badge variant="outline">
+                              <div className='leading-none py-1'>
+                                cli
+                              </div>
+                          </Badge>
+                        </span>
                       )}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button size="sm" variant="outline">操作</Button>
+                          <Button variant="ghost" className="data-[state=open]:bg-muted text-muted-foreground flex size-8" size="icon">
+                            <IconDotsVertical />
+                            <span className="sr-only">Open menu</span>
+                          </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="max-w-48 bg-background">
                         {isCompose ? (
@@ -1131,17 +1076,18 @@ export default function ContainersSection() {
                             </TableHeader>
                             <TableBody>
                               {items.map(i => {
-                                const containerStatusBadge = getContainerStatusBadge(i.state, i.status, i.isComposeManaged);
                                 return (
                                   <TableRow key={i.id}>
                                     <TableCell>
-                                      <Badge
-                                        variant={containerStatusBadge.variant}
-                                        className={`text-white ${containerStatusBadge.color}`}
-                                        title={containerStatusBadge.description}
-                                      >
-                                        {containerStatusBadge.text}
-                                      </Badge>
+                                      <ContainerStatusIndicator
+                                        state={i.state}
+                                        status={i.status}
+                                        isComposeManaged={i.isComposeManaged}
+                                        containerName={i.name}
+                                        hostName={i.hostId}
+                                        lastUpdated={i.updatedAt}
+                                        variant="compact"
+                                      />
                                     </TableCell>
                                     <TableCell>
                                       <div className="font-medium">{i.name}</div>

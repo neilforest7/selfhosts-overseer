@@ -32,7 +32,7 @@ import { NavProjects } from "./nav-projects"
 
 const data = {
     user: {
-        name: "MCP User",
+        name: "User",
         email: "admin@localhost",
         avatar: "/avatars/default.jpg",
     },
@@ -72,6 +72,7 @@ const data = {
             title: "Operations",
             url: "#",
             icon: Activity,
+            isActive: true,
             items: [
                 {
                     title: "Activity Log",
@@ -87,6 +88,7 @@ const data = {
             title: "Settings",
             url: "#settings",
             icon: Settings2,
+            isActive: true,
             items: [
                 {
                     title: "General",
@@ -135,8 +137,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                     <Command className="size-4" />
                                 </div>
                                 <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-medium">MCP</span>
-                                    <span className="truncate text-xs">Self-Host Serv Agent</span>
+                                    <span className="truncate font-medium">SMA</span>
+                                    <span className="truncate text-xs">Self-Host Manage Agent</span>
                                 </div>
                             </a>
                         </SidebarMenuButton>

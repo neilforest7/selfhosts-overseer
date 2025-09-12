@@ -68,6 +68,7 @@ import { HostStatusIndicator } from '@/components/HostStatusIndicator';
 import { HostEditDialog } from '@/components/HostEditDialog';
 import { useHostConnectivity, HostStatus } from '@/lib/hooks/useHostConnectivity';
 import { apiClient } from '@/src/lib/api-client';
+import { BadgeCheckIcon } from "lucide-react";
 
 type Host = {
   id: string;
@@ -279,8 +280,10 @@ export default function HostsSection() {
       accessorKey: "role",
       header: "角色",
       cell: ({ row }: { row: Row<Host> }) => (
-        <Badge variant={row.original.role === 'remote' ? 'secondary' : 'secondary'}>
-          {row.original.role === 'remote' ? '公网' : '内网'}
+        <Badge variant="outline">
+          <div className="leading-none py-1">
+            {row.original.role === 'remote' ? '公网' : '内网'}
+          </div>
         </Badge>
       ),
     },
@@ -300,7 +303,12 @@ export default function HostsSection() {
             <Badge variant="secondary" key={t}>{t}</Badge>
           ))}
           {(row.original.hasPrivateKey || row.original.hasPassword) ? (
-            <Badge variant="secondary" className="inline-flex items-center text-xs">已存在凭据</Badge>
+            <Badge variant="outline" className="gap-1 text-xs">
+              <BadgeCheckIcon className="w-3 h-3"/>
+              <span className="leading-none py-1">
+                {row.original.hasPassword ? "密码登录" : row.original.hasPrivateKey ? "密钥登录" : "未配置密钥"}
+              </span>
+            </Badge>
           ) : null}
         </div>
       ),

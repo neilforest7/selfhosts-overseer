@@ -31,9 +31,7 @@ const nextConfig = {
         
     return config;
   },
-  experimental: {
-    serverComponentsExternalPackages: ['bcryptjs'],
-  },
+  serverExternalPackages: ['bcryptjs'],
 };
 
 module.exports = nextConfig;
