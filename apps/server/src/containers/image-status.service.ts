@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ImageUpdateStatus } from '@selfhost-serv-agent/shared';
+import { ImageUpdateStatus } from '../shared';
 
 export interface ImageStatusResult {
   status: ImageUpdateStatus;

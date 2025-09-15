@@ -1,11 +1,10 @@
-version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
     container_name: selfhost-postgres
     environment:
       POSTGRES_USER: selfhost
-      POSTGRES_PASSWORD: secret
+      POSTGRES_PASSWORD: secure_postgres_password_123
       POSTGRES_DB: selfhost
     ports:
       - "5432:5432"
@@ -16,13 +15,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 30s
   pgweb:
     image: sosedoff/pgweb:0.16.1
     container_name: selfhost-pgweb
     depends_on:
       - postgres
     environment:
-      DATABASE_URL: postgres://selfhost:secret@postgres:5432/selfhost?sslmode=disable
+      DATABASE_URL: postgres://selfhost:secure_postgres_password_123@postgres:5432/selfhost?sslmode=disable
     ports:
       - "8081:8081"
     command: ["--bind=0.0.0.0", "--listen=8081"]
@@ -32,8 +32,6 @@ services:
     container_name: selfhost-redis
     ports:
       - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--requirepass", "secure_redis_password_123", "--appendonly", "yes"]
     restart: unless-stopped
-volumes:
-  postgres_data: {}
 

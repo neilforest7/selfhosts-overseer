@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 COMPOSE_FILE="docker-compose.optimized.yml"
-ENV_FILE=".env.production"
+ENV_FILE=".env"
 BACKUP_DIR="./backups"
 
 # Helper functions
@@ -67,8 +67,8 @@ setup_environment() {
         log_warning "Environment file not found: $ENV_FILE"
         log_info "Creating from template..."
         
-        if [ -f ".env.production.example" ]; then
-            cp .env.production.example "$ENV_FILE"
+        if [ -f ".env.example" ]; then
+            cp .env.example "$ENV_FILE"
             log_warning "Please edit $ENV_FILE with your configuration before deploying"
             log_warning "Run: nano $ENV_FILE"
             exit 1
@@ -165,7 +165,7 @@ run_migrations() {
     
     # Generate Prisma client and run migrations
     docker-compose -f "$COMPOSE_FILE" exec app npm --workspace apps/server run prisma:generate
-    docker-compose -f "$COMPOSE_FILE" exec app npm --workspace apps/server run prisma:push
+    docker-compose -f "$COMPOSE_FILE" exec -u root app npx prisma db push
     
     log_success "Database migrations completed"
 }

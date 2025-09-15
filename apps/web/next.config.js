@@ -2,6 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ['http://192.168.31.7:3000'],
+  outputFileTracingRoot: '/opt/selfhost-serv-agent',
+  output: 'standalone',
   async rewrites() {
     return [
       {

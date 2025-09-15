@@ -1,111 +1,296 @@
 version: '3.8'
 
+# Self-Host Serv Agent - Production Docker Compose Configuration
+# Industrial Best Practices Edition
+
 services:
-  # Unified Application - Next.js frontend + NestJS backend
+  # ===== MAIN APPLICATION =====
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: selfhost-app
-    restart: unless-stopped
+    image: ${IMAGE_NAME:-selfhost-serv-agent}:${IMAGE_TAG:-local}
+    container_name: ${CONTAINER_NAME:-selfhost-app}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    
+    # Resource limits for production stability
+    deploy:
+      resources:
+        limits:
+          cpus: ${APP_CPU_LIMIT:-2.0}
+          memory: ${APP_MEMORY_LIMIT:-2G}
+        reservations:
+          cpus: ${APP_CPU_RESERVATION:-0.5}
+          memory: ${APP_MEMORY_RESERVATION:-1G}
+    
+    # Environment configuration
     environment:
+      # Application settings
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: http://localhost:3001
-      NEXTAUTH_URL: http://localhost:3000
-      DATABASE_URL: postgresql://selfhost:${POSTGRES_PASSWORD}@postgres:5432/selfhost
+      NEXT_TELEMETRY_DISABLED: 1
+      
+      # API Configuration
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      
+      # Database Configuration
+      DATABASE_URL: postgresql://${POSTGRES_USER:-selfhost}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-selfhost}?sslmode=${DATABASE_SSL_MODE:-prefer}
+      
+      # Redis Configuration
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      
+      # Authentication & Security
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       USERNAME: ${USERNAME}
       PASSWORD: ${PASSWORD}
+      
+      # Email Configuration (Optional)
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      
+      # Cloudflare Configuration (Optional)
+      CLOUDFLARE_API_KEY: ${CLOUDFLARE_API_KEY}
+      CLOUDFLARE_EMAIL: ${CLOUDFLARE_EMAIL}
+      
+      # Network configuration
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+    
+    # Port exposure for external access
     ports:
-      - "3000:3000"  # Frontend
-      - "3001:3001"  # Backend API
+      - "${FRONTEND_PORT:-3000}:3000"  # Frontend
+      - "${BACKEND_PORT:-3001}:3001"  # Backend API
+    
+    # Health monitoring
+    healthcheck:
+      test: ["CMD", "/app/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    
+    # Service dependencies
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    
+    # Network configuration
     networks:
       - selfhost-network
+    
+    # Volume mounts for persistent data and SSH
     volumes:
-      # Mount SSH keys for host management (optional)
+      # Optional: Mount SSH keys for host management
       - ssh_keys:/home/nextjs/.ssh:ro
-    healthcheck:
-      test: ["/app/healthcheck.sh"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      # Optional: Mount custom configuration files
+      - ./config:/app/config:ro
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
 
-  # Database - PostgreSQL
+  # ===== DATABASE (PostgreSQL) =====
   postgres:
     image: postgres:16-alpine
-    container_name: selfhost-postgres
-    restart: unless-stopped
+    container_name: ${POSTGRES_CONTAINER_NAME:-selfhost-postgres}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: ${POSTGRES_CPU_LIMIT:-1.0}
+          memory: ${POSTGRES_MEMORY_LIMIT:-1G}
+        reservations:
+          cpus: ${POSTGRES_CPU_RESERVATION:-0.2}
+          memory: ${POSTGRES_MEMORY_RESERVATION:-256M}
+    
+    # Database configuration
     environment:
-      POSTGRES_USER: selfhost
+      POSTGRES_USER: ${POSTGRES_USER:-selfhost}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: selfhost
+      POSTGRES_DB: ${POSTGRES_DB:-selfhost}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    
+    # Port exposure (optional - only for development)
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
+    
+    # Persistent storage
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro
-    networks:
-      - selfhost-network
+      - ./database/backups:/backups:ro
+    
+    # Health monitoring
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U selfhost"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-selfhost} -d ${POSTGRES_DB:-selfhost}"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # Redis - For caching and task queues
-  redis:
-    image: redis:7-alpine
-    container_name: selfhost-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      start_period: 30s
+    
+    # Network configuration
     networks:
       - selfhost-network
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
+  # ===== CACHE/QUEUE (Redis) =====
+  redis:
+    image: redis:7-alpine
+    container_name: ${REDIS_CONTAINER_NAME:-selfhost-redis}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: ${REDIS_CPU_LIMIT:-0.5}
+          memory: ${REDIS_MEMORY_LIMIT:-512M}
+        reservations:
+          cpus: ${REDIS_CPU_RESERVATION:-0.1}
+          memory: ${REDIS_MEMORY_RESERVATION:-128M}
+    
+    # Redis configuration
+    command: >
+      redis-server 
+      --appendonly yes 
+      --appendfsync everysec 
+      --auto-aof-rewrite-percentage 100 
+      --auto-aof-rewrite-min-size 64mb 
+      --maxmemory ${REDIS_MAX_MEMORY:-512mb} 
+      --maxmemory-policy allkeys-lru 
+      --requirepass ${REDIS_PASSWORD}
+      --tcp-keepalive 60 
+      --timeout 300
+    
+    # Port exposure (optional - only for development)
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    
+    # Persistent storage
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+    
+    # Health monitoring
     healthcheck:
       test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
-
-  # Database Management UI (Optional - for development)
-  pgweb:
-    image: sosedoff/pgweb:0.16.1
-    container_name: selfhost-pgweb
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgresql://selfhost:${POSTGRES_PASSWORD}@postgres:5432/selfhost?sslmode=disable
-    ports:
-      - "8081:8081"
-    depends_on:
-      - postgres
+      start_period: 10s
+    
+    # Network configuration
     networks:
       - selfhost-network
+    
+    # Security configuration
+    sysctls:
+      - net.core.somaxconn=1024
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
+  # ===== DATABASE MANAGEMENT UI (Optional - Development Only) =====
+  pgweb:
+    image: sosedoff/pgweb:0.16.1
+    container_name: ${PGWEB_CONTAINER_NAME:-selfhost-pgweb}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    
+    # Database connection
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-selfhost}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-selfhost}?sslmode=${DATABASE_SSL_MODE:-prefer}
+      PGWEB_DATABASE_NAME: ${POSTGRES_DB:-selfhost}
+      PGWEB_DATABASE_HOST: postgres
+      PGWEB_DATABASE_PORT: 5432
+      PGWEB_DATABASE_USER: ${POSTGRES_USER:-selfhost}
+      PGWEB_DATABASE_PASS: ${POSTGRES_PASSWORD}
+      PGWEB_SESSIONS: true
+      PGWEB_BOOKMARKS: true
+    
+    # Port exposure
+    ports:
+      - "${PGWEB_PORT:-8081}:8081"
+    
+    # Service dependencies
+    depends_on:
+      postgres:
+        condition: service_healthy
+    
+    # Network configuration
+    networks:
+      - selfhost-network
+    
+    # Development profile only
     profiles:
       - dev
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
 
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
-  ssh_keys:
-    driver: local
-
+# ===== NETWORK CONFIGURATION =====
 networks:
   selfhost-network:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: ${NETWORK_SUBNET:-172.25.0.0/16}
+    name: ${NETWORK_NAME:-selfhost-network}
+
+# ===== PERSISTENT STORAGE =====
+volumes:
+  postgres_data:
+    driver: local
+    name: ${POSTGRES_VOLUME_NAME:-selfhost-postgres-data}
+  redis_data:
+    driver: local
+    name: ${REDIS_VOLUME_NAME:-selfhost-redis-data}
+  ssh_keys:
+    driver: local
+    name: ${SSH_KEYS_VOLUME_NAME:-selfhost-ssh-keys}
+    external: false
+
+# ===== CONFIGURATION NOTES =====
+# Environment Variables:
+# - Copy .env.production to .env and customize
+# - All variables can be overridden in environment or .env file
+#
+# Security:
+# - Use strong passwords and secrets
+# - Consider using Docker secrets for sensitive data
+# - Restrict database and Redis ports in production
+#
+# Performance:
+# - Adjust resource limits based on your server capacity
+# - Monitor container performance and adjust accordingly
+#
+# Backup:
+# - Regularly backup postgres_data volume
+# - Consider setting up automated backup scripts

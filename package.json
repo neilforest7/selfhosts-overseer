@@ -2,25 +2,19 @@
   "name": "selfhost-serv-agent",
   "private": true,
   "version": "0.1.0",
-  "workspaces": [
-    "apps/web",
-    "apps/server",
-    "packages/shared"
-  ],
   "scripts": {
-    "dev": "concurrently -k -n web,server -c green,blue \"npm --workspace apps/web run dev\" \"npm --workspace apps/server run start:dev\"",
-    "dev:web": "npm --workspace apps/web run dev",
-    "dev:server": "npm --workspace apps/server run start:dev",
-    "build": "npm --workspace packages/shared run build && npm --workspace apps/server run build && npm --workspace apps/web run build",
-    "build:web": "npm --workspace apps/web run build",
-    "build:server": "npm --workspace apps/server run build",
-    "build:shared": "npm --workspace packages/shared run build",
-    "start": "npm --workspace apps/server run start:prod",
-    "db:generate": "npm --workspace apps/server run prisma:generate",
-    "db:push": "npm --workspace apps/server run prisma:push",
-    "db:migrate": "npm --workspace apps/server run prisma:migrate",
-    "lint": "npm --workspace apps/web run lint && npm --workspace apps/server run lint",
-    "type-check": "npm --workspace apps/web run type-check && npm --workspace apps/server run type-check && npm --workspace packages/shared run type-check"
+    "dev": "concurrently -k -n web,server -c green,blue \"cd apps/web && npm run dev\" \"cd apps/server && npm run start:dev\"",
+    "dev:web": "cd apps/web && npm run dev",
+    "dev:server": "cd apps/server && npm run start:dev",
+    "build": "cd apps/server && npm run build && cd ../web && npm run build",
+    "build:web": "cd apps/web && npm run build",
+    "build:server": "cd apps/server && npm run build",
+    "start": "cd apps/server && npm run start:prod",
+    "db:generate": "cd apps/server && npm run prisma:generate",
+    "db:push": "cd apps/server && npm run prisma:push",
+    "db:migrate": "cd apps/server && npm run prisma:migrate",
+    "lint": "cd apps/web && npm run lint && cd ../server && npm run lint",
+    "type-check": "cd apps/web && npm run type-check && cd ../server && npm run type-check"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -35,6 +29,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@tabler/icons-react": "^3.34.1",
+    "@tanstack/react-query": "^5.87.4",
     "@tanstack/react-table": "^8.21.3",
     "@types/uuid": "^10.0.0",
     "uuid": "^13.0.0"
