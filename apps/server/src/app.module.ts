@@ -21,16 +21,20 @@ import { ContextModule } from './context/context.module';
 import { ContextMiddleware } from './context/context.middleware';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AuthModule } from './auth/auth.module';
+import { DatabaseModule } from './database/database.module';
 
 @Module({
   imports: [
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
+    DatabaseModule, // Import the new DatabaseModule for automatic migrations
     AuthModule,
     BullModule.forRoot({
       connection: {
-        host: 'localhost',
-        port: 6379,
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD,
+        db: parseInt(process.env.REDIS_DB || '0'),
       },
     }),
     PrismaModule,

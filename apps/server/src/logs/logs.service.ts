@@ -20,6 +20,20 @@ export class LogsService {
   private readonly maxBufferSize = 1000;
   private lokiBaseUrl = process.env.LOKI_URL || 'http://localhost:3100';
 
+  private isDatabaseReady = false;
+  private pendingLogs: Array<{
+    level: string;
+    message: string;
+    category: string;
+    options: {
+      source?: string;
+      hostId?: string;
+      hostLabel?: string;
+      stream?: string;
+      metadata?: any;
+    };
+  }> = [];
+
   constructor(
     @Inject(forwardRef(() => LogsGateway)) private readonly logsGateway: LogsGateway,
     private readonly prisma: PrismaService
@@ -28,12 +42,35 @@ export class LogsService {
     this.startLogCapture();
     // 设置全局 Logger 监听
     this.setupNestLogCapture();
-    // 添加启动日志（延迟以避免循环依赖）
-    setTimeout(async () => {
+    // 延迟启动日志以避免循环依赖
+    setTimeout(() => {
+      this.checkDatabaseAndStart();
+    }, 2000); // 给数据库迁移足够的时间
+  }
+
+  private async checkDatabaseAndStart() {
+    try {
+      // 检查 SystemLog 表是否存在
+      await (this.prisma as any).systemLog.findFirst({ take: 1 });
+      this.isDatabaseReady = true;
+
+      // 处理积压的日志
+      for (const log of this.pendingLogs) {
+        await this.addLog(log.level, log.message, log.category, log.options);
+      }
+      this.pendingLogs = [];
+
+      // 添加启动日志
       await this.addLog('info', 'LogsService 日志服务已启动', 'application', { source: 'server' });
       await this.addLog('info', '开始监听控制台输出...', 'application', { source: 'server' });
       await this.addLog('info', 'NestJS 应用日志收集已启动', 'application', { source: 'server' });
-    }, 100);
+    } catch (error) {
+      // 数据库未准备好，继续等待
+      this.logger.debug('数据库未准备好，等待中...');
+      setTimeout(() => {
+        this.checkDatabaseAndStart();
+      }, 1000);
+    }
   }
 
   private startLogCapture() {
@@ -514,8 +551,8 @@ export class LogsService {
 
   // 统一的日志记录方法（替代 addToBuffer）
   async addLog(
-    level: string, 
-    message: string, 
+    level: string,
+    message: string,
     category: string = 'application',
     options: {
       source?: string;
@@ -525,6 +562,13 @@ export class LogsService {
       metadata?: any;
     } = {}
   ) {
+    // 如果数据库未准备好，先将日志加入队列
+    if (!this.isDatabaseReady) {
+      this.pendingLogs.push({ level, message, category, options });
+      this.addToBuffer(level, message, options.source);
+      return;
+    }
+
     try {
       // 1. 写入数据库
       const systemLog = await (this.prisma as any).systemLog.create({
@@ -554,10 +598,10 @@ export class LogsService {
           stream: systemLog.stream as any,
           source: options.source || category,
           content: `[${level.toUpperCase()}] ${message}`,
-          labels: { 
-            source: options.source || category, 
+          labels: {
+            source: options.source || category,
             level,
-            hostId: options.hostId || undefined 
+            hostId: options.hostId || undefined
           }
         });
       }

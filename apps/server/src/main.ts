@@ -6,6 +6,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ExecGateway } from './realtime/exec.gateway';
 import { Logger } from '@nestjs/common';
 import { AuthInitService } from './auth/auth-init.service';
+import { DatabaseMigrationService } from './database/database-migration.service';
 import fastifyMultipart from '@fastify/multipart';
 
 async function bootstrap(): Promise<void> {
@@ -15,9 +16,9 @@ async function bootstrap(): Promise<void> {
   
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
-    logger.warn('DATABASE_URL is not set; please set it in apps/server/.env');
+    logger.warn('DATABASE_URL is not set; please set it in project root .env file');
   } else {
-    logger.log('数据库连接配置已加载');
+    logger.log(`数据库连接配置已加载: ${dbUrl.split('@')[1]?.split('?')[0] || 'unknown'}`);
   }
   
   logger.log('创建 NestJS 应用实例...');
@@ -44,6 +45,36 @@ async function bootstrap(): Promise<void> {
   app.get(ExecGateway);
   app.useWebSocketAdapter(new IoAdapter(app));
   
+  logger.log('🔄 运行数据库迁移...');
+  const dbMigrationService = app.get(DatabaseMigrationService);
+
+  // Check if migration is already in progress to prevent duplicates
+  const isCurrentlyMigrating = await dbMigrationService.isMigratingNow();
+  if (isCurrentlyMigrating) {
+    logger.log('⏳ Migration already in progress, waiting for completion...');
+    // Wait for existing migration to complete
+    let attempts = 0;
+    while (attempts < 30) { // Max 30 seconds wait
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const stillMigrating = await dbMigrationService.isMigratingNow();
+      if (!stillMigrating) break;
+      attempts++;
+    }
+  } else {
+    // Run migration manually to ensure proper sequencing
+    logger.log('🚀 Starting database migration...');
+    await dbMigrationService.runMigrations();
+  }
+
+  // Verify database migration completed successfully before proceeding
+  const migrationResult = await dbMigrationService.getLastMigrationResult();
+  if (!migrationResult?.success) {
+    logger.warn('⚠️ Database migration failed or incomplete, but continuing with startup...');
+    logger.warn('Auth initialization may fail if User table does not exist');
+  } else {
+    logger.log('✅ Database migration completed successfully');
+  }
+
   logger.log('初始化认证系统...');
   const authInitService = app.get(AuthInitService);
   await authInitService.onModuleInit();

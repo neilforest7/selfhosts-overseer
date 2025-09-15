@@ -8,6 +8,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     const url =
       process.env.DATABASE_URL ||
       'postgresql://selfhost:secret@localhost:5432/selfhost?schema=public';
+
+    // 记录数据库 URL 来源用于调试
+    console.log(`📍 PrismaService: DATABASE_URL loaded from: ${process.env.DATABASE_URL ? 'environment' : 'fallback'}`);
+    console.log(`📍 PrismaService: Using database: ${url.split('@')[1]?.split('?')[0] || 'unknown'}`);
+
     super({ datasources: { db: { url } } });
   }
   async onModuleInit(): Promise<void> {
