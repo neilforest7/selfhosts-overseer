@@ -16,7 +16,7 @@ interface Host {
   name: string;
   address: string;
   sshUser: string;
-  sshPort?: number;
+  port?: number;
   tags?: string[];
   description?: string;
   role?: 'local' | 'remote';
@@ -45,7 +45,7 @@ export function HostEditDialog({
     name: '',
     address: '',
     sshUser: 'root',
-    sshPort: 22,
+    port: 22,
     tags: [],
     description: '',
     role: 'local',
@@ -64,7 +64,7 @@ export function HostEditDialog({
         name: host.name,
         address: host.address,
         sshUser: host.sshUser || 'root',
-        sshPort: host.sshPort || 22,
+        port: host.port || 22,
         tags: host.tags || [],
         description: host.description || '',
         role: host.role || 'local',
@@ -80,7 +80,7 @@ export function HostEditDialog({
         name: '',
         address: '',
         sshUser: '',
-        sshPort: 22,
+        port: 22,
         tags: [],
         description: '',
         role: 'local',
@@ -145,7 +145,7 @@ export function HostEditDialog({
           name: formData.name,
           address: formData.address,
           sshUser: formData.sshUser,
-          sshPort: formData.sshPort,
+          port: formData.port,
           tags: formData.tags,
           description: formData.description || undefined,
           role: formData.role,
@@ -159,7 +159,7 @@ export function HostEditDialog({
           name: formData.name,
           address: formData.address,
           sshUser: formData.sshUser,
-          sshPort: formData.sshPort,
+          port: formData.port,
           tags: formData.tags,
           description: formData.description,
           role: formData.role,
@@ -226,12 +226,12 @@ export function HostEditDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="sshPort">SSH端口</Label>
+            <Label htmlFor="port">SSH端口</Label>
             <Input
-              id="sshPort"
+              id="port"
               type="number"
-              value={formData.sshPort}
-              onChange={(e) => handleInputChange('sshPort', parseInt(e.target.value) || 22)}
+              value={formData.port}
+              onChange={(e) => handleInputChange('port', parseInt(e.target.value) || 22)}
               placeholder="输入SSH端口"
               min="1"
               max="65535"
