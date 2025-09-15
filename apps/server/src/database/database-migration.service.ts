@@ -263,32 +263,29 @@ export class DatabaseMigrationService implements OnModuleInit {
       return 'fresh';
     }
 
-    // Check if migrations table exists
+    // Check if migrations table exists and has applied migrations
     if (!dbHealth.migrationsTableExists) {
       // Has tables but no migration history - likely manually created or incomplete
       this.logger.log('⚠️ Database exists but no migration history found');
       return 'partial';
     }
 
-    // Check for critical tables that indicate proper migration
-    const criticalTables = ['user', 'systemlog', 'host']; // PostgreSQL stores in lowercase
-    const missingCriticalTables = criticalTables.filter(table =>
-      !dbHealth.tables.some(existingTable => existingTable.toLowerCase() === table.toLowerCase())
-    );
-
-    if (missingCriticalTables.length > 0) {
-      this.logger.log(`📋 Missing critical tables: ${missingCriticalTables.join(', ')}`);
-      return 'partial';
+    // **PRIORITY CHANGE**: Check _prisma_migrations table first (Prisma's source of truth)
+    if (dbHealth.appliedMigrations.length > 0) {
+      // Has migration history - verify it's complete
+      const migrationHistory = await this.verifyMigrationHistoryCompleteness();
+      if (migrationHistory.isComplete) {
+        this.logger.log(`✅ Complete database detected (${dbHealth.appliedMigrations.length} migrations applied)`);
+        return 'complete';
+      } else {
+        this.logger.log(`⚠️ Migration history exists but incomplete: ${migrationHistory.details}`);
+        return 'partial';
+      }
     }
 
-    // Check if we have applied migrations
-    if (dbHealth.appliedMigrations.length === 0) {
-      this.logger.log('⚠️ Migrations table exists but no migrations applied');
-      return 'partial';
-    }
-
-    this.logger.log(`✅ Complete database detected (${dbHealth.appliedMigrations.length} migrations applied)`);
-    return 'complete';
+    // No applied migrations but table exists - needs migration
+    this.logger.log('⚠️ Migrations table exists but no migrations applied');
+    return 'partial';
   }
 
   private async executeMigrationWithRetry(config: MigrationConfig): Promise<MigrationResult> {
@@ -365,40 +362,45 @@ export class DatabaseMigrationService implements OnModuleInit {
     this.logger.log('🆕 Executing baseline migration for fresh database...');
 
     try {
-      // For fresh databases, use db push to create the complete schema
-      const pushResult = await this.runPrismaCommand(['db', 'push'], config);
-      if (pushResult.success) {
+      // **CHANGE**: For fresh databases, use migrate deploy to ensure proper migration history
+      const migrateResult = await this.runPrismaCommand(['migrate', 'deploy'], config);
+      if (migrateResult.success) {
         this.logger.log('✅ Baseline migration completed successfully');
         return {
           success: true,
           duration: Date.now() - startTime,
-          migrationsApplied: 1, // Count as 1 baseline migration
+          migrationsApplied: this.extractMigrationCount(migrateResult.output),
           fallbackUsed: false,
-          details: 'Fresh database initialized using prisma db push'
+          details: 'Fresh database initialized using prisma migrate deploy'
         };
       }
 
-      throw new Error(pushResult.error || 'Baseline migration failed');
+      throw new Error(migrateResult.error || 'Baseline migration failed');
     } catch (error) {
-      // If db push fails, try migrate deploy as fallback
-      this.logger.warn('⚠️ Baseline db push failed, trying migrate deploy...', error);
+      // If migrate deploy fails on fresh database, it's likely a schema issue
+      this.logger.warn('⚠️ Baseline migrate deploy failed, checking database state...', error);
 
-      try {
-        const migrateResult = await this.runPrismaCommand(['migrate', 'deploy'], config);
-        if (migrateResult.success) {
-          return {
-            success: true,
-            duration: Date.now() - startTime,
-            migrationsApplied: this.extractMigrationCount(migrateResult.output),
-            fallbackUsed: true,
-            details: 'Fresh database initialized using prisma migrate deploy (fallback)'
-          };
+      // Check if any tables were created despite the error
+      const dbHealth = await this.getDatabaseHealth();
+      if (dbHealth.tables.length > 0) {
+        this.logger.log('📋 Some tables were created, attempting recovery with db push...');
+        try {
+          const pushResult = await this.runPrismaCommand(['db', 'push', '--accept-data-loss'], config);
+          if (pushResult.success) {
+            return {
+              success: true,
+              duration: Date.now() - startTime,
+              migrationsApplied: 1,
+              fallbackUsed: true,
+              details: 'Fresh database initialized using prisma db push (recovery mode)'
+            };
+          }
+        } catch (pushError) {
+          this.logger.error('❌ Recovery with db push also failed:', pushError);
         }
-
-        throw new Error(migrateResult.error || 'Migrate deploy failed');
-      } catch (migrateError) {
-        throw new Error(`Baseline migration failed. Push error: ${error instanceof Error ? error.message : error}. Migrate error: ${migrateError instanceof Error ? migrateError.message : migrateError}`);
       }
+
+      throw new Error(`Baseline migration failed: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -406,102 +408,55 @@ export class DatabaseMigrationService implements OnModuleInit {
     this.logger.log('📋 Executing standard migration for existing database...');
 
     try {
-      // For partial databases, we need to baseline first then migrate
       const dbHealth = await this.getDatabaseHealth();
+      const existingMigrations = await this.checkExistingMigrations();
 
-      if (dbHealth.tables && dbHealth.tables.length > 0) {
-        this.logger.log(`🔍 Detected ${dbHealth.tables.length} existing tables, attempting baseline migration first...`);
+      // **IMPROVED**: Prioritize Prisma's native _prisma_migrations table over custom state
+      if (!existingMigrations.hasMigrations) {
+        if (dbHealth.tables.length === 0) {
+          // Empty database - needs full initialization
+          this.logger.log('🌱 Empty database detected, starting full initialization...');
+          return await this.initializeEmptyDatabase(config, startTime);
+        } else {
+          // Has tables but no migration history in _prisma_migrations
+          // **NEW**: Check if this is a consistent database that just needs migration history repair
+          const schemaConsistency = await this.checkSchemaConsistency();
 
-        // Try to baseline the existing schema using Prisma's recommended approach
-        try {
-          // Step 1: Create a baseline migration
-          this.logger.log('📝 Creating baseline migration for existing schema...');
-
-          // First, let's check if there are any existing migrations in the database
-          const existingMigrations = await this.checkExistingMigrations();
-
-          if (!existingMigrations.hasMigrations) {
-            // No migration history, we can safely baseline
-            const baselineResult = await this.runPrismaCommand([
-              'migrate', 'diff',
-              '--create-baseline',
-              '--shadow-database-url', process.env.DATABASE_URL + '_shadow',
-              '--name', 'baseline_existing_schema'
-            ], config);
-
-            if (baselineResult.success) {
-              this.logger.log('✅ Baseline migration created successfully');
-
-              // Apply the baseline migration
-              const deployResult = await this.runPrismaCommand(['migrate', 'deploy'], config);
-              if (deployResult.success) {
-                this.logger.log('✅ Baseline migration applied successfully');
-                return {
-                  success: true,
-                  duration: Date.now() - startTime,
-                  migrationsApplied: this.extractMigrationCount(deployResult.output),
-                  fallbackUsed: false,
-                  details: 'Database baselined successfully for existing schema'
-                };
-              }
-            }
+          if (schemaConsistency.isConsistent) {
+            // Database schema is consistent but missing migration history
+            // **FIX**: Create baseline migration to establish proper migration history
+            this.logger.log('📝 Consistent schema without migration history, creating baseline to establish _prisma_migrations...');
+            const result = await this.createBaselineMigration(config, startTime);
+            return result;
           } else {
-            this.logger.log('📋 Existing migration history found, attempting standard migration...');
-          }
-        } catch (baselineError) {
-          this.logger.warn('⚠️ Baseline migration failed, trying alternative approach...', baselineError);
-
-          // Alternative approach: Use reset then apply all migrations (with data preservation)
-          try {
-            this.logger.log('🔄 Attempting reset with data preservation...');
-
-            // First, let's check if we can use db push to synchronize the schema
-            const pushResult = await this.runPrismaCommand(['db', 'push'], config);
-            if (pushResult.success) {
-              this.logger.log('✅ Schema synchronized using db push');
-
-              // Now create a baseline migration to capture the current state
-              const baselineResult = await this.runPrismaCommand([
-                'migrate', 'dev',
-                '--create-only',
-                '--name', 'after_db_push'
-              ], config);
-
-              if (baselineResult.success) {
-                this.logger.log('✅ Baseline migration created after db push');
-                return {
-                  success: true,
-                  duration: Date.now() - startTime,
-                  migrationsApplied: 1,
-                  fallbackUsed: false,
-                  details: 'Database synchronized and baselined using db push approach'
-                };
-              }
-            }
-          } catch (alternativeError) {
-            this.logger.warn('⚠️ Alternative approach failed, continuing with standard migration...', alternativeError);
+            // Schema is inconsistent - needs baseline migration
+            this.logger.log('📝 Inconsistent schema detected, creating baseline migration...');
+            const result = await this.createBaselineMigration(config, startTime);
+            return result;
           }
         }
       }
 
-      // Standard migration approach
-      this.logger.log('🚀 Attempting standard prisma migrate deploy...');
+      // **IMPROVED**: Use migrate deploy as the primary strategy (unified approach)
+      this.logger.log('🚀 Attempting prisma migrate deploy...');
       const migrateResult = await this.runPrismaCommand(['migrate', 'deploy'], config);
+
       if (migrateResult.success) {
-        this.logger.log('✅ Standard migration completed successfully');
+        this.logger.log('✅ Migration completed successfully using prisma migrate deploy');
         return {
           success: true,
           duration: Date.now() - startTime,
           migrationsApplied: this.extractMigrationCount(migrateResult.output),
           fallbackUsed: false,
-          details: 'Standard migration completed using prisma migrate deploy'
+          details: 'Migration completed using prisma migrate deploy'
         };
       }
 
-      // If standard migration fails with P3005 error, use db push as fallback
+      // **IMPROVED**: Handle specific migration errors with better fallback strategies
       if (migrateResult.error?.includes('P3005') || migrateResult.error?.includes('schema is not empty')) {
-        this.logger.log('🔄 P3005 error detected, using db push fallback...');
+        this.logger.log('🔄 P3005 error (schema not empty) detected, using db push fallback...');
         const pushResult = await this.runPrismaCommand(['db', 'push'], config);
+
         if (pushResult.success) {
           this.logger.log('✅ Database schema synchronized using prisma db push');
           return {
@@ -514,27 +469,45 @@ export class DatabaseMigrationService implements OnModuleInit {
         }
       }
 
-      throw new Error(migrateResult.error || 'Standard migration failed');
-    } catch (error) {
-      // If all migration strategies fail, use db push as last resort
-      this.logger.warn('⚠️ All migration strategies failed, using db push as last resort...', error);
-
-      try {
+      // Handle non-interactive environment error
+      if (migrateResult.error?.includes('non-interactive')) {
+        this.logger.log('🔄 Non-interactive environment detected, using db push...');
         const pushResult = await this.runPrismaCommand(['db', 'push', '--accept-data-loss'], config);
+
         if (pushResult.success) {
-          this.logger.log('✅ Database schema synchronized using prisma db push');
+          this.logger.log('✅ Database schema synchronized using prisma db push (non-interactive fallback)');
           return {
             success: true,
             duration: Date.now() - startTime,
             migrationsApplied: 1,
             fallbackUsed: true,
-            details: 'Database synchronized using prisma db push (data preservation mode)'
+            details: 'Database synchronized using prisma db push (non-interactive environment)'
+          };
+        }
+      }
+
+      throw new Error(migrateResult.error || 'Migration failed');
+
+    } catch (error) {
+      // Final fallback: Use db push with data loss acceptance
+      this.logger.warn('⚠️ All migration strategies failed, using db push as final fallback...', error);
+
+      try {
+        const pushResult = await this.runPrismaCommand(['db', 'push', '--accept-data-loss'], config);
+        if (pushResult.success) {
+          this.logger.log('✅ Database schema synchronized using prisma db push (final fallback)');
+          return {
+            success: true,
+            duration: Date.now() - startTime,
+            migrationsApplied: 1,
+            fallbackUsed: true,
+            details: 'Database synchronized using prisma db push (final fallback)'
           };
         }
 
         throw new Error(pushResult.error || 'DB push failed');
       } catch (pushError) {
-        throw new Error(`All migration strategies failed. Primary error: ${error instanceof Error ? error.message : error}. DB push error: ${pushError instanceof Error ? pushError.message : pushError}`);
+        throw new Error(`All migration strategies failed. Primary error: ${error instanceof Error ? error.message : error}. Fallback error: ${pushError instanceof Error ? pushError.message : pushError}`);
       }
     }
   }
@@ -633,6 +606,168 @@ export class DatabaseMigrationService implements OnModuleInit {
     }
   }
 
+  private async verifyMigrationHistoryCompleteness(): Promise<{ isComplete: boolean; details: string }> {
+    try {
+      // Check if all expected migrations have been applied
+      const expectedMigrations = await this.getExpectedMigrations();
+      const appliedMigrations = await this.getAppliedMigrations();
+
+      const missingMigrations = expectedMigrations.filter(mig =>
+        !appliedMigrations.some(applied => applied.migration_name === mig)
+      );
+
+      const isComplete = missingMigrations.length === 0;
+
+      return {
+        isComplete,
+        details: isComplete
+          ? `All ${expectedMigrations.length} expected migrations applied`
+          : `Missing ${missingMigrations.length} migrations: ${missingMigrations.join(', ')}`
+      };
+    } catch (error) {
+      this.logger.warn('⚠️ Could not verify migration history completeness:', error);
+      return { isComplete: false, details: 'Verification failed' };
+    }
+  }
+
+  private async getExpectedMigrations(): Promise<string[]> {
+    try {
+      // Read migration files from the migrations directory
+      const fs = require('fs');
+      const path = require('path');
+      const migrationsDir = path.join(process.cwd(), 'prisma', 'migrations');
+
+      if (!fs.existsSync(migrationsDir)) {
+        return [];
+      }
+
+      const migrationFolders = fs.readdirSync(migrationsDir, { withFileTypes: true })
+        .filter(dirent => dirent.isDirectory())
+        .map(dirent => dirent.name);
+
+      return migrationFolders;
+    } catch (error) {
+      this.logger.warn('⚠️ Could not read expected migrations:', error);
+      return [];
+    }
+  }
+
+  private async getAppliedMigrations(): Promise<{ migration_name: string; finished_at: Date }[]> {
+    try {
+      const appliedMigrations = await this.prisma.$queryRaw`
+        SELECT migration_name, finished_at
+        FROM _prisma_migrations
+        WHERE finished_at IS NOT NULL
+        ORDER BY finished_at ASC
+      ` as any[];
+
+      return appliedMigrations;
+    } catch (error) {
+      this.logger.warn('⚠️ Could not get applied migrations:', error);
+      return [];
+    }
+  }
+
+  /**
+   * **NEW**: Comprehensive validation to ensure schema consistency with migration history
+   * Validates that the current schema matches what's expected based on applied migrations
+   */
+  private async validateSchemaWithMigrationHistory(): Promise<{ isValid: boolean; details: string; schemaHash?: string }> {
+    try {
+      this.logger.log('🔍 Validating schema consistency with migration history...');
+
+      // Get current state
+      const dbHealth = await this.getDatabaseHealth();
+      const appliedMigrations = await this.getAppliedMigrations();
+      const expectedMigrations = await this.getExpectedMigrations();
+
+      // Check 1: All expected migrations are applied
+      const missingMigrations = expectedMigrations.filter(mig =>
+        !appliedMigrations.some(applied => applied.migration_name === mig)
+      );
+
+      if (missingMigrations.length > 0) {
+        return {
+          isValid: false,
+          details: `Missing migrations: ${missingMigrations.join(', ')}`
+        };
+      }
+
+      // Check 2: No extra migrations that shouldn't be there
+      const extraMigrations = appliedMigrations.filter(applied =>
+        !expectedMigrations.includes(applied.migration_name)
+      );
+
+      if (extraMigrations.length > 0) {
+        return {
+          isValid: false,
+          details: `Unexpected migrations found: ${extraMigrations.map(m => m.migration_name).join(', ')}`
+        };
+      }
+
+      // Check 3: If we have migrations, we should have the expected tables
+      if (appliedMigrations.length > 0 && dbHealth.tables.length === 0) {
+        return {
+          isValid: false,
+          details: 'Migrations applied but no tables found - possible schema corruption'
+        };
+      }
+
+      // Check 4: Generate a simple schema hash for consistency tracking
+      const schemaHash = await this.generateSchemaHash();
+
+      this.logger.log(`✅ Schema validation passed - ${appliedMigrations.length} migrations, ${dbHealth.tables.length} tables`);
+
+      return {
+        isValid: true,
+        details: `Schema consistent with migration history (${appliedMigrations.length} migrations, ${dbHealth.tables.length} tables)`,
+        schemaHash
+      };
+
+    } catch (error) {
+      this.logger.warn('⚠️ Schema validation failed:', error);
+      return {
+        isValid: false,
+        details: `Validation error: ${error instanceof Error ? error.message : error}`
+      };
+    }
+  }
+
+  /**
+   * **NEW**: Generate a simple hash of the current schema for consistency tracking
+   */
+  private async generateSchemaHash(): Promise<string> {
+    try {
+      // Get basic schema information
+      const schemaInfo = await this.prisma.$queryRaw`
+        SELECT
+          COUNT(DISTINCT table_name) as table_count,
+          COUNT(DISTINCT column_name) as column_count,
+          SUM(CASE WHEN data_type = 'uuid' THEN 1 ELSE 0 END) as uuid_columns,
+          SUM(CASE WHEN data_type = 'timestamp' THEN 1 ELSE 0 END) as timestamp_columns,
+          SUM(CASE WHEN data_type = 'boolean' THEN 1 ELSE 0 END) as boolean_columns
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+      ` as any[];
+
+      const info = schemaInfo[0] || {};
+
+      // Create a simple hash string
+      const hashComponents = [
+        info.table_count || 0,
+        info.column_count || 0,
+        info.uuid_columns || 0,
+        info.timestamp_columns || 0,
+        info.boolean_columns || 0
+      ];
+
+      return hashComponents.join('-');
+    } catch (error) {
+      this.logger.warn('⚠️ Could not generate schema hash:', error);
+      return 'unknown';
+    }
+  }
+
   private async checkExistingMigrations(): Promise<{ hasMigrations: boolean; count: number }> {
     try {
       // Check if the _prisma_migrations table exists
@@ -668,6 +803,141 @@ export class DatabaseMigrationService implements OnModuleInit {
     } catch (error) {
       this.logger.warn('⚠️ Could not check migration history:', error);
       return { hasMigrations: false, count: 0 };
+    }
+  }
+
+  private async initializeEmptyDatabase(config: MigrationConfig, startTime: number): Promise<MigrationResult> {
+    this.logger.log('🌱 Initializing empty database...');
+
+    try {
+      // Use db push for fresh initialization
+      const pushResult = await this.runPrismaCommand(['db', 'push'], config);
+
+      if (pushResult.success) {
+        this.logger.log('✅ Empty database initialized successfully');
+        return {
+          success: true,
+          duration: Date.now() - startTime,
+          migrationsApplied: 1,
+          fallbackUsed: false,
+          details: 'Empty database initialized using prisma db push'
+        };
+      }
+
+      throw new Error(pushResult.error || 'Empty database initialization failed');
+    } catch (error) {
+      throw new Error(`Failed to initialize empty database: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  private async createBaselineMigration(config: MigrationConfig, startTime: number): Promise<MigrationResult> {
+    this.logger.log('📝 Creating baseline migration for existing schema...');
+
+    try {
+      const isProduction = process.env.NODE_ENV === 'production';
+      let baselineResult;
+
+      if (isProduction) {
+        // In production, use db push to synchronize schema
+        baselineResult = await this.runPrismaCommand(['db', 'push'], config);
+      } else {
+        // In development, create baseline migration
+        baselineResult = await this.runPrismaCommand([
+          'migrate', 'dev',
+          '--name', 'baseline_existing_schema',
+          '--create-only'
+        ], config);
+
+        // Apply the baseline migration in development
+        if (baselineResult.success) {
+          const deployResult = await this.runPrismaCommand(['migrate', 'deploy'], config);
+          if (!deployResult.success) {
+            throw new Error(deployResult.error || 'Baseline migration deployment failed');
+          }
+          baselineResult = deployResult;
+        }
+      }
+
+      if (baselineResult.success) {
+        this.logger.log('✅ Baseline migration completed successfully');
+        return {
+          success: true,
+          duration: Date.now() - startTime,
+          migrationsApplied: isProduction ? 1 : this.extractMigrationCount(baselineResult.output),
+          fallbackUsed: false,
+          details: isProduction
+            ? 'Database schema synchronized using prisma db push (production baseline)'
+            : 'Baseline migration created and applied successfully'
+        };
+      }
+
+      throw new Error(baselineResult.error || 'Baseline migration failed');
+    } catch (error) {
+      // Fallback to db push
+      this.logger.warn('⚠️ Baseline migration failed, using db push fallback...', error);
+
+      try {
+        const pushResult = await this.runPrismaCommand(['db', 'push'], config);
+        if (pushResult.success) {
+          this.logger.log('✅ Database schema synchronized using prisma db push (fallback)');
+          return {
+            success: true,
+            duration: Date.now() - startTime,
+            migrationsApplied: 1,
+            fallbackUsed: true,
+            details: 'Database schema synchronized using prisma db push (fallback after baseline failed)'
+          };
+        }
+        throw new Error(pushResult.error || 'DB push fallback failed');
+      } catch (pushError) {
+        throw new Error(`Baseline migration and fallback failed. Primary error: ${error instanceof Error ? error.message : error}. Fallback error: ${pushError instanceof Error ? pushError.message : pushError}`);
+      }
+    }
+  }
+
+  
+  private async checkSchemaConsistency(): Promise<{ isConsistent: boolean; details: string }> {
+    try {
+      // Get the expected table names from Prisma schema
+      const expectedTables = [
+        'User', 'Host', 'Container', 'Task', 'TaskExecution', 'Automation',
+        'AutomationExecution', 'Topology', 'ReverseProxyConfig', 'FRPConfig',
+        'FRPTunnel', 'DNSRecord', 'DNSProvider', 'Setting', 'AuditLog',
+        '_prisma_migrations'
+      ];
+
+      // Get actual tables from database
+      const actualTablesResult = await this.prisma.$queryRaw`
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'public'
+        ORDER BY tablename
+      ` as any[];
+
+      const actualTables = actualTablesResult.map(row => row.tablename);
+
+      // Check if all expected tables exist
+      const missingTables = expectedTables.filter(table => !actualTables.includes(table));
+      const extraTables = actualTables.filter(table => !expectedTables.includes(table));
+
+      // Basic consistency check
+      const isConsistent = missingTables.length === 0 && extraTables.length === 0;
+
+      this.logger.log(`📊 Schema consistency check: ${isConsistent ? '✅ Consistent' : '❌ Inconsistent'}`);
+      if (missingTables.length > 0) {
+        this.logger.log(`📋 Missing tables: ${missingTables.join(', ')}`);
+      }
+      if (extraTables.length > 0) {
+        this.logger.log(`📋 Extra tables: ${extraTables.join(', ')}`);
+      }
+
+      return {
+        isConsistent,
+        details: `Expected: ${expectedTables.length}, Actual: ${actualTables.length}, Missing: ${missingTables.length}, Extra: ${extraTables.length}`
+      };
+    } catch (error) {
+      this.logger.warn('⚠️ Could not check schema consistency:', error);
+      return { isConsistent: false, details: 'Schema consistency check failed' };
     }
   }
 
