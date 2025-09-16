@@ -4,7 +4,11 @@ const nextConfig = {
   allowedDevOrigins: ['http://192.168.31.7:3000'],
   outputFileTracingRoot: '/opt/selfhost-serv-agent',
   output: 'standalone',
-  async rewrites() {
+  typescript: {
+    // Force regeneration of type files
+    ignoreBuildErrors: false,
+  },
+    async rewrites() {
     return [
       {
         source: '/api/:path*',
@@ -29,8 +33,8 @@ const nextConfig = {
         process: false,
       };
     }
-    
-        
+
+
     return config;
   },
   serverExternalPackages: ['bcryptjs'],

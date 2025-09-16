@@ -3,6 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { exec as execCallback } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import { Dirent } from 'fs';
 
 const exec = promisify(execCallback);
 
@@ -633,8 +636,6 @@ export class DatabaseMigrationService implements OnModuleInit {
   private async getExpectedMigrations(): Promise<string[]> {
     try {
       // Read migration files from the migrations directory
-      const fs = require('fs');
-      const path = require('path');
       const migrationsDir = path.join(process.cwd(), 'prisma', 'migrations');
 
       if (!fs.existsSync(migrationsDir)) {
@@ -642,8 +643,8 @@ export class DatabaseMigrationService implements OnModuleInit {
       }
 
       const migrationFolders = fs.readdirSync(migrationsDir, { withFileTypes: true })
-        .filter(dirent => dirent.isDirectory())
-        .map(dirent => dirent.name);
+        .filter((dirent: Dirent) => dirent.isDirectory())
+        .map((dirent: Dirent) => dirent.name);
 
       return migrationFolders;
     } catch (error) {
