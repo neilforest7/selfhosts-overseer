@@ -142,9 +142,9 @@ build_image() {
             --platform "$platform" \
             --tag "$tag" \
             --file "$dockerfile" \
-            --build-arg HTTP_PROXY="${HTTP_PROXY:-}" \
-            --build-arg HTTPS_PROXY="${HTTPS_PROXY:-}" \
-            --build-arg NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}" \
+            --build-arg BUILD_HTTP_PROXY="${BUILD_HTTP_PROXY:-}" \
+            --build-arg BUILD_HTTPS_PROXY="${BUILD_HTTPS_PROXY:-}" \
+            --build-arg BUILD_NO_PROXY="${BUILD_NO_PROXY:-localhost,127.0.0.1}" \
             --build-arg BUILD_DATE="${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}" \
             --build-arg BUILD_VERSION="${BUILD_VERSION:-latest}" \
             --build-arg BUILD_COMMIT="${BUILD_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")}" \
@@ -154,9 +154,9 @@ build_image() {
         docker build \
             --tag "$tag" \
             --file "$dockerfile" \
-            --build-arg HTTP_PROXY="${HTTP_PROXY:-}" \
-            --build-arg HTTPS_PROXY="${HTTPS_PROXY:-}" \
-            --build-arg NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}" \
+            --build-arg BUILD_HTTP_PROXY="${BUILD_HTTP_PROXY:-}" \
+            --build-arg BUILD_HTTPS_PROXY="${BUILD_HTTPS_PROXY:-}" \
+            --build-arg BUILD_NO_PROXY="${BUILD_NO_PROXY:-localhost,127.0.0.1}" \
             --build-arg BUILD_DATE="${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}" \
             --build-arg BUILD_VERSION="${BUILD_VERSION:-latest}" \
             --build-arg BUILD_COMMIT="${BUILD_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")}" \
@@ -239,9 +239,9 @@ build_and_publish() {
             --platform "$platform" \
             --tag "$platform_tag" \
             --file "$SCRIPT_DIR/Dockerfile" \
-            --build-arg HTTP_PROXY="${HTTP_PROXY:-}" \
-            --build-arg HTTPS_PROXY="${HTTPS_PROXY:-}" \
-            --build-arg NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}" \
+            --build-arg BUILD_HTTP_PROXY="${BUILD_HTTP_PROXY:-}" \
+            --build-arg BUILD_HTTPS_PROXY="${BUILD_HTTPS_PROXY:-}" \
+            --build-arg BUILD_NO_PROXY="${BUILD_NO_PROXY:-localhost,127.0.0.1}" \
             --push \
             "$SCRIPT_DIR"
     done

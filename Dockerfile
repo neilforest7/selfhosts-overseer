@@ -3,24 +3,28 @@
 FROM node:18-slim AS base
 
 # Build-time configuration
-ARG HTTP_PROXY=
-ARG HTTPS_PROXY=
-ARG NO_PROXY=localhost,127.0.0.1
+ARG BUILD_HTTP_PROXY=
+ARG BUILD_HTTPS_PROXY=
+ARG BUILD_NO_PROXY=localhost,127.0.0.1
 ARG BUILD_DATE=
 ARG BUILD_VERSION=latest
 ARG BUILD_COMMIT=unknown
+ARG BUILD_NODE_ENV=production
+ARG BUILD_NEXT_TELEMETRY_DISABLED=1
 
 # Configure proxy for network connectivity if provided
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV NO_PROXY=${NO_PROXY}
+ENV HTTP_PROXY=${BUILD_HTTP_PROXY}
+ENV HTTPS_PROXY=${BUILD_HTTPS_PROXY}
+ENV NO_PROXY=${BUILD_NO_PROXY}
+ENV NODE_ENV=${BUILD_NODE_ENV}
+ENV NEXT_TELEMETRY_DISABLED=${BUILD_NEXT_TELEMETRY_DISABLED}
 
 # Configure APT to use proxy if provided
-RUN if [ ! -z "${HTTP_PROXY}" ]; then \
-        echo 'Acquire::http::Proxy "'${HTTP_PROXY}'";' >> /etc/apt/apt.conf.d/01proxy; \
+RUN if [ ! -z "${BUILD_HTTP_PROXY}" ]; then \
+        echo 'Acquire::http::Proxy "'${BUILD_HTTP_PROXY}'";' >> /etc/apt/apt.conf.d/01proxy; \
     fi && \
-    if [ ! -z "${HTTPS_PROXY}" ]; then \
-        echo 'Acquire::https::Proxy "'${HTTPS_PROXY}'";' >> /etc/apt/apt.conf.d/01proxy; \
+    if [ ! -z "${BUILD_HTTPS_PROXY}" ]; then \
+        echo 'Acquire::https::Proxy "'${BUILD_HTTPS_PROXY}'";' >> /etc/apt/apt.conf.d/01proxy; \
     fi
 
 # Install build dependencies with proxy support (continue on partial failures)
@@ -113,18 +117,18 @@ RUN ls -la .next/ && ls -la .next/standalone/ || echo "Standalone directory not 
 FROM base AS runner
 
 # Runtime proxy configuration (optional override)
-ARG HTTP_PROXY=
-ARG HTTPS_PROXY=
-ARG NO_PROXY=localhost,127.0.0.1
+ARG BUILD_HTTP_PROXY=
+ARG BUILD_HTTPS_PROXY=
+ARG BUILD_NO_PROXY=localhost,127.0.0.1
 
 # Configure proxy for runtime if provided
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV NO_PROXY=${NO_PROXY}
+ENV HTTP_PROXY=${BUILD_HTTP_PROXY}
+ENV HTTPS_PROXY=${BUILD_HTTPS_PROXY}
+ENV NO_PROXY=${BUILD_NO_PROXY}
 
 # Set base environment variables (can be overridden by docker-compose)
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1 \
+ENV NODE_ENV=${BUILD_NODE_ENV:-production} \
+    NEXT_TELEMETRY_DISABLED=${BUILD_NEXT_TELEMETRY_DISABLED:-1} \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
     CONFIG_DIR=/app/config \
