@@ -187,9 +187,11 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
       });
 
       // Invalidate and refetch related queries
-      queryClient.invalidateQueries({ queryKey: ['connectivity', 'stats'] });
-      if (hostId === event.hostId) {
-        queryClient.invalidateQueries({ queryKey: ['connectivity', 'history', hostId] });
+      if (queryClient) {
+        queryClient.invalidateQueries({ queryKey: ['connectivity', 'stats'] });
+        if (hostId === event.hostId) {
+          queryClient.invalidateQueries({ queryKey: ['connectivity', 'history', hostId] });
+        }
       }
     });
 

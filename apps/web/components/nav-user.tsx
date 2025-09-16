@@ -124,9 +124,6 @@ export function NavUser({
             // Call logout API endpoint
             const response = await fetch('/api/auth/logout', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
             })
 
             if (response.ok) {

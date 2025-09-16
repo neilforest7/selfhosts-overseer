@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <Toaster richColors closeButton />
         </Providers>
-        <script dangerouslySetInnerHTML={{__html: `if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/service-worker.js').catch(()=>{})})}`}} />
+        <script dangerouslySetInnerHTML={{__html: `if(process.env.NODE_ENV==='production'&&'serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>{if(!r.active)r.unregister()})).finally(()=>{navigator.serviceWorker.register('/service-worker.js').catch(()=>{})})})}`}} />
       </body>
     </html>
   );
