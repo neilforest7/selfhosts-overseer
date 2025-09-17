@@ -238,41 +238,50 @@ export function ActivityLogSection({
                 const timeInfo = formatTimestamp(activity.timestamp);
                 
                 return (
-                  <div key={activity.id} className="border rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-900">
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 mt-1">
-                        {categoryIcons[activity.category]}
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Badge className={categoryColors[activity.category]}>
-                            {activity.category.replace('_', ' ')}
-                          </Badge>
-                          <Badge variant="outline" className={getActionColor(activity.action)}>
-                            {activity.action}
-                          </Badge>
-                          {activity.hostName && (
-                            <Badge variant="secondary">
-                              {activity.hostName}
-                            </Badge>
-                          )}
+                  <div key={`${activity.id}-${index}`} className="flex items-start p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900">
+                    <div className="flex-1 min-w-0 space-y-2 items-center m-2">
+                      <div className='flex space-x-4 justify-between pr-2'>
+                        <div className='flex gap-2 items-center'>
+                          <div>
+                            {categoryIcons[activity.category] || <Settings className="h-4 w-4" />}
+                          </div>
+                          <p className="text-sm font-medium leading-tight">
+                            {activity.title}
+                          </p>
+
                         </div>
-                        
-                        <h4 className="font-medium text-sm mb-1">{activity.title}</h4>
-                        
+                        <span className="text-xs text-gray-500">
+                          {formatTimestamp(activity.timestamp).relative}
+                        </span>                      
+                      </div>
+                      <div className="flex space-x-4">
+
                         {activity.description && (
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                          <p className="text-xs text-gray-400 dark:text-gray-400 leading-tight">
                             {activity.description}
                           </p>
                         )}
-                        
-                        <div className="flex items-center gap-4 text-xs text-gray-500">
-                          <span title={timeInfo.absolute}>{timeInfo.relative}</span>
-                          {activity.resourceName && (
-                            <span>Resource: {activity.resourceName}</span>
-                          )}
-                        </div>
+                        {activity.resourceName && (
+                          <span className="text-xs text-gray-500 truncate max-w-[100px]">
+                            {activity.resourceName}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 mb-1">
+                        <Badge className={categoryColors[activity.category]}>
+                          {activity.category.toUpperCase()}
+                        </Badge>
+                        <Badge 
+                          variant="outline" 
+                          className={`text-xs px-2 ${getActionColor(activity.action)}`}
+                        >
+                          {activity.action.toUpperCase()}
+                        </Badge>
+                        {activity.hostName && (
+                          <Badge variant="secondary" className="text-xs px-2">
+                            {activity.hostName}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </div>
