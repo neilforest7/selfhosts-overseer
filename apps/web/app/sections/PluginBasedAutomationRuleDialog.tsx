@@ -318,11 +318,15 @@ export function PluginBasedAutomationRuleDialog({
           name: option.label,
           hostName: option.description?.replace('Host: ', '') || option.label
         }))}
-        availableContainers={(triggerDynamicOptions.containerId || triggerDynamicOptions.containerIdentifier || triggerDynamicOptions.containerIds || triggerDynamicOptions.containerIdentifiers || eventDynamicOptions.containerId || eventDynamicOptions.containerIdentifier || eventDynamicOptions.containerIds || eventDynamicOptions.containerIdentifiers || []).map((option: any) => ({
-          id: option.value,
-          name: option.label,
-          hostName: option.description?.match(/Host: (.+?) \|/)?.[1] || option.description?.replace('Host: ', '') || 'Unknown Host'
-        }))}
+        availableContainers={(triggerDynamicOptions.containerId || triggerDynamicOptions.containerIdentifier || triggerDynamicOptions.containerIds || triggerDynamicOptions.containerIdentifiers || eventDynamicOptions.containerId || eventDynamicOptions.containerIdentifier || eventDynamicOptions.containerIds || eventDynamicOptions.containerIdentifiers || []).map((option: any, index: number) => {
+          const hostName = option.description?.match(/Host: (.+?) \|/)?.[1] || option.description?.replace('Host: ', '') || 'Unknown Host';
+          return {
+            id: `${option.value}-${hostName}-${index}`, // 使用组合的唯一标识符
+            originalId: option.value, // 保留原始ID用于API调用
+            name: option.label,
+            hostName: hostName
+          };
+        })}
         availableUsers={(triggerDynamicOptions.userId || triggerDynamicOptions.userIds || eventDynamicOptions.userId || eventDynamicOptions.userIds || []).map((option: any) => ({
           id: option.value,
           name: option.label

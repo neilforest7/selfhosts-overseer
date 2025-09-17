@@ -51,6 +51,7 @@ import { ModuleRef } from '@nestjs/core';
 // Validators and Services
 import { UpdateValidator } from './validators/update-validator';
 import { AuditLogService } from './services/audit-log.service';
+import { PluginMetadataInitService } from './plugins/plugin-metadata-init.service';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { AuditLogService } from './services/audit-log.service';
     // Validators and Services
     UpdateValidator,
     AuditLogService,
+    PluginMetadataInitService,
 
     // Plugin system
     {

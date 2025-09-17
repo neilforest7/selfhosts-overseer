@@ -51,7 +51,7 @@ interface PluginConfigFieldProps {
   error?: string;
   // Additional context for enhanced UI
   availableHosts?: Array<{ id: string; name: string }>;
-  availableContainers?: Array<{ id: string; name: string; hostName: string }>;
+  availableContainers?: Array<{ id: string; name: string; hostName: string; originalId?: string }>;
   availableUsers?: Array<{ id: string; name: string }>;
 }
 
@@ -217,15 +217,17 @@ export function PluginConfigField({
                     <CommandItem
                       key={container.id}
                       onSelect={() => {
-                        const newValues = selectedValues.includes(container.id)
-                          ? selectedValues.filter(v => v !== container.id)
-                          : [...selectedValues, container.id];
+                        // 使用 originalId 进行实际的保存，但用组合 id 进行 UI 状态管理
+                        const actualId = container.originalId || container.id;
+                        const newValues = selectedValues.includes(actualId)
+                          ? selectedValues.filter(v => v !== actualId)
+                          : [...selectedValues, actualId];
                         onChange(newValues);
                       }}
                     >
                       <Check
                         className={`h-4 w-4 ${
-                          selectedValues.includes(container.id) ? "opacity-100" : "opacity-0"
+                          selectedValues.includes(container.originalId || container.id) ? "opacity-100" : "opacity-0"
                         }`}
                       />
                       <div className="flex items-center gap-2">
@@ -258,7 +260,7 @@ export function PluginConfigField({
           </SelectTrigger>
           <SelectContent>
             {availableContainers.map((container) => (
-              <SelectItem key={container.id} value={container.id}>
+              <SelectItem key={container.id} value={container.originalId || container.id}>
                 <div className="flex items-center gap-2">
                   <Container className="h-4 w-4" />
                   <div>

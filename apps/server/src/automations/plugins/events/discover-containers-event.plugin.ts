@@ -292,20 +292,32 @@ export class DiscoverContainersEventPlugin extends BaseEventPlugin {
   /**
    * Find hosts matching the provided identifiers
    */
-  private async findHosts(hostIds: string[]): Promise<any[]> {
+  private async findHosts(hostIdentifiers: string[]): Promise<any[]> {
     const targetHosts = [];
-    
-    for (const hostId of hostIds) {
+
+    for (const identifier of hostIdentifiers) {
+      // 优先按主机ID精确查找
       try {
-        const { items: hosts } = await this.hostsService.list(hostId);
-        if (hosts && hosts.length > 0) {
-          targetHosts.push(...hosts);
+        const hostById = await this.hostsService.findOne(identifier).catch(() => null);
+        if (hostById) {
+          targetHosts.push(hostById);
+          continue;
         }
       } catch (error) {
-        this.logError(`Error finding host with ID ${hostId}`, error);
+        // 忽略 findOne 抛出的未找到错误，继续按标签回退查询
+      }
+
+      // 回退：按标签匹配（保持与原有行为兼容）
+      try {
+        const { items: hostsByTag } = await this.hostsService.list(identifier);
+        if (hostsByTag && hostsByTag.length > 0) {
+          targetHosts.push(...hostsByTag);
+        }
+      } catch (error) {
+        this.logError(`Error finding host with identifier ${identifier}`, error);
       }
     }
-    
+
     return targetHosts;
   }
 

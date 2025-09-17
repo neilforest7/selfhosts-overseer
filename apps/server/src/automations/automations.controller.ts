@@ -102,7 +102,6 @@ export class AutomationsController {
   }
 
   @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
     return this.automationsService.remove(id);
   }

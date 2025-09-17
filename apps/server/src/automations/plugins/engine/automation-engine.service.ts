@@ -413,7 +413,8 @@ export class AutomationEngine implements OnModuleInit {
 
     // Only create operation log for non-test mode executions
     // In test mode, we use the existing operation log from the test request
-    const isTestMode = context.metadata?.testMode === true;
+    const isTestMode = context.metadata?.testMode === true || context.metadata?.test === true;
+    this.logger.debug(`executeEvents called with testMode: ${isTestMode}, metadata:`, context.metadata);
     let opLog: any = null;
 
     if (!isTestMode) {
@@ -428,6 +429,9 @@ export class AutomationEngine implements OnModuleInit {
           metadata: context.metadata
         } as any,
       });
+      this.logger.debug(`Created operation log for automation: ${opLog.id}`);
+    } else {
+      this.logger.debug(`Test mode detected - not creating operation log`);
     }
     
     for (const eventConfig of events) {

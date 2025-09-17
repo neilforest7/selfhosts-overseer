@@ -167,10 +167,9 @@ export default function AutomationsSection() {
 
   const handleTestRule = async (rule: AutomationRule) => {
     try {
-      const opId = await startOperation(`测试规则 ${rule.name}`);
       toast.info(`正在测试规则：${rule.name}`);
 
-      const response = await apiClient.post(`/api/v1/automations/${rule.id}/test`, { opId });
+      const response = await apiClient.post(`/api/v1/automations/${rule.id}/test`, {});
 
       if (!response.success) {
         throw new Error(response.error || '测试执行失败');

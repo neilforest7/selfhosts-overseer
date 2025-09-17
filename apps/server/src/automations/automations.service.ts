@@ -489,7 +489,7 @@ export class AutomationsService {
       throw new Error(`Automation rule with id ${id} not found`);
     }
 
-    // Create operation log for tracking
+    // Create operation log for tracking test execution
     const opLog = await this.operationLogService.create({
       title: `测试自动化规则: ${rule.name}`,
       triggerType: TriggerType.MANUAL,
@@ -499,6 +499,8 @@ export class AutomationsService {
         customFacts: data.customFacts || null,
       },
     });
+    
+    this.logger.log(`Created test operation log: ${opLog.id} for rule: ${rule.name}`);
 
     // Queue the test execution as a background job
     await this.automationsQueue.add('test-automation-rule', {
