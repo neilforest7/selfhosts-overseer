@@ -21,7 +21,7 @@ export function useActivityLogSocket({
 
   useEffect(() => {
     // Initialize socket connection
-    const socket = io(process.env.NODE_ENV === 'development' ? 'http://localhost:3001' : undefined, {
+    const socket = io(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001', {
       transports: ['websocket'],
       upgrade: false,
     });

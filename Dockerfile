@@ -11,6 +11,7 @@ ARG BUILD_VERSION=latest
 ARG BUILD_COMMIT=unknown
 ARG BUILD_NODE_ENV=production
 ARG BUILD_NEXT_TELEMETRY_DISABLED=1
+ARG BUILD_NEXT_PUBLIC_WS_URL=ws://localhost:3001
 
 # Configure proxy for network connectivity if provided
 ENV HTTP_PROXY=${BUILD_HTTP_PROXY}
@@ -96,6 +97,9 @@ RUN npm run build
 
 # === FRONTEND BUILDER STAGE ===
 FROM base AS web-builder
+
+# Set WebSocket URL environment variable for Next.js build
+ENV NEXT_PUBLIC_WS_URL=${BUILD_NEXT_PUBLIC_WS_URL}
 
 # Copy installed dependencies (from app directories where they were installed)
 COPY --from=deps --chown=nextjs:nodejs /app/apps/server/node_modules ./apps/server/node_modules

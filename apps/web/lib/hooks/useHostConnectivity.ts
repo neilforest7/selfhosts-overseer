@@ -127,7 +127,7 @@ export function useHostConnectivity(options: UseHostConnectivityOptions = {}) {
   const connectSocket = useCallback(() => {
     if (socket?.connected) return;
 
-    const newSocket = io(process.env.NODE_ENV === 'development' ? 'http://localhost:3001' : undefined, {
+    const newSocket = io(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001', {
       transports: ['websocket'],
       upgrade: false,
       reconnection: false, // Handle reconnection manually
