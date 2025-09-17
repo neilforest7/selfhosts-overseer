@@ -83,7 +83,7 @@ export default function ContainersSection() {
         throw new Error(response.error || '操作失败');
       }
       const result = response.data as { taskId?: string };
-      
+
       // If the API returns a taskId, add it to TaskDrawer and select it
       if (result?.taskId) {
         // Create a temporary task entry for immediate display
@@ -97,14 +97,22 @@ export default function ContainersSection() {
           entries: []
         };
         addTaskAndOpen(tempTask);
-        
+
         // Monitor the task status
         const monitorTask = async () => {
           try {
             const statusResponse = await apiClient.get(`/api/v1/operations/${result.taskId!}`);
             if (statusResponse.success) {
               const taskData = statusResponse.data as { status: string };
-              if (taskData?.status === 'COMPLETED' || taskData?.status === 'ERROR') {
+              if (taskData?.status === 'COMPLETED') {
+                // Task completed successfully
+                toast.success(`操作成功: ${title}`);
+                if (onSuccess) onSuccess(result);
+                return; // Task finished, stop monitoring
+              } else if (taskData?.status === 'ERROR') {
+                // Task failed
+                toast.error(`操作失败: ${title}`);
+                if (onError) onError(new Error(`Task failed with status: ERROR`));
                 return; // Task finished, stop monitoring
               }
             }
@@ -115,9 +123,14 @@ export default function ContainersSection() {
           }
         };
         monitorTask();
+
+        // Show "operation started" notification for long-running tasks
+        toast.info(`操作已开始: ${title}，正在处理中...`);
+      } else {
+        // No taskId, immediate execution
+        toast.success(`操作成功: ${title}`);
+        if (onSuccess) onSuccess(result);
       }
-      
-      if (onSuccess) onSuccess(result);
     } catch (error) {
       console.error(`Task operation failed: ${title}`, error);
       if (onError) onError(error as Error);
