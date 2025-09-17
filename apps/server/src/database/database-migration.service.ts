@@ -575,7 +575,7 @@ export class DatabaseMigrationService implements OnModuleInit {
       // Verify critical tables exist
       const criticalTables = [
   'User', 'SystemLog', 'Host', 'AppSetting', 'AuthSetting', 'Container',
-  'ReverseProxyRoute', 'Certificate', 'HostNpmConfig', 'ComposeProject',
+  'ReverseProxyRoute', 'HostNpmConfig', 'ComposeProject',
   'FrpsConfig', 'FrpcProxy', 'OperationLog', 'OperationLogEntry', 'AutomationRule',
   'RuleTemplate', 'RuleTrigger', 'TriggerTemplate', 'RuleEvent', 'EventTemplate',
   'RuleNotification', 'NotificationChannel', 'NotificationTemplate', 'PluginMetadata',

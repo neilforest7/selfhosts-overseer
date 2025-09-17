@@ -180,18 +180,6 @@ model ReverseProxyRoute {
   @@unique([hostId, domain])
 }
 
-model Certificate {
-  id           String    @id @default(cuid())
-  provider     String
-  cn           String
-  sans         String[]
-  issuer       String?
-  notBefore    DateTime?
-  notAfter     DateTime?
-  autoRenew    Boolean   @default(true)
-  lastSyncedAt DateTime?
-  createdAt    DateTime  @default(now())
-}
 
 model HostNpmConfig {
   hostId               String   @id

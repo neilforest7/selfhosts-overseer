@@ -8,7 +8,6 @@ import { TasksModule } from './tasks/tasks.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ContainersModule } from './containers/containers.module';
 import { ReverseProxyModule } from './reverse-proxy/reverse-proxy.module';
-import { CertificatesModule } from './certificates/certificates.module';
 import { LogsModule } from './logs/logs.module';
 import { FrpModule } from './frp/frp.module';
 import { DnsModule } from './dns/dns.module';
@@ -50,7 +49,6 @@ import { DatabaseModule } from './database/database.module';
     TasksModule,
     ContainersModule,
     ReverseProxyModule,
-    CertificatesModule,
     LogsModule,
     FrpModule,
     DnsModule,

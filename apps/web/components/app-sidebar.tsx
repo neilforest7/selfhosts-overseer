@@ -53,22 +53,7 @@ const data = {
                 },
             ],
         },
-        {
-            title: "Not yet implemented",
-            url: "#",
-            icon: Cpu,
-            items: [
-                {
-                    title: "Certificates",
-                    url: "#certificates",
-                },
-                {
-                    title: "Observability",
-                    url: "#observability",
-                },
-            ],
-        },
-        {
+          {
             title: "Operations",
             url: "#",
             icon: Activity,

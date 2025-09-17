@@ -21,10 +21,8 @@ import OverviewSection from '../sections/OverviewSection';
 import HostsSection from '../sections/HostsSection';
 import AutomationsSection from '../sections/AutomationsSection';
 import ContainersSection from '../sections/ContainersSection';
-import ObservabilitySection from '../sections/ObservabilitySection';
 import TopologySection from '../sections/TopologySection';
 import SettingsSection from '../sections/SettingsSection';
-import CertificatesSection from '../sections/CertificatesSection';
 import { ActivityLogSection } from '../sections/ActivityLogSection';
 import { TaskDrawer } from '@/components/TaskDrawer';
 import LogsSection from '../sections/LogsSection';
@@ -33,7 +31,7 @@ import PluginsSection from '../sections/PluginsSection';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
 import { ListTodo } from 'lucide-react';
 
-type TabKey = 'overview' | 'hosts' | 'actions' | 'containers' | 'dns' | 'plugins' | 'observability' | 'topology' | 'certificates' | 'logs' | 'activity' | 'settings';
+type TabKey = 'overview' | 'hosts' | 'actions' | 'containers' | 'dns' | 'plugins' | 'topology' | 'logs' | 'activity' | 'settings';
 
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
     return (
@@ -61,7 +59,7 @@ export default function Page() {
     useEffect(() => {
         const applyFromHash = () => {
         const hash = window.location.hash.slice(1);
-        if (['overview', 'hosts', 'actions', 'containers', 'dns', 'plugins', 'observability', 'topology', 'certificates', 'logs', 'activity', 'settings'].includes(hash)) {
+        if (['overview', 'hosts', 'actions', 'containers', 'dns', 'plugins', 'topology', 'logs', 'activity', 'settings'].includes(hash)) {
             setTab(hash as TabKey);
         }
         };
@@ -78,9 +76,7 @@ export default function Page() {
             case 'containers': return <ContainersSection />;
             case 'dns': return <DnsPage />;
             case 'plugins': return <PluginsSection />;
-            case 'observability': return <ObservabilitySection />;
             case 'topology': return <TopologySection />;
-            case 'certificates': return <CertificatesSection />;
             case 'logs': return <LogsSection />;
             case 'activity': return <ActivityLogSection />;
             case 'settings': return <SettingsSection />;
