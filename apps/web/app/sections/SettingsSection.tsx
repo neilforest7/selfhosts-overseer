@@ -232,25 +232,27 @@ export default function SettingsSection() {
   const validProxyPort = Math.min(65535, Math.max(1, dockerProxyPort));
 
   return (
-    <Card>
-      <CardHeader><CardTitle>设置</CardTitle></CardHeader>
-      <CardContent className="space-y-4">
-        <AddToHomeScreen />
-        <div className="grid gap-2 max-w-xs">
-          <label className="text-sm">SSH 并发（10–100）</label>
-          <Input type="number" value={sshConcurrency} onChange={(e)=>setSshConcurrency(Number(e.target.value))} />
-        </div>
-        <div className="grid gap-2 max-w-xs">
-          <label className="text-sm">命令超时（10–900 秒）</label>
-          <Input type="number" value={commandTimeoutSeconds} onChange={(e)=>setTimeoutSec(Number(e.target.value))} />
-        </div>
-        
-        <Separator />
-        
-        {/* Docker 代理设置 */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium">Docker 代理设置</h3>
-          
+    <div className="space-y-6">
+      {/* 基础设置 Card */}
+      <Card>
+        <CardHeader><CardTitle>基础设置</CardTitle></CardHeader>
+        <CardContent className="space-y-6">
+          <AddToHomeScreen />
+          <div className="grid gap-2 max-w-xs">
+            <label className="text-sm">SSH 并发（10–100）</label>
+            <Input type="number" value={sshConcurrency} onChange={(e)=>setSshConcurrency(Number(e.target.value))} />
+          </div>
+          <div className="grid gap-2 max-w-xs">
+            <label className="text-sm">命令超时（10–900 秒）</label>
+            <Input type="number" value={commandTimeoutSeconds} onChange={(e)=>setTimeoutSec(Number(e.target.value))} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Docker 代理设置 Card */}
+      <Card>
+        <CardHeader><CardTitle>Docker 代理设置</CardTitle></CardHeader>
+        <CardContent className="space-y-6">
           <div className="flex items-center space-x-2">
             <Checkbox 
               id="docker-proxy-enabled" 
@@ -412,232 +414,234 @@ export default function SettingsSection() {
             </div>
           )}
         </div>
+        </CardContent>
+      </Card>
+
+      {/* 凭证设置区域 - 使用 grid-cols-2 布局 */}
+      <div className='grid grid-cols-2 gap-6'>
+        {/* Docker 凭证设置 Card */}
+        <Card>
+          <CardHeader><CardTitle>Docker 凭证设置</CardTitle></CardHeader>
+          <CardContent className="space-y-6 my-2">
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="docker-credentials-enabled" 
+                checked={dockerCredentialsEnabled} 
+                onCheckedChange={(checked) => setDockerCredentialsEnabled(checked === true)} 
+              />
+              <Label htmlFor="docker-credentials-enabled">启用 DockerHub 凭证</Label>
+            </div>
+            
+            <div className={`grid gap-4 max-w-md ml-6 transition-opacity duration-200 ${dockerCredentialsEnabled ? 'opacity-100' : 'opacity-50'}`}>
+              <div className="grid gap-2">
+                <Label htmlFor="credentials-username">用户名 *</Label>
+                <Input 
+                  id="credentials-username"
+                  type="text" 
+                  placeholder="例如：yourusername" 
+                  value={dockerCredentialsUsername} 
+                  onChange={(e) => setDockerCredentialsUsername(e.target.value)}
+                  disabled={!dockerCredentialsEnabled}
+                />
+              </div>
+              
+              <div className="grid gap-2">
+                <Label htmlFor="credentials-token">Personal Access Token *</Label>
+                <Input 
+                  id="credentials-token"
+                  type="password" 
+                  placeholder="输入 Personal Access Token" 
+                  value={dockerCredentialsPersonalAccessToken} 
+                  onChange={(e) => setDockerCredentialsPersonalAccessToken(e.target.value)}
+                  disabled={!dockerCredentialsEnabled}
+                />
+              </div>
+
+              {!dockerCredentialsEnabled && (
+                <div className="text-xs text-muted-foreground italic">
+                  启用 Docker 凭证后可配置以上选项
+                </div>
+              )}
+              
+              {dockerCredentialsEnabled && dockerCredentialsUsername && dockerCredentialsPersonalAccessToken && (
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('http://localhost:3001/api/v1/containers/test-credentials', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            username: dockerCredentialsUsername,
+                            personalAccessToken: dockerCredentialsPersonalAccessToken
+                          })
+                        });
+                        
+                        if (response.ok) {
+                          toast.success('Docker Hub 登录成功');
+                        } else {
+                          const error = await response.text();
+                          toast.error(`Docker Hub 凭证测试失败: ${error}`);
+                        }
+                      } catch (error) {
+                        toast.error('Docker Hub 凭证测试失败: 网络错误或服务不可用');
+                      }
+                    }}
+                  >
+                    在本地测试凭证
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    点击测试 Docker Hub 登录是否成功
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* GHCR 凭证设置 Card */}
+        <Card>
+          <CardHeader><CardTitle>GHCR 凭证设置</CardTitle></CardHeader>
+          <CardContent className="space-y-6 my-2">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="ghcr-credentials-enabled"
+                checked={ghcrCredentialsEnabled}
+                onCheckedChange={(checked) => setGhcrCredentialsEnabled(checked === true)}
+              />
+              <Label htmlFor="ghcr-credentials-enabled">启用 GitHub Container Registry (GHCR) 凭证</Label>
+            </div>
+
+            <div className={`grid gap-4 max-w-md ml-6 transition-opacity duration-200 ${ghcrCredentialsEnabled ? 'opacity-100' : 'opacity-50'}`}>
+              <div className="grid gap-2">
+                <Label htmlFor="ghcr-username">GitHub 用户名 *</Label>
+                <Input
+                  id="ghcr-username"
+                  type="text"
+                  placeholder="例如：yourusername"
+                  value={ghcrUsername}
+                  onChange={(e) => setGhcrUsername(e.target.value)}
+                  disabled={!ghcrCredentialsEnabled}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <div className="flex flex-row justify-between">
+                  <Label htmlFor="ghcr-token">GitHub Personal Access Token *</Label>
+                  <div className="text-xs text-muted-foreground">
+                    需要包含 <code className="bg-muted px-1 py-0.5 rounded">read:packages</code> 权限
+                  </div>
+                </div>
+                <Input
+                  id="ghcr-token"
+                  type="password"
+                  placeholder="输入 GitHub Personal Access Token"
+                  value={ghcrPersonalAccessToken}
+                  onChange={(e) => setGhcrPersonalAccessToken(e.target.value)}
+                  disabled={!ghcrCredentialsEnabled}
+                />
+              </div>
+
+              {!ghcrCredentialsEnabled && (
+                <div className="text-xs text-muted-foreground italic">
+                  启用 GHCR 凭证后可配置以上选项
+                </div>
+              )}
+
+              {ghcrCredentialsEnabled && ghcrUsername && ghcrPersonalAccessToken && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('http://localhost:3001/api/v1/settings/test-ghcr-connectivity', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            username: ghcrUsername,
+                            personalAccessToken: ghcrPersonalAccessToken
+                          })
+                        });
+
+                        const result = await response.json();
+
+                        if (response.ok && result.success) {
+                          toast.success('GHCR 连接成功');
+                        } else {
+                          toast.error(`GHCR 凭证测试失败: ${result.message}`);
+                        }
+                      } catch (error) {
+                        toast.error('GHCR 凭证测试失败: 网络错误或服务不可用');
+                      }
+                    }}
+                  >
+                    测试 GHCR 连接
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    点击测试 GHCR 认证是否成功
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <Separator />
+      {/* 操作按钮 Card */}
+          <div className="flex gap-3 p-4">
+            <Button 
+              onClick={() => save.mutate({
+                sshConcurrency: validConcurrency,
+                commandTimeoutSeconds: validTimeout,
+                dockerProxyEnabled,
+                dockerProxyHost: dockerProxyHost.trim(),
+                dockerProxyPort: validProxyPort,
+                dockerProxyUsername: dockerProxyUsername.trim(),
+                dockerProxyPassword: dockerProxyPassword.trim(),
+                dockerProxyLocalOnly,
+                dockerCredentialsEnabled,
+                dockerCredentialsUsername: dockerCredentialsUsername.trim(),
+                dockerCredentialsPersonalAccessToken: dockerCredentialsPersonalAccessToken.trim(),
+                ghcrCredentialsEnabled,
+                ghcrUsername: ghcrUsername.trim(),
+                ghcrPersonalAccessToken: ghcrPersonalAccessToken.trim()
+          })} 
+              disabled={save.isPending}
+            >
+              保存
+            </Button>
+            <Button 
+              variant="secondary" 
+              onClick={() => { 
+                if (sQuery.data) {
+                  setSshConcurrency(sQuery.data.sshConcurrency);
+                  setTimeoutSec(sQuery.data.commandTimeoutSeconds);
+                  setDockerProxyEnabled(sQuery.data.dockerProxyEnabled || false);
+                  setDockerProxyHost(sQuery.data.dockerProxyHost || '');
+                  setDockerProxyPort(sQuery.data.dockerProxyPort || 8080);
+                  setDockerProxyUsername(sQuery.data.dockerProxyUsername || '');
+                  setDockerProxyPassword(sQuery.data.dockerProxyPassword || '');
+                  setDockerProxyLocalOnly(sQuery.data.dockerProxyLocalOnly !== undefined ? sQuery.data.dockerProxyLocalOnly : true);
+                  
+                  // 重置 Docker 凭证设置
+                  setDockerCredentialsEnabled(sQuery.data.dockerCredentialsEnabled || false);
+                  setDockerCredentialsUsername(sQuery.data.dockerCredentialsUsername || '');
+                  setDockerCredentialsPersonalAccessToken(sQuery.data.dockerCredentialsPersonalAccessToken || '');
 
-      {/* Docker 凭证设置 */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-medium">Docker 凭证设置</h3>
-        
-        <div className="flex items-center space-x-2">
-          <Checkbox 
-            id="docker-credentials-enabled" 
-            checked={dockerCredentialsEnabled} 
-            onCheckedChange={(checked) => setDockerCredentialsEnabled(checked === true)} 
-          />
-          <Label htmlFor="docker-credentials-enabled">启用 DockerHub 凭证</Label>
-        </div>
-        
-        <div className={`grid gap-4 max-w-md ml-6 transition-opacity duration-200 ${dockerCredentialsEnabled ? 'opacity-100' : 'opacity-50'}`}>
-          <div className="grid gap-2">
-            <Label htmlFor="credentials-username">用户名 *</Label>
-            <Input 
-              id="credentials-username"
-              type="text" 
-              placeholder="例如：yourusername" 
-              value={dockerCredentialsUsername} 
-              onChange={(e) => setDockerCredentialsUsername(e.target.value)}
-              disabled={!dockerCredentialsEnabled}
-            />
+                  // 重置 GHCR 凭证设置
+                  setGhcrCredentialsEnabled(sQuery.data.ghcrCredentialsEnabled || false);
+                  setGhcrUsername(sQuery.data.ghcrUsername || '');
+                  setGhcrPersonalAccessToken(sQuery.data.ghcrPersonalAccessToken || '');
+            } 
+              }}
+            >
+              重置
+            </Button>
           </div>
-          
-          <div className="grid gap-2">
-            <Label htmlFor="credentials-token">Personal Access Token *</Label>
-            <Input 
-              id="credentials-token"
-              type="password" 
-              placeholder="输入 Personal Access Token" 
-              value={dockerCredentialsPersonalAccessToken} 
-              onChange={(e) => setDockerCredentialsPersonalAccessToken(e.target.value)}
-              disabled={!dockerCredentialsEnabled}
-            />
-          </div>
-
-          {!dockerCredentialsEnabled && (
-            <div className="text-xs text-muted-foreground italic">
-              启用 Docker 凭证后可配置以上选项
-            </div>
-          )}
-          
-          {dockerCredentialsEnabled && dockerCredentialsUsername && dockerCredentialsPersonalAccessToken && (
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={async () => {
-                  try {
-                    const response = await fetch('http://localhost:3001/api/v1/containers/test-credentials', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        username: dockerCredentialsUsername,
-                        personalAccessToken: dockerCredentialsPersonalAccessToken
-                      })
-                    });
-                    
-                    if (response.ok) {
-                      toast.success('Docker Hub 登录成功');
-                    } else {
-                      const error = await response.text();
-                      toast.error(`Docker Hub 凭证测试失败: ${error}`);
-                    }
-                  } catch (error) {
-                    toast.error('Docker Hub 凭证测试失败: 网络错误或服务不可用');
-                  }
-                }}
-              >
-                在本地测试凭证
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                点击测试 Docker Hub 登录是否成功
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <Separator />
-
-      {/* GHCR 凭证设置 */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-medium">GHCR 凭证设置</h3>
-
-        <div className="flex items-center space-x-2">
-          <Checkbox
-            id="ghcr-credentials-enabled"
-            checked={ghcrCredentialsEnabled}
-            onCheckedChange={(checked) => setGhcrCredentialsEnabled(checked === true)}
-          />
-          <Label htmlFor="ghcr-credentials-enabled">启用 GitHub Container Registry (GHCR) 凭证</Label>
-        </div>
-
-        <div className={`grid gap-4 max-w-md ml-6 transition-opacity duration-200 ${ghcrCredentialsEnabled ? 'opacity-100' : 'opacity-50'}`}>
-          <div className="grid gap-2">
-            <Label htmlFor="ghcr-username">GitHub 用户名 *</Label>
-            <Input
-              id="ghcr-username"
-              type="text"
-              placeholder="例如：yourusername"
-              value={ghcrUsername}
-              onChange={(e) => setGhcrUsername(e.target.value)}
-              disabled={!ghcrCredentialsEnabled}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="ghcr-token">GitHub Personal Access Token *</Label>
-            <Input
-              id="ghcr-token"
-              type="password"
-              placeholder="输入 GitHub Personal Access Token"
-              value={ghcrPersonalAccessToken}
-              onChange={(e) => setGhcrPersonalAccessToken(e.target.value)}
-              disabled={!ghcrCredentialsEnabled}
-            />
-            <div className="text-xs text-muted-foreground">
-              需要包含 <code className="bg-muted px-1 py-0.5 rounded">read:packages</code> 权限
-            </div>
-          </div>
-
-          {!ghcrCredentialsEnabled && (
-            <div className="text-xs text-muted-foreground italic">
-              启用 GHCR 凭证后可配置以上选项
-            </div>
-          )}
-
-          {ghcrCredentialsEnabled && ghcrUsername && ghcrPersonalAccessToken && (
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    const response = await fetch('http://localhost:3001/api/v1/settings/test-ghcr-connectivity', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        username: ghcrUsername,
-                        personalAccessToken: ghcrPersonalAccessToken
-                      })
-                    });
-
-                    const result = await response.json();
-
-                    if (response.ok && result.success) {
-                      toast.success('GHCR 连接成功');
-                    } else {
-                      toast.error(`GHCR 凭证测试失败: ${result.message}`);
-                    }
-                  } catch (error) {
-                    toast.error('GHCR 凭证测试失败: 网络错误或服务不可用');
-                  }
-                }}
-              >
-                测试 GHCR 连接
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                点击测试 GHCR 认证是否成功
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-        <Separator />
-      
-        <div className="flex gap-2">
-          <Button 
-            onClick={() => save.mutate({
-              sshConcurrency: validConcurrency,
-              commandTimeoutSeconds: validTimeout,
-              dockerProxyEnabled,
-              dockerProxyHost: dockerProxyHost.trim(),
-              dockerProxyPort: validProxyPort,
-              dockerProxyUsername: dockerProxyUsername.trim(),
-              dockerProxyPassword: dockerProxyPassword.trim(),
-              dockerProxyLocalOnly,
-              dockerCredentialsEnabled,
-              dockerCredentialsUsername: dockerCredentialsUsername.trim(),
-              dockerCredentialsPersonalAccessToken: dockerCredentialsPersonalAccessToken.trim(),
-              ghcrCredentialsEnabled,
-              ghcrUsername: ghcrUsername.trim(),
-              ghcrPersonalAccessToken: ghcrPersonalAccessToken.trim()
-        })} 
-            disabled={save.isPending}
-          >
-            保存
-          </Button>
-          <Button 
-            variant="secondary" 
-            onClick={() => { 
-              if (sQuery.data) {
-                setSshConcurrency(sQuery.data.sshConcurrency);
-                setTimeoutSec(sQuery.data.commandTimeoutSeconds);
-                setDockerProxyEnabled(sQuery.data.dockerProxyEnabled || false);
-                setDockerProxyHost(sQuery.data.dockerProxyHost || '');
-                setDockerProxyPort(sQuery.data.dockerProxyPort || 8080);
-                setDockerProxyUsername(sQuery.data.dockerProxyUsername || '');
-                setDockerProxyPassword(sQuery.data.dockerProxyPassword || '');
-                setDockerProxyLocalOnly(sQuery.data.dockerProxyLocalOnly !== undefined ? sQuery.data.dockerProxyLocalOnly : true);
-                
-                // 重置 Docker 凭证设置
-                setDockerCredentialsEnabled(sQuery.data.dockerCredentialsEnabled || false);
-                setDockerCredentialsUsername(sQuery.data.dockerCredentialsUsername || '');
-                setDockerCredentialsPersonalAccessToken(sQuery.data.dockerCredentialsPersonalAccessToken || '');
-
-                // 重置 GHCR 凭证设置
-                setGhcrCredentialsEnabled(sQuery.data.ghcrCredentialsEnabled || false);
-                setGhcrUsername(sQuery.data.ghcrUsername || '');
-                setGhcrPersonalAccessToken(sQuery.data.ghcrPersonalAccessToken || '');
-          } 
-            }}
-          >
-            重置
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 

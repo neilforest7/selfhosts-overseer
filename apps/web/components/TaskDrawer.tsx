@@ -115,7 +115,7 @@ export function TaskDrawer() {
     <>
       {isMinimized && (
         <div className="fixed bottom-4 right-4 z-50">
-          <Button onClick={actions.toggleMinimize} size="lg" className="rounded-full w-16 h-16 shadow-lg">
+          <Button onClick={actions.toggleMinimize} size="default" className="rounded-full w-12 h-12 shadow-lg">
             <ChevronsUp className="h-8 w-8" />
           </Button>
         </div>

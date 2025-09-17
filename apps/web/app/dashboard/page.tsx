@@ -29,7 +29,8 @@ import LogsSection from '../sections/LogsSection';
 import DnsPage from '../dns/page';
 import PluginsSection from '../sections/PluginsSection';
 import { useTaskDrawerStore } from '@/lib/stores/task-drawer-store';
-import { ListTodo } from 'lucide-react';
+import { ChevronsUp, ListTodo } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 type TabKey = 'overview' | 'hosts' | 'actions' | 'containers' | 'dns' | 'plugins' | 'topology' | 'logs' | 'activity' | 'settings';
 
@@ -41,12 +42,12 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
             <pre className="text-sm bg-red-100 p-2 rounded overflow-auto">
                 {error.message}
             </pre>
-            <button
+            <Button
                 onClick={resetErrorBoundary}
                 className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
             >
                 Try again
-            </button>
+            </Button>
         </div>
     );
 }
@@ -116,11 +117,13 @@ export default function Page() {
                     </ErrorBoundary>
                 </div>
             </SidebarInset>
-            <div className="fixed bottom-4 right-4 z-50">
-                <button onClick={actions?.toggleOpen} disabled={!actions} className="rounded-full w-16 h-16 shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed">
-                    <ListTodo className="h-8 w-8 mx-auto" />
-                </button>
-            </div>
+            {!store?.isOpen && (
+                <div className="fixed bottom-4 right-4 z-50">
+                    <Button onClick={actions?.toggleOpen} disabled={!actions} size="default" className="rounded-full w-12 h-12 shadow-lg">
+                        <ChevronsUp className="h-8 w-8" />
+                    </Button>
+                </div>
+            )}
             <TaskDrawer />
         </SidebarProvider>
     )
