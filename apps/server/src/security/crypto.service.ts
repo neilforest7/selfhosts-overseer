@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto';
 
 @Injectable()
@@ -6,10 +7,28 @@ export class CryptoService {
   private readonly logger = new Logger(CryptoService.name);
   private readonly key: Buffer;
 
-  constructor() {
-    const raw = process.env.ENCRYPTION_KEY || 'dev-insecure-key-please-change-immediately';
+  constructor(private configService: ConfigService) {
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+
+    // In production, always use ENCRYPTION_KEY
+    // In development, prioritize DEV_ENCRYPTION_KEY for backward compatibility
+    let raw: string;
+    if (nodeEnv === 'production') {
+      raw = this.configService.get<string>('ENCRYPTION_KEY', '');
+      if (!raw) {
+        throw new Error('ENCRYPTION_KEY is required in production environment');
+      }
+      this.logger.log('🔒 Using production encryption key');
+    } else {
+      raw = this.configService.get<string>('DEV_ENCRYPTION_KEY') ||
+            this.configService.get<string>('ENCRYPTION_KEY') ||
+            'dev-insecure-key-please-change-immediately';
+      this.logger.log('🔓 Using development encryption key');
+    }
+
     // Derive 32-byte key via sha256
     this.key = createHash('sha256').update(raw).digest();
+    this.logger.log(`🔑 CryptoService initialized for ${nodeEnv} environment`);
   }
 
   encryptString(plain?: string | null): string | null {

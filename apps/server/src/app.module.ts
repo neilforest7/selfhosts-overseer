@@ -1,5 +1,6 @@
 import { BullModule } from '@nestjs/bullmq';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { SettingsModule } from './settings/settings.module';
 import { HostsModule } from './hosts/hosts.module';
@@ -27,13 +28,18 @@ import { DatabaseModule } from './database/database.module';
   imports: [
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
+    ConfigModule.forRoot({
+      isGlobal: true, // Make ConfigService available throughout the application
+      envFilePath: '.env', // Read from root .env file
+      expandVariables: true, // Enable variable expansion like ${VAR:-default}
+    }),
     DatabaseModule, // Import the new DatabaseModule for automatic migrations
     AuthModule,
     BullModule.forRoot({
       connection: {
-        host: process.env.REDIS_HOST || 'localhost',
+        host: process.env.REDIS_HOST || process.env.DEV_REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
+        password: process.env.REDIS_PASSWORD || process.env.DEV_REDIS_PASSWORD,
         db: parseInt(process.env.REDIS_DB || '0'),
       },
     }),

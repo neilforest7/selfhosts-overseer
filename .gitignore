@@ -75,3 +75,5 @@ docs/automation-plugin-architecture.md
 plugin_issues_list.md
 test_avatar.png
 apps/web/tsconfig.tsbuildinfo
+database/
+ssh/known_hosts

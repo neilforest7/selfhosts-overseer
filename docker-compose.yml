@@ -25,6 +25,8 @@ services:
       # Application settings
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: 1
+      HOME: /app
+      SSH_KNOWN_HOSTS: /app/.ssh/known_hosts
       
       # API Configuration
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
@@ -78,15 +80,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    
+
     # Network configuration
     networks:
       - selfhost-network
+
+    # Environment file
+    env_file:
+      - .env
     
     # Volume mounts for persistent data and SSH
     volumes:
       # Optional: Mount SSH keys for host management
-      - ssh_keys:/home/nextjs/.ssh:ro
+      - ./ssh:/app/.ssh:rw
       # Optional: Mount custom configuration files
       - ./config:/app/config:ro
     
@@ -127,7 +133,7 @@ services:
     
     # Persistent storage
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./database/data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro
       - ./database/backups:/backups:ro
     
@@ -266,16 +272,9 @@ networks:
 
 # ===== PERSISTENT STORAGE =====
 volumes:
-  postgres_data:
-    driver: local
-    name: ${POSTGRES_VOLUME_NAME:-selfhost-postgres-data}
   redis_data:
     driver: local
     name: ${REDIS_VOLUME_NAME:-selfhost-redis-data}
-  ssh_keys:
-    driver: local
-    name: ${SSH_KEYS_VOLUME_NAME:-selfhost-ssh-keys}
-    external: false
 
 # ===== CONFIGURATION NOTES =====
 # Environment Variables:

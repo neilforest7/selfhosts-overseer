@@ -1,15 +1,23 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AuthInitService implements OnModuleInit {
   private readonly logger = new Logger(AuthInitService.name);
-  private readonly maxRetries = parseInt(process.env.AUTH_INIT_MAX_RETRIES || '10');
-  private readonly retryDelay = parseInt(process.env.AUTH_INIT_RETRY_DELAY || '3000');
-  private readonly readyCheckInterval = parseInt(process.env.AUTH_INIT_READY_CHECK_INTERVAL || '2000');
+  private readonly maxRetries: number;
+  private readonly retryDelay: number;
+  private readonly readyCheckInterval: number;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService
+  ) {
+    this.maxRetries = parseInt(this.configService.get<string>('AUTH_INIT_MAX_RETRIES') || this.configService.get<string>('DEV_AUTH_INIT_MAX_RETRIES') || '10');
+    this.retryDelay = parseInt(this.configService.get<string>('AUTH_INIT_RETRY_DELAY') || this.configService.get<string>('DEV_AUTH_INIT_RETRY_DELAY') || '3000');
+    this.readyCheckInterval = parseInt(this.configService.get<string>('AUTH_INIT_READY_CHECK_INTERVAL') || this.configService.get<string>('DEV_AUTH_INIT_READY_CHECK_INTERVAL') || '2000');
+  }
 
   async onModuleInit() {
     await this.initializeAdminUser();
@@ -81,8 +89,8 @@ export class AuthInitService implements OnModuleInit {
       const userCount = await this.prisma.user.count();
 
       if (userCount === 0) {
-        const username = process.env.USERNAME;
-        const password = process.env.PASSWORD;
+        const username = this.configService.get<string>('USERNAME') || this.configService.get<string>('DEV_USERNAME');
+        const password = this.configService.get<string>('PASSWORD') || this.configService.get<string>('DEV_PASSWORD');
 
         if (!username || !password) {
           this.logger.warn('USERNAME or PASSWORD environment variables not set. Skipping user initialization.');

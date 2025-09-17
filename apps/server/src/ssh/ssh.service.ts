@@ -44,6 +44,11 @@ export class SshService {
       '-o',
       `ConnectTimeout=${Math.max(1, Math.min(600, connectTimeoutSeconds))}`,
     ];
+
+    // Use custom known_hosts path if environment variable is set
+    if (process.env.SSH_KNOWN_HOSTS) {
+      baseArgs.push('-o', `UserKnownHostsFile=${process.env.SSH_KNOWN_HOSTS}`);
+    }
     if (port) baseArgs.push('-p', String(port));
     // auth via private key
     let cleanup: (() => Promise<void>) | undefined;

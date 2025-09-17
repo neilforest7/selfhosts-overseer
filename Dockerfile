@@ -27,23 +27,23 @@ RUN if [ ! -z "${BUILD_HTTP_PROXY}" ]; then \
         echo 'Acquire::https::Proxy "'${BUILD_HTTPS_PROXY}'";' >> /etc/apt/apt.conf.d/01proxy; \
     fi
 
-# Install build dependencies with proxy support (continue on partial failures)
+# Install build dependencies with proxy support
 RUN apt-get update --allow-releaseinfo-change || apt-get update && \
     apt-get install -y --fix-missing \
     python3 \
     build-essential \
-    dumb-init \
     ca-certificates \
     curl \
     wget \
     openssl \
-    || apt-get install -y \
-    python3 \
-    ca-certificates \
-    curl \
-    wget \
-    openssl \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
+
+# Install dumb-init explicitly with error handling
+RUN apt-get update && \
+    apt-get install -y dumb-init && \
+    dumb-init --version && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -140,9 +140,10 @@ ENV NODE_ENV=${BUILD_NODE_ENV:-production} \
 RUN groupadd -r nodejs -g 1001 2>/dev/null || true && \
     useradd -r -u 1001 -g nodejs nextjs 2>/dev/null || true
 
-# Create app directories
-RUN mkdir -p /app/apps/web /app/apps/server /var/log/supervisor && \
-    chown -R nextjs:nodejs /app /var/log/supervisor
+# Create app directories and SSH directory
+RUN mkdir -p /app/apps/web /app/apps/server /var/log/supervisor /app/.ssh && \
+    chown -R nextjs:nodejs /app /var/log/supervisor && \
+    chmod 700 /app/.ssh
 
 # Switch to non-root user for application
 USER nextjs
@@ -161,10 +162,19 @@ COPY --from=web-builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/pu
 COPY --from=server-builder --chown=nextjs:nodejs /app/apps/server/package.json ./apps/server/
 COPY --from=web-builder --chown=nextjs:nodejs /app/apps/web/package.json ./apps/web/
 
-# Create optimized startup script
+# Create optimized startup script with dumb-init fallback
 # Create startup script and make executable
 RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'set -e' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo '# Check for dumb-init availability' >> /app/start.sh && \
+    echo 'if command -v dumb-init >/dev/null 2>&1; then' >> /app/start.sh && \
+    echo '    INIT_CMD="dumb-init"' >> /app/start.sh && \
+    echo '    echo "Using dumb-init for process management"' >> /app/start.sh && \
+    echo 'else' >> /app/start.sh && \
+    echo '    INIT_CMD=""' >> /app/start.sh && \
+    echo '    echo "dumb-init not found, using direct execution"' >> /app/start.sh && \
+    echo 'fi' >> /app/start.sh && \
     echo '' >> /app/start.sh && \
     echo '# Health check function' >> /app/start.sh && \
     echo 'health_check() {' >> /app/start.sh && \
@@ -183,17 +193,17 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo '    return 0' >> /app/start.sh && \
     echo '}' >> /app/start.sh && \
     echo '' >> /app/start.sh && \
-    echo '# Start services with dumb-init' >> /app/start.sh && \
-    echo 'cd /app/apps/server && npx prisma generate && dumb-init node dist/main &' >> /app/start.sh && \
+    echo '# Start services with proper init system' >> /app/start.sh && \
+    echo 'cd /app/apps/server && npx prisma generate && ${INIT_CMD} node dist/main &' >> /app/start.sh && \
     echo 'SERVER_PID=${!}' >> /app/start.sh && \
     echo '' >> /app/start.sh && \
     echo '# Start Next.js web server (standalone if available, otherwise use npm start)' >> /app/start.sh && \
     echo 'if [ -f "apps/web/.next/standalone/server.js" ]; then' >> /app/start.sh && \
     echo '    echo "Starting Next.js standalone server..."' >> /app/start.sh && \
-    echo '    dumb-init node /app/apps/web/.next/standalone/server.js &' >> /app/start.sh && \
+    echo '    ${INIT_CMD} node /app/apps/web/.next/standalone/server.js &' >> /app/start.sh && \
     echo 'else' >> /app/start.sh && \
     echo '    echo "Starting Next.js with npm start..."' >> /app/start.sh && \
-    echo '    cd /app/apps/web && dumb-init npm start &' >> /app/start.sh && \
+    echo '    cd /app/apps/web && ${INIT_CMD} npm start &' >> /app/start.sh && \
     echo 'fi' >> /app/start.sh && \
     echo 'WEB_PID=${!}' >> /app/start.sh && \
     echo '' >> /app/start.sh && \

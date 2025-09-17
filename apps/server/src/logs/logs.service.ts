@@ -1,4 +1,5 @@
 import { Injectable, Inject, forwardRef, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { LogsGateway } from './logs.gateway';
@@ -18,7 +19,7 @@ export class LogsService {
   private readonly logger = new Logger(LogsService.name);
   private logBuffer: LogEntry[] = []; // 临时保留用于向后兼容
   private readonly maxBufferSize = 1000;
-  private lokiBaseUrl = process.env.LOKI_URL || 'http://localhost:3100';
+  private lokiBaseUrl: string;
 
   private isDatabaseReady = false;
   private pendingLogs: Array<{
@@ -36,8 +37,11 @@ export class LogsService {
 
   constructor(
     @Inject(forwardRef(() => LogsGateway)) private readonly logsGateway: LogsGateway,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService
   ) {
+    this.lokiBaseUrl = this.configService.get<string>('LOKI_URL', 'http://localhost:3100');
+
     // 监听应用日志并缓存
     this.startLogCapture();
     // 设置全局 Logger 监听

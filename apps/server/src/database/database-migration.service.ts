@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
@@ -47,15 +48,7 @@ export type { MigrationConfig, MigrationResult, DatabaseHealth };
 @Injectable()
 export class DatabaseMigrationService implements OnModuleInit {
   private readonly logger = new Logger(DatabaseMigrationService.name);
-  private readonly defaultConfig: MigrationConfig = {
-    timeoutMs: parseInt(process.env.DB_MIGRATION_TIMEOUT || '60000'), // 1 minute
-    retryAttempts: parseInt(process.env.DB_MIGRATION_MAX_RETRIES || '3'),
-    retryDelayMs: parseInt(process.env.DB_MIGRATION_RETRY_DELAY || '5000'),
-    useTransactions: false,
-    verboseLogging: process.env.NODE_ENV === 'development',
-    healthCheckIntervalMs: 30000,
-    enabled: process.env.DISABLE_AUTO_MIGRATION !== 'true'
-  };
+  private defaultConfig: MigrationConfig;
 
   private lastMigrationResult: MigrationResult | null = null;
   private isMigrating = false;
@@ -66,7 +59,20 @@ export class DatabaseMigrationService implements OnModuleInit {
     lastMigrationTime: null as Date | null
   };
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService
+  ) {
+    this.defaultConfig = {
+      timeoutMs: parseInt(this.configService.get<string>('DB_MIGRATION_TIMEOUT') || this.configService.get<string>('DEV_DB_MIGRATION_TIMEOUT') || '60000'),
+      retryAttempts: parseInt(this.configService.get<string>('DB_MIGRATION_MAX_RETRIES') || this.configService.get<string>('DEV_DB_MIGRATION_MAX_RETRIES') || '3'),
+      retryDelayMs: parseInt(this.configService.get<string>('DB_MIGRATION_RETRY_DELAY') || this.configService.get<string>('DEV_DB_MIGRATION_RETRY_DELAY') || '5000'),
+      useTransactions: false,
+      verboseLogging: this.configService.get<string>('NODE_ENV') === 'development',
+      healthCheckIntervalMs: 30000,
+      enabled: this.configService.get<string>('DISABLE_AUTO_MIGRATION') !== 'true'
+    };
+  }
 
   async onModuleInit() {
     if (!this.defaultConfig.enabled) {
@@ -159,8 +165,8 @@ export class DatabaseMigrationService implements OnModuleInit {
 
   // Helper methods
   private async checkDatabaseConnection(): Promise<void> {
-    const maxAttempts = parseInt(process.env.DB_CONNECTION_MAX_ATTEMPTS || '20');
-    const retryDelay = parseInt(process.env.DB_CONNECTION_RETRY_DELAY || '3000');
+    const maxAttempts = parseInt(this.configService.get<string>('DB_CONNECTION_MAX_ATTEMPTS') || this.configService.get<string>('DEV_DB_CONNECTION_MAX_ATTEMPTS') || '20');
+    const retryDelay = parseInt(this.configService.get<string>('DB_CONNECTION_RETRY_DELAY') || this.configService.get<string>('DEV_DB_CONNECTION_RETRY_DELAY') || '3000');
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -520,7 +526,7 @@ export class DatabaseMigrationService implements OnModuleInit {
       const timeout = config.timeoutMs || 60000;
       const child = spawn('npx', ['prisma', ...args], {
         cwd: process.cwd(),
-        env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
+        env: { ...process.env, DATABASE_URL: this.configService.get<string>('DATABASE_URL') || this.configService.get<string>('DEV_DATABASE_URL') || process.env.DATABASE_URL },
         stdio: 'pipe',
         shell: true,
         timeout
@@ -835,7 +841,7 @@ export class DatabaseMigrationService implements OnModuleInit {
     this.logger.log('📝 Creating baseline migration for existing schema...');
 
     try {
-      const isProduction = process.env.NODE_ENV === 'production';
+      const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
       let baselineResult;
 
       if (isProduction) {
