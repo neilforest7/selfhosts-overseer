@@ -65,12 +65,21 @@ export class ContainerLifecycleService {
             imageTag: container.imageTag,
           }
         );
+
+        // Only mark as completed after all operations are done
+        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
       } catch (err) {
-        isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.operationLogService.log('error', `Restart failed: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError}`, statusError);
+        }
+
+        throw err;
       }
     });
     return { taskId: opLog.id };
@@ -122,12 +131,21 @@ export class ContainerLifecycleService {
             imageTag: container.imageTag,
           }
         );
+
+        // Only mark as completed after all operations are done
+        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
       } catch (err) {
-        isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.operationLogService.log('error', `Start failed: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError}`, statusError);
+        }
+
+        throw err;
       }
     });
     return { taskId: opLog.id };
@@ -179,12 +197,21 @@ export class ContainerLifecycleService {
             imageTag: container.imageTag,
           }
         );
+
+        // Only mark as completed after all operations are done
+        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
       } catch (err) {
-        isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.operationLogService.log('error', `Stop failed: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError}`, statusError);
+        }
+
+        throw err;
       }
     });
     return { taskId: opLog.id };

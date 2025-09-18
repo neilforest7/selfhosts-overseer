@@ -66,13 +66,24 @@ export class FrpService {
       this.operationLogService.log('system', `FRP sync finished (${phase} phase).`, hostId);
 
     } catch (err) {
-      isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.operationLogService.log('error', `FRP sync failed: ${errorMessage}`, hostId);
-    } finally {
-      if (opId) { // Only update status if this is the top-level operation
-        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+
+      // Ensure error status is set even if exception occurs
+      if (opId) {
+        try {
+          await this.operationLogService.updateStatus(opId, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opId}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
       }
+
+      throw err;
+    }
+
+    // Only mark as completed after all operations are done
+    if (opId) { // Only update status if this is the top-level operation
+      await this.operationLogService.updateStatus(opId, 'COMPLETED');
     }
   }
 
@@ -434,10 +445,22 @@ export class FrpService {
       isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.operationLogService.log('error', `FRP dependency resolution failed: ${errorMessage}`);
-    } finally {
+
+      // Ensure error status is set even if exception occurs
       if (opId) {
-        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+        try {
+          await this.operationLogService.updateStatus(opId, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opId}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
       }
+
+      throw err;
+    }
+
+    // Only mark as completed after all operations are done
+    if (opId) { // Only update status if this is the top-level operation
+      await this.operationLogService.updateStatus(opId, 'COMPLETED');
     }
 
     return {
@@ -869,10 +892,22 @@ export class FrpService {
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.operationLogService.log('error', `FRP healing failed: ${errorMessage}`);
       errors.push(errorMessage);
-    } finally {
+
+      // Ensure error status is set even if exception occurs
       if (opId) {
-        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+        try {
+          await this.operationLogService.updateStatus(opId, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opId}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
       }
+
+      throw err;
+    }
+
+    // Only mark as completed after all operations are done
+    if (opId) { // Only update status if this is the top-level operation
+      await this.operationLogService.updateStatus(opId, 'COMPLETED');
     }
 
     return {

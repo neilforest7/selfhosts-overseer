@@ -44,7 +44,7 @@ class ApiClient {
       // Handle empty responses (like 204 No Content)
       const contentType = response.headers.get('content-type')
       if (!contentType || !contentType.includes('application/json')) {
-        return { success: true, data: null }
+        return { success: true, data: undefined as T | undefined }
       }
 
       const data = await response.json()

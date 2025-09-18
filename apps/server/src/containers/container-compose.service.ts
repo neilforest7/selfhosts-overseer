@@ -96,9 +96,19 @@ export class ContainerComposeService {
           const errorMessage = err instanceof Error ? err.message : String(err);
           this.logger.error(`Compose ${operation} failed for project "${project}": ${errorMessage}`, err instanceof Error ? err.stack : undefined);
           this.operationLogService.log('error', `Compose ${operation} failed: ${errorMessage}`);
-        } finally {
-          await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+
+          // Ensure error status is set even if exception occurs
+          try {
+            await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+          } catch (statusError) {
+            this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+          }
+
+          throw err;
         }
+
+        // Only mark as completed after all operations are done
+        await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
       });
     });
 
@@ -183,9 +193,18 @@ export class ContainerComposeService {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.operationLogService.log('error', `Pull failed: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
+
+        throw err;
       }
+
+      // Only mark as completed after all operations are done
+      await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
     });
 
     return { taskId: opLog.id };

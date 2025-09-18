@@ -68,7 +68,7 @@ export default function ContainersSection() {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [discoverDialogOpen, setDiscoverDialogOpen] = useState(false);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const { startOperation, fetchTasks, selectTask, setOpen, addTaskAndOpen } = useTaskDrawerStore((s) => s.actions);
+  const { fetchTasks, selectTask, setOpen, addTaskAndOpen } = useTaskDrawerStore((s) => s.actions);
 
   // Helper function to execute task operations and automatically open TaskDrawer
   const executeTaskOperation = useCallback(async (
@@ -194,34 +194,7 @@ export default function ContainersSection() {
     await refreshContainers(true);
   };
 
-  // Mutation for triggering actual container status refresh operation
-  const refreshStatusMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiClient.post('/api/v1/containers/refresh-status', { host: { id: 'all' } });
-      if (!response.success) {
-        throw new Error(`刷新失败: ${response.error}`);
-      }
-      return response.data;
-    },
-    onSuccess: async (data: any) => {
-      toast.success('容器状态刷新已启动');
-      // Monitor the operation status and refresh UI when complete
-      if (data?.taskId) {
-        await monitorOperationStatus(data.taskId);
-      } else {
-        // Fallback: refresh after a delay
-        setTimeout(async () => {
-          await refreshContainers(true);
-          toast.success('容器状态已更新');
-        }, 3000);
-      }
-    },
-    onError: (error: any) => {
-      console.error('Container status refresh failed:', error);
-      toast.error(`容器状态刷新失败: ${error.message}`);
-    },
-  });
-
+  
   const listQuery = useQuery<{ items: ContainerItem[] }>({
     queryKey: ['containers', q, updateOnly, hostFilter, filterMode],
     queryFn: async () => {
@@ -312,192 +285,12 @@ export default function ContainersSection() {
   };
 
   
-  const discover = useMutation({
-    mutationFn: async (hostTarget: string | 'all' | string[]) => {
-      let body: any;
-
-      if (Array.isArray(hostTarget)) {
-        // Multiple hosts
-        body = { hostIds: hostTarget };
-      } else if (hostTarget === 'all') {
-        // All hosts
-        body = {};
-      } else {
-        // Single host
-        body = { host: { id: hostTarget } };
-      }
-
-      const response = await apiClient.post('/api/v1/containers/discover', body);
-      if (!response.success) throw new Error(response.error || '发现失败');
-      return response.data;
-    },
-    onMutate: (hostTarget) => {
-      let hostName: string;
-
-      if (Array.isArray(hostTarget)) {
-        const hostNames = hostTarget.map(id =>
-          hostsQuery.data?.items?.find(h => h.id === id)?.name || id
-        );
-        hostName = `${hostNames.slice(0, 2).join(', ')}${hostNames.length > 2 ? ` 等 ${hostNames.length} 台主机` : ''}`;
-      } else if (hostTarget === 'all') {
-        hostName = '全部主机';
-      } else {
-        hostName = hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget;
-      }
-
-      toast.info(`开始容器发现：${hostName}`);
-    },
-    onSuccess: async (data: any, variables) => {
-      let hostName: string;
-      if (Array.isArray(variables)) {
-        const hostNames = variables.map(id =>
-          hostsQuery.data?.items?.find(h => h.id === id)?.name || id
-        );
-        hostName = `${hostNames.slice(0, 2).join(', ')}${hostNames.length > 2 ? ` 等 ${hostNames.length} 台主机` : ''}`;
-      } else if (variables === 'all') {
-        hostName = '全部主机';
-      } else {
-        hostName = hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables;
-      }
-
-      if (data.taskId) {
-        await fetchTasks();
-        selectTask(data.taskId);
-        setOpen(true);
-        // Monitor the operation completion
-        await monitorOperationStatus(data.taskId, `容器发现（${hostName}）`);
-      } else {
-        // Fallback for operations that don't return taskId
-        if (typeof data?.upserted === 'number') {
-          toast.success(`发现完成（${hostName}）：新增/更新 ${data.upserted} 个`);
-        } else {
-          toast.success(`发现完成（${hostName}）`);
-        }
-        await refreshContainers(true);
-      }
-    },
-    onError: (err: any, variables) => {
-      let hostName: string;
-      if (Array.isArray(variables)) {
-        const hostNames = variables.map(id =>
-          hostsQuery.data?.items?.find(h => h.id === id)?.name || id
-        );
-        hostName = `${hostNames.slice(0, 2).join(', ')}${hostNames.length > 2 ? ` 等 ${hostNames.length} 台主机` : ''}`;
-      } else if (variables === 'all') {
-        hostName = '全部主机';
-      } else {
-        hostName = hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables;
-      }
-      toast.error(`发现失败（${hostName}）：${err?.message || '未知错误'}`);
-    }
-  });
-
-  const checkUpdates = useMutation({
-    mutationFn: async (hostTarget: string | 'all') => {
-      const body = hostTarget === 'all' ? {} : { host: { id: hostTarget } };
-      const response = await apiClient.post('/api/v1/containers/check-updates', body);
-      if (!response.success) throw new Error(response.error || '检查失败');
-      return response.data;
-    },
-    onMutate: (hostTarget) => {
-      const hostName = hostTarget === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === hostTarget)?.name || hostTarget);
-      toast.info(`开始检查镜像更新：${hostName}`);
-    },
-    onSuccess: async (data: any, variables) => {
-      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
-      if (data.taskId) {
-        await fetchTasks();
-        selectTask(data.taskId);
-        setOpen(true);
-        // Monitor the operation completion
-        await monitorOperationStatus(data.taskId, `检查镜像更新（${hostName}）`);
-      } else {
-        // Fallback for operations that don't return taskId
-        if (typeof data?.updated === 'number') {
-          toast.success(`检查完成（${hostName}）：可更新 ${data.updated} 个`);
-        } else {
-          toast.success(`检查完成（${hostName}）`);
-        }
-        await refreshContainers(true);
-      }
-    },
-    onError: (err: any, variables) => {
-      const hostName = variables === 'all' ? '全部主机' : (hostsQuery.data?.items?.find(h => h.id === variables)?.name || variables);
-      toast.error(`检查失败（${hostName}）：${err?.message || '未知错误'}`);
-    }
-  });
-
+  
+  
   // Compose 操作（改为直接调用后端 compose/operate 接口）
-  const composeOperation = useMutation({
-    mutationFn: async ({ hostId, project, workingDir, operation }: { hostId: string; project: string; workingDir: string; operation: 'down' | 'pull' | 'up' | 'restart' | 'start' | 'stop' }) => {
-      const response = await apiClient.post('/api/v1/containers/compose/operate', {
-        hostId, project, workingDir, op: operation
-      });
-      if (!response.success) throw new Error(`${operation} 操作失败`);
-      return response.data;
-    },
-    onMutate: ({ project, operation }) => {
-      toast.info(`正在执行 Compose ${operation}：${project}`);
-    },
-    onSuccess: async (data: any, { project, operation }) => {
-      if (data.taskId) {
-        await fetchTasks();
-        selectTask(data.taskId);
-        setOpen(true);
-        // Monitor the operation completion
-        await monitorOperationStatus(data.taskId, `Compose ${operation} ${project}`);
-      } else {
-        // Fallback for operations that don't return taskId
-        toast.success(`Compose ${operation} 完成：${project}`);
-        await refreshContainers(true);
-      }
-    },
-    onError: (err: any, { project, operation }) => {
-      toast.error(`Compose ${operation} 失败：${project} - ${err?.message || '未知错误'}`);
-    }
-  });
-
-  const analyzeNpm = useMutation({
-    mutationFn: async (hostId: string) => {
-      const response = await apiClient.post(`/api/v1/reverse-proxy/sync/${hostId}`);
-      if (!response.success) throw new Error('分析请求失败');
-      return response.data;
-    },
-    onMutate: (hostId) => {
-      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
-      toast.info(`开始分析 ${hostName} 上的 NPM...`);
-    },
-    onSuccess: (_data, hostId) => {
-      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
-      toast.success(`NPM 分析完成：${hostName}`);
-      qc.invalidateQueries({ queryKey: ['reverse-proxy-routes'] }); // Assuming this is the query key for routes
-    },
-    onError: (err: any, hostId) => {
-      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
-      toast.error(`NPM 分析失败：${hostName} - ${err?.message || '未知错误'}`);
-    }
-  });
-
-  const analyzeFrp = useMutation({
-    mutationFn: async (hostId: string) => {
-      const response = await apiClient.post(`/api/v1/frp/sync/${hostId}`);
-      if (!response.success) throw new Error('分析请求失败');
-      return response.data;
-    },
-    onMutate: (hostId) => {
-      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
-      toast.info(`开始分析 ${hostName} 上的 FRP...`);
-    },
-    onSuccess: (_data, hostId) => {
-      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
-      toast.success(`FRP 分析完成：${hostName}`);
-    },
-    onError: (err: any, hostId) => {
-      const hostName = hostsQuery.data?.items?.find(h => h.id === hostId)?.name || hostId;
-      toast.error(`FRP 分析失败：${hostName} - ${err?.message || '未知错误'}`);
-    }
-  });
-
+  
+  
+  
   
 
   return (
@@ -516,14 +309,15 @@ export default function ContainersSection() {
             size="sm"
             variant="outline"
             onClick={async () => {
-              if (refreshStatusMutation.isPending || isManualRefreshing || listQuery.isFetching) return;
+              if (isManualRefreshing || listQuery.isFetching) return;
 
               setIsManualRefreshing(true);
               try {
                 toast.info('正在刷新容器状态...');
-                // First trigger the actual container status refresh operation
-                await refreshStatusMutation.mutateAsync();
-                // The mutation's onSuccess handler will refresh the UI after the operation completes
+                executeTaskOperation(
+                  '刷新容器状态',
+                  () => apiClient.post('/api/v1/containers/refresh-status', { host: { id: 'all' } })
+                );
               } catch (error) {
                 console.error('Failed to refresh containers:', error);
                 toast.error('刷新失败，请重试');
@@ -531,10 +325,10 @@ export default function ContainersSection() {
                 setIsManualRefreshing(false);
               }
             }}
-            disabled={listQuery.isFetching || isManualRefreshing || refreshStatusMutation.isPending}
+            disabled={listQuery.isFetching || isManualRefreshing}
             className="rounded-r-none px-4"
           >
-            {(listQuery.isFetching || isManualRefreshing || refreshStatusMutation.isPending) ? '刷新中...' : '刷新'}
+            {(listQuery.isFetching || isManualRefreshing) ? '刷新中...' : '刷新'}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -542,7 +336,7 @@ export default function ContainersSection() {
                 size="sm"
                 variant="outline"
                 className="rounded-l-none border-l-0 px-2"
-                disabled={listQuery.isFetching || isManualRefreshing || refreshStatusMutation.isPending}
+                disabled={listQuery.isFetching || isManualRefreshing}
               >
                 <ChevronDown/>
               </Button>
@@ -581,11 +375,35 @@ export default function ContainersSection() {
             <Button size="sm">检查更新</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => checkUpdates.mutate('all')}>
+            <DropdownMenuItem onClick={async () => {
+              await executeTaskOperation(
+                `检查更新 - 全部主机`,
+                () => apiClient.post('/api/v1/containers/batch-check-updates', {
+                  hostIds: hostsQuery.data?.items?.map(h => h.id) || []
+                }),
+                (result) => {
+                  toast.success('批量检查更新完成');
+                  refreshContainers(true);
+                },
+                (error) => toast.error(`批量检查更新失败: ${error.message}`)
+              );
+            }}>
               全部主机
             </DropdownMenuItem>
             {hostsQuery.data?.items?.map(host => (
-              <DropdownMenuItem key={host.id} onClick={() => checkUpdates.mutate(host.id)}>
+              <DropdownMenuItem key={host.id} onClick={async () => {
+                await executeTaskOperation(
+                  `检查更新 - ${host.name}`,
+                  () => apiClient.post('/api/v1/containers/check-updates', {
+                    host: { id: host.id }
+                  }),
+                  (result) => {
+                    toast.success(`${host.name} 更新检查完成`);
+                    refreshContainers(true);
+                  },
+                  (error) => toast.error(`${host.name} 更新检查失败: ${error.message}`)
+                );
+              }}>
                 {host.name}
               </DropdownMenuItem>
             ))}
@@ -862,12 +680,15 @@ export default function ContainersSection() {
                           <>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({
-                                hostId: first.hostId, 
-                                project: first.composeProject || 'unknown', 
-                                workingDir,
-                                operation: 'restart' 
-                              });
+                              executeTaskOperation(
+                                `Compose restart - ${first.composeProject || 'unknown'}`,
+                                () => apiClient.post('/api/v1/containers/compose/operate', {
+                                  hostId: first.hostId,
+                                  project: first.composeProject || 'unknown',
+                                  workingDir,
+                                  op: 'restart'
+                                })
+                              );
                             }}>重启服务 (restart)</DropdownMenuItem>
                             {(() => {
                               const s = (groupStatus.state || '').toLowerCase();
@@ -879,12 +700,28 @@ export default function ContainersSection() {
                                 <>
                                   {(!running || partial) && (
                                     <DropdownMenuItem onClick={() => {
-                                      composeOperation.mutate({ hostId: first.hostId, project: first.composeProject || 'unknown', workingDir, operation: 'start' });
+                                      executeTaskOperation(
+                                        `Compose start - ${first.composeProject || 'unknown'}`,
+                                        () => apiClient.post('/api/v1/containers/compose/operate', {
+                                          hostId: first.hostId,
+                                          project: first.composeProject || 'unknown',
+                                          workingDir,
+                                          op: 'start'
+                                        })
+                                      );
                                     }}>启动服务 (start)</DropdownMenuItem>
                                   )}
                                   {(running || partial) && (
                                     <DropdownMenuItem onClick={() => {
-                                      composeOperation.mutate({ hostId: first.hostId, project: first.composeProject || 'unknown', workingDir, operation: 'stop' });
+                                      executeTaskOperation(
+                                        `Compose stop - ${first.composeProject || 'unknown'}`,
+                                        () => apiClient.post('/api/v1/containers/compose/operate', {
+                                          hostId: first.hostId,
+                                          project: first.composeProject || 'unknown',
+                                          workingDir,
+                                          op: 'stop'
+                                        })
+                                      );
                                     }}>停止服务 (stop)</DropdownMenuItem>
                                   )}
                                 </>
@@ -892,30 +729,39 @@ export default function ContainersSection() {
                             })()}
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({
-                                hostId: first.hostId, 
-                                project: first.composeProject || 'unknown', 
-                                workingDir,
-                                operation: 'down' 
-                              });
+                              executeTaskOperation(
+                                `Compose down - ${first.composeProject || 'unknown'}`,
+                                () => apiClient.post('/api/v1/containers/compose/operate', {
+                                  hostId: first.hostId,
+                                  project: first.composeProject || 'unknown',
+                                  workingDir,
+                                  op: 'down'
+                                })
+                              );
                             }}>下线 (down)</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({
-                                hostId: first.hostId, 
-                                project: first.composeProject || 'unknown', 
-                                workingDir,
-                                operation: 'up' 
-                              });
+                              executeTaskOperation(
+                                `Compose up - ${first.composeProject || 'unknown'}`,
+                                () => apiClient.post('/api/v1/containers/compose/operate', {
+                                  hostId: first.hostId,
+                                  project: first.composeProject || 'unknown',
+                                  workingDir,
+                                  op: 'up'
+                                })
+                              );
                             }}>上线 (up)</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               const workingDir = first.composeWorkingDir || `/path/to/${first.composeProject}`;
-                              composeOperation.mutate({
-                                hostId: first.hostId, 
-                                project: first.composeProject || 'unknown', 
-                                workingDir,
-                                operation: 'pull' 
-                              });
+                              executeTaskOperation(
+                                `Compose pull - ${first.composeProject || 'unknown'}`,
+                                () => apiClient.post('/api/v1/containers/compose/operate', {
+                                  hostId: first.hostId,
+                                  project: first.composeProject || 'unknown',
+                                  workingDir,
+                                  op: 'pull'
+                                })
+                              );
                             }}>拉取镜像 (pull)</DropdownMenuItem>
                           </>
                         ) : (
@@ -1005,8 +851,7 @@ export default function ContainersSection() {
                             }}>更新容器</DropdownMenuItem>
                           </>
                         )}
-                        <DropdownMenuItem onClick={async ()=>{ 
-                          const containerName = isCompose ? `${title} 组` : first.name;
+                        <DropdownMenuItem onClick={async ()=>{
                           if (isCompose) {
                             // Compose 组：检查该组所有容器
                             await executeTaskOperation(
@@ -1057,12 +902,41 @@ export default function ContainersSection() {
                           }
                         }}>检查更新</DropdownMenuItem>
                         { (isCompose ? items.some(c => c.name.toLowerCase().includes('npm')) : title.toLowerCase().includes('npm')) &&
-                          <DropdownMenuItem onClick={() => analyzeNpm.mutate(first.hostId)}>
+                          <DropdownMenuItem onClick={async () => {
+                            const hostName = hostsQuery.data?.items?.find(h => h.id === first.hostId)?.name || first.hostId;
+                            await executeTaskOperation(
+                              `分析 NPM - ${hostName}`,
+                              () => apiClient.post(`/api/v1/reverse-proxy/sync/${first.hostId}`),
+                              (result) => {
+                                if (result?.success) {
+                                  toast.success(`NPM 分析完成：${hostName}`);
+                                  qc.invalidateQueries({ queryKey: ['reverse-proxy-routes'] });
+                                } else {
+                                  toast.error(`NPM 分析失败：${hostName}`);
+                                }
+                              },
+                              (error) => toast.error(`NPM 分析失败：${hostName} - ${error.message}`)
+                            );
+                          }}>
                             分析npm
                           </DropdownMenuItem>
                         }
                         { (isCompose ? items.some(c => c.name.toLowerCase().includes('frp')) : title.toLowerCase().includes('frp')) &&
-                          <DropdownMenuItem onClick={() => analyzeFrp.mutate(first.hostId)}>
+                          <DropdownMenuItem onClick={async () => {
+                            const hostName = hostsQuery.data?.items?.find(h => h.id === first.hostId)?.name || first.hostId;
+                            await executeTaskOperation(
+                              `分析 FRP - ${hostName}`,
+                              () => apiClient.post(`/api/v1/frp/sync/${first.hostId}`),
+                              (result) => {
+                                if (result?.success) {
+                                  toast.success(`FRP 分析完成：${hostName}`);
+                                } else {
+                                  toast.error(`FRP 分析失败：${hostName}`);
+                                }
+                              },
+                              (error) => toast.error(`FRP 分析失败：${hostName} - ${error.message}`)
+                            );
+                          }}>
                             分析frp
                           </DropdownMenuItem>
                         }
@@ -1148,8 +1022,30 @@ export default function ContainersSection() {
         open={discoverDialogOpen}
         onOpenChange={setDiscoverDialogOpen}
         hosts={hostsQuery.data?.items || []}
-        onConfirm={(hostIds) => discover.mutate(hostIds)}
-        isLoading={discover.isPending}
+        onConfirm={async (hostIds) => {
+          const hostNames = Array.isArray(hostIds) ? hostIds.map((id: string) =>
+            hostsQuery.data?.items?.find(h => h.id === id)?.name || id
+          ) : ['all hosts'];
+          const hostName = `${hostNames.slice(0, 2).join(', ')}${hostNames.length > 2 ? ` 等 ${hostNames.length} 台主机` : ''}`;
+
+          await executeTaskOperation(
+            `容器发现 - ${hostName}`,
+            () => apiClient.post('/api/v1/containers/discover', { hostIds }),
+            (result) => {
+              if (result.taskId) {
+                // TaskDrawer already opened and task selected by executeTaskOperation
+              } else {
+                if (typeof result?.upserted === 'number') {
+                  toast.success(`发现完成（${hostName}）：新增/更新 ${result.upserted} 个`);
+                } else {
+                  toast.success(`发现完成（${hostName}）`);
+                }
+                refreshContainers(true);
+              }
+            },
+            (error) => toast.error(`发现失败（${hostName}）：${error.message}`)
+          );
+        }}
       />
     </Card>
   );

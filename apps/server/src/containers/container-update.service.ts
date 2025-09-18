@@ -87,9 +87,19 @@ export class ContainerUpdateService {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.operationLogService.log('error', `Update failed: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
+
+        throw err;
       }
+
+      // Only mark as completed after all operations are done
+      await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
     });
     return { taskId: opLog.id };
   }
@@ -200,9 +210,19 @@ export class ContainerUpdateService {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.operationLogService.log('error', `Compose update check failed: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
+
+        throw err;
       }
+
+      // Only mark as completed after all operations are done
+      await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
     });
     return { taskId: opLog.id };
   }
@@ -589,9 +609,19 @@ export class ContainerUpdateService {
         isFailed = true;
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.operationLogService.log('error', `Batch update check failed: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opLog.id, isFailed ? 'ERROR' : 'COMPLETED');
+
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opLog.id, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opLog.id}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
+
+        throw err;
       }
+
+      // Only mark as completed after all operations are done
+      await this.operationLogService.updateStatus(opLog.id, 'COMPLETED');
     });
     return { taskId: opLog.id };
   }

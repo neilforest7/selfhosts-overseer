@@ -180,13 +180,24 @@ export class ReverseProxyService {
     }
       this.operationLogService.log('system', `Finished processing all routes. Upserted ${upsertedCount} routes.`);
     } catch (err) {
-      isFailed = true;
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.operationLogService.log('error', `NPM sync failed: ${errorMessage}`, hostId);
-    } finally {
+
+      // Ensure error status is set even if exception occurs
       if (opId) {
-        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+        try {
+          await this.operationLogService.updateStatus(opId, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opId}: ${statusError instanceof Error ? statusError.message : String(statusError)}`, statusError);
+        }
       }
+
+      throw err;
+    }
+
+    // Only mark as completed after all operations are done
+    if (opId) {
+      await this.operationLogService.updateStatus(opId, 'COMPLETED');
     }
   }
 

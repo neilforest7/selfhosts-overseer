@@ -137,15 +137,25 @@ export class OperationLogService {
     ) {
       data.endTime = new Date();
     }
-    const result = await this.prisma.operationLog.update({
-      where: { id },
-      data,
+
+    // Use transaction to ensure database update and WebSocket broadcast are atomic
+    const result = await this.prisma.$transaction(async (tx) => {
+      // First update the database
+      const updatedLog = await tx.operationLog.update({
+        where: { id },
+        data,
+      });
+
+      // Only broadcast after successful database update
+      if (status === 'COMPLETED') {
+        this.execGateway.broadcast(id, 'end', { status: 'succeeded' });
+      } else if (status === 'ERROR' || status === 'CANCELLED') {
+        this.execGateway.broadcast(id, 'end', { status: 'failed' });
+      }
+
+      return updatedLog;
     });
-    if (status === 'COMPLETED') {
-      this.execGateway.broadcast(id, 'end', { status: 'succeeded' });
-    } else if (status === 'ERROR' || status === 'CANCELLED') {
-      this.execGateway.broadcast(id, 'end', { status: 'failed' });
-    }
+
     return result;
   }
 

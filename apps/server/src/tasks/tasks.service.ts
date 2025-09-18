@@ -59,274 +59,289 @@ export class TasksService {
     const opId = this.contextService.getOpId();
     if (!opId) return; // Should not happen if called from exec
 
-    const settings = await this.settingsService.get();
-    const { items: allHosts } = await this.hostsService.list(undefined, 1000);
-    const targetHosts = targets.map(tid => allHosts.find(h => h.id === tid)).filter(Boolean) as any[];
+    try {
+      const settings = await this.settingsService.get();
+      const { items: allHosts } = await this.hostsService.list(undefined, 1000);
+      const targetHosts = targets.map(tid => allHosts.find(h => h.id === tid)).filter(Boolean) as any[];
 
-    let anyFailed = false;
+      let anyFailed = false;
 
-    this.operationLogService.log('system', `>>> Task started: command "${command}" on ${targetHosts.length} targets.`);
+      this.operationLogService.log('system', `>>> Task started: command "${command}" on ${targetHosts.length} targets.`);
 
-    const runOne = async (target: any) => {
+      const runOne = async (target: any) => {
+        if (command === 'internal:discover_containers') {
+          try {
+            await this.containersService.discoverOnHost(target);
+          } catch (err) {
+            anyFailed = true;
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.operationLogService.log('error', `[${target.name}] Discovery failed: ${errorMessage}`, target.id);
+          }
+          return;
+        }
+
+        if (command === 'internal:refresh_container_status') {
+          try {
+            await this.containersService.refreshStatusOnHost(target);
+          } catch (err) {
+            anyFailed = true;
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.operationLogService.log('error', `[${target.name}] Status refresh failed: ${errorMessage}`, target.id);
+          }
+          return;
+        }
+
+        if (command === 'internal:check_container_updates') {
+          try {
+            await this.containersService.checkUpdatesOnHost(target);
+          } catch (err) {
+            anyFailed = true;
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.operationLogService.log('error', `[${target.name}] Update check failed: ${errorMessage}`, target.id);
+          }
+          return;
+        }
+
+        if (command === 'internal:batch_check_updates') {
+          try {
+            // Get batch options from operation context if available
+            const opId = this.contextService.getOpId();
+            let options = {};
+
+            if (opId) {
+              const operation = await this.prisma.operationLog.findUnique({
+                where: { id: opId },
+                select: { context: true }
+              });
+
+              if (operation?.context && typeof operation.context === 'object') {
+                options = operation.context as any;
+              }
+            }
+
+            this.operationLogService.log('info', `[${target.name}] Starting batch update check with options: ${JSON.stringify(options)}`, target.id);
+
+            const startTime = Date.now();
+            const stats = await this.containersService.batchCheckUpdatesOnHost(target, options);
+            const duration = Math.round((Date.now() - startTime) / 1000);
+
+            this.operationLogService.log('info', `[${target.name}] Batch update check completed in ${duration}s: Checked ${stats.checked}, Updates found ${stats.updatesFound}, Errors ${stats.errors}`, target.id);
+
+            // Log summary statistics for monitoring
+            if (stats.updatesFound > 0) {
+              this.operationLogService.log('info', `[${target.name}] 📅 Found ${stats.updatesFound} container(s) with available updates`, target.id);
+            }
+
+            if (stats.errors > 0) {
+              this.operationLogService.log('error', `[${target.name}] ⚠️ Encountered ${stats.errors} error(s) during update check`, target.id);
+            }
+
+          } catch (err) {
+            anyFailed = true;
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.operationLogService.log('error', `[${target.name}] Batch update check failed: ${errorMessage}`, target.id);
+          }
+          return;
+        }
+
+        if (command === 'internal:batch_update_containers') {
+          try {
+            // Get batch options from operation context if available
+            const opId = this.contextService.getOpId();
+            let options = {};
+
+            if (opId) {
+              const operation = await this.prisma.operationLog.findUnique({
+                where: { id: opId },
+                select: { context: true }
+              });
+
+              if (operation?.context && typeof operation.context === 'object') {
+                options = operation.context as any;
+              }
+            }
+
+            this.operationLogService.log('info', `[${target.name}] Starting batch container update...`, target.id);
+
+            const startTime = Date.now();
+            const result = await this.containersService.executeBatchUpdate({
+              ...options,
+              hostIds: [target.id], // Limit to current host
+            });
+            const duration = Math.round((Date.now() - startTime) / 1000);
+
+            this.operationLogService.log('info', `[${target.name}] Batch update completed in ${duration}s: ${result.successfulUpdates} success, ${result.failedUpdates} failed, ${result.skippedUpdates} skipped`, target.id);
+
+          } catch (err) {
+            anyFailed = true;
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.operationLogService.log('error', `[${target.name}] Batch update failed: ${errorMessage}`, target.id);
+          }
+          return;
+        }
+
+        if (command === 'internal:batch_update_compose') {
+          try {
+            // Get batch options from operation context if available
+            const opId = this.contextService.getOpId();
+            let options = {};
+
+            if (opId) {
+              const operation = await this.prisma.operationLog.findUnique({
+                where: { id: opId },
+                select: { context: true }
+              });
+
+              if (operation?.context && typeof operation.context === 'object') {
+                options = operation.context as any;
+              }
+            }
+
+            this.operationLogService.log('info', `[${target.name}] Starting batch Compose update...`, target.id);
+
+            const startTime = Date.now();
+
+            // Filter to only Compose containers for this command
+            const composeOptions = {
+              ...options,
+              hostIds: [target.id], // Limit to current host
+              // Add filter to only include Compose-managed containers
+              onlyCompose: true,
+            };
+
+            const result = await this.containersService.executeBatchUpdate(composeOptions);
+            const duration = Math.round((Date.now() - startTime) / 1000);
+
+            this.operationLogService.log('info', `[${target.name}] Batch Compose update completed in ${duration}s: ${result.successfulUpdates} success, ${result.failedUpdates} failed, ${result.skippedUpdates} skipped`, target.id);
+
+          } catch (err) {
+            anyFailed = true;
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.operationLogService.log('error', `[${target.name}] Batch Compose update failed: ${errorMessage}`, target.id);
+          }
+          return;
+        }
+
+        if (command === 'internal:batch_update_cli') {
+          try {
+            // Get batch options from operation context if available
+            const opId = this.contextService.getOpId();
+            let options = {};
+
+            if (opId) {
+              const operation = await this.prisma.operationLog.findUnique({
+                where: { id: opId },
+                select: { context: true }
+              });
+
+              if (operation?.context && typeof operation.context === 'object') {
+                options = operation.context as any;
+              }
+            }
+
+            this.operationLogService.log('info', `[${target.name}] Starting batch CLI container update...`, target.id);
+
+            const startTime = Date.now();
+
+            // Filter to only CLI containers for this command
+            const cliOptions = {
+              ...options,
+              hostIds: [target.id], // Limit to current host
+              onlyCli: true,
+            };
+
+            const result = await this.containersService.executeBatchUpdate(cliOptions);
+            const duration = Math.round((Date.now() - startTime) / 1000);
+
+            this.operationLogService.log('info', `[${target.name}] Batch CLI update completed in ${duration}s: ${result.successfulUpdates} success, ${result.failedUpdates} failed, ${result.skippedUpdates} skipped`, target.id);
+
+          } catch (err) {
+            anyFailed = true;
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.operationLogService.log('error', `[${target.name}] Batch CLI update failed: ${errorMessage}`, target.id);
+          }
+          return;
+        }
+
+        const prefix = `[${target.name}@${target.address}] `;
+        this.operationLogService.log('system', `${prefix}>>> Starting execution...`, target.id);
+
+        const hostDetail = await this.prisma.host.findUnique({ where: { id: target.id } });
+        if (!hostDetail) {
+          anyFailed = true;
+          this.operationLogService.log('error', `${prefix}Host details not found.`, target.id);
+          return;
+        }
+
+        const decPassword = this.crypto.decryptString(hostDetail.sshPassword)?.toString();
+        const decKey = this.crypto.decryptString(hostDetail.sshPrivateKey)?.toString();
+        const decPassphrase = this.crypto.decryptString(hostDetail.sshPrivateKeyPassphrase)?.toString();
+
+        const { code } = await this.sshService.execWithStreaming(
+          {
+            host: target.address,
+            user: target.sshUser,
+            port: target.port ?? undefined,
+            password: decPassword,
+            privateKey: decKey,
+            privateKeyPassphrase: decPassphrase,
+            command: command,
+            connectTimeoutSeconds: 30,
+            killAfterSeconds: 100,
+          },
+          target.id,
+        );
+
+        if (code !== 0) anyFailed = true;
+        this.operationLogService.log('system', `${prefix}<<< Finished with exit code ${code}.`, target.id);
+      };
+
+      const concurrency = settings.sshConcurrency;
+      const queue = targetHosts.slice();
+      const workers: Promise<void>[] = [];
+      for (let i = 0; i < Math.max(1, concurrency); i++) {
+        workers.push(
+          (async () => {
+            while (queue.length) {
+              const next = queue.shift();
+              if (!next) break;
+              await runOne(next);
+            }
+          })(),
+        );
+      }
+      await Promise.all(workers);
+
+      // Phase 2: Resolve FRP dependencies after all hosts have been processed
+      // Run dependency resolution even if some individual hosts failed, as long as at least one succeeded
       if (command === 'internal:discover_containers') {
         try {
-          await this.containersService.discoverOnHost(target);
-        } catch (err) {
+          this.operationLogService.log('system', 'Starting FRP dependency resolution phase...');
+          const result = await this.frpService.resolveFrpDependencies();
+          this.operationLogService.log('system', `FRP dependency resolution completed. Resolved: ${result.resolvedCount}, Failed: ${result.failedCount}, Total: ${result.totalPending}`);
+        } catch (error) {
           anyFailed = true;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.operationLogService.log('error', `[${target.name}] Discovery failed: ${errorMessage}`, target.id);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.operationLogService.log('error', `FRP dependency resolution failed: ${errorMessage}`);
         }
-        return;
       }
 
-      if (command === 'internal:refresh_container_status') {
-        try {
-          await this.containersService.refreshStatusOnHost(target);
-        } catch (err) {
-          anyFailed = true;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.operationLogService.log('error', `[${target.name}] Status refresh failed: ${errorMessage}`, target.id);
-        }
-        return;
-      }
+      this.operationLogService.log('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
 
-      if (command === 'internal:check_container_updates') {
-        try {
-          await this.containersService.checkUpdatesOnHost(target);
-        } catch (err) {
-          anyFailed = true;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.operationLogService.log('error', `[${target.name}] Update check failed: ${errorMessage}`, target.id);
-        }
-        return;
-      }
-
-      if (command === 'internal:batch_check_updates') {
-        try {
-          // Get batch options from operation context if available
-          const opId = this.contextService.getOpId();
-          let options = {};
-
-          if (opId) {
-            const operation = await this.prisma.operationLog.findUnique({
-              where: { id: opId },
-              select: { context: true }
-            });
-
-            if (operation?.context && typeof operation.context === 'object') {
-              options = operation.context as any;
-            }
-          }
-
-          this.operationLogService.log('info', `[${target.name}] Starting batch update check with options: ${JSON.stringify(options)}`, target.id);
-
-          const startTime = Date.now();
-          const stats = await this.containersService.batchCheckUpdatesOnHost(target, options);
-          const duration = Math.round((Date.now() - startTime) / 1000);
-
-          this.operationLogService.log('info', `[${target.name}] Batch update check completed in ${duration}s: Checked ${stats.checked}, Updates found ${stats.updatesFound}, Errors ${stats.errors}`, target.id);
-
-          // Log summary statistics for monitoring
-          if (stats.updatesFound > 0) {
-            this.operationLogService.log('info', `[${target.name}] 🔄 Found ${stats.updatesFound} container(s) with available updates`, target.id);
-          }
-
-          if (stats.errors > 0) {
-            this.operationLogService.log('error', `[${target.name}] ⚠️ Encountered ${stats.errors} error(s) during update check`, target.id);
-          }
-
-        } catch (err) {
-          anyFailed = true;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.operationLogService.log('error', `[${target.name}] Batch update check failed: ${errorMessage}`, target.id);
-        }
-        return;
-      }
-
-      if (command === 'internal:batch_update_containers') {
-        try {
-          // Get batch options from operation context if available
-          const opId = this.contextService.getOpId();
-          let options = {};
-
-          if (opId) {
-            const operation = await this.prisma.operationLog.findUnique({
-              where: { id: opId },
-              select: { context: true }
-            });
-
-            if (operation?.context && typeof operation.context === 'object') {
-              options = operation.context as any;
-            }
-          }
-
-          this.operationLogService.log('info', `[${target.name}] Starting batch container update...`, target.id);
-
-          const startTime = Date.now();
-          const result = await this.containersService.executeBatchUpdate({
-            ...options,
-            hostIds: [target.id], // Limit to current host
-          });
-          const duration = Math.round((Date.now() - startTime) / 1000);
-
-          this.operationLogService.log('info', `[${target.name}] Batch update completed in ${duration}s: ${result.successfulUpdates} success, ${result.failedUpdates} failed, ${result.skippedUpdates} skipped`, target.id);
-
-        } catch (err) {
-          anyFailed = true;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.operationLogService.log('error', `[${target.name}] Batch update failed: ${errorMessage}`, target.id);
-        }
-        return;
-      }
-
-      if (command === 'internal:batch_update_compose') {
-        try {
-          // Get batch options from operation context if available
-          const opId = this.contextService.getOpId();
-          let options = {};
-
-          if (opId) {
-            const operation = await this.prisma.operationLog.findUnique({
-              where: { id: opId },
-              select: { context: true }
-            });
-
-            if (operation?.context && typeof operation.context === 'object') {
-              options = operation.context as any;
-            }
-          }
-
-          this.operationLogService.log('info', `[${target.name}] Starting batch Compose update...`, target.id);
-
-          const startTime = Date.now();
-
-          // Filter to only Compose containers for this command
-          const composeOptions = {
-            ...options,
-            hostIds: [target.id], // Limit to current host
-            // Add filter to only include Compose-managed containers
-            onlyCompose: true,
-          };
-
-          const result = await this.containersService.executeBatchUpdate(composeOptions);
-          const duration = Math.round((Date.now() - startTime) / 1000);
-
-          this.operationLogService.log('info', `[${target.name}] Batch Compose update completed in ${duration}s: ${result.successfulUpdates} success, ${result.failedUpdates} failed, ${result.skippedUpdates} skipped`, target.id);
-
-        } catch (err) {
-          anyFailed = true;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.operationLogService.log('error', `[${target.name}] Batch Compose update failed: ${errorMessage}`, target.id);
-        }
-        return;
-      }
-
-      if (command === 'internal:batch_update_cli') {
-        try {
-          // Get batch options from operation context if available
-          const opId = this.contextService.getOpId();
-          let options = {};
-
-          if (opId) {
-            const operation = await this.prisma.operationLog.findUnique({
-              where: { id: opId },
-              select: { context: true }
-            });
-
-            if (operation?.context && typeof operation.context === 'object') {
-              options = operation.context as any;
-            }
-          }
-
-          this.operationLogService.log('info', `[${target.name}] Starting batch CLI container update...`, target.id);
-
-          const startTime = Date.now();
-
-          // Filter to only CLI containers for this command
-          const cliOptions = {
-            ...options,
-            hostIds: [target.id], // Limit to current host
-            onlyCli: true,
-          };
-
-          const result = await this.containersService.executeBatchUpdate(cliOptions);
-          const duration = Math.round((Date.now() - startTime) / 1000);
-
-          this.operationLogService.log('info', `[${target.name}] Batch CLI update completed in ${duration}s: ${result.successfulUpdates} success, ${result.failedUpdates} failed, ${result.skippedUpdates} skipped`, target.id);
-
-        } catch (err) {
-          anyFailed = true;
-          const errorMessage = err instanceof Error ? err.message : String(err);
-          this.operationLogService.log('error', `[${target.name}] Batch CLI update failed: ${errorMessage}`, target.id);
-        }
-        return;
-      }
-
-      const prefix = `[${target.name}@${target.address}] `;
-      this.operationLogService.log('system', `${prefix}>>> Starting execution...`, target.id);
-
-      const hostDetail = await this.prisma.host.findUnique({ where: { id: target.id } });
-      if (!hostDetail) {
-        anyFailed = true;
-        this.operationLogService.log('error', `${prefix}Host details not found.`, target.id);
-        return;
-      }
-
-      const decPassword = this.crypto.decryptString(hostDetail.sshPassword)?.toString();
-      const decKey = this.crypto.decryptString(hostDetail.sshPrivateKey)?.toString();
-      const decPassphrase = this.crypto.decryptString(hostDetail.sshPrivateKeyPassphrase)?.toString();
-
-      const { code } = await this.sshService.execWithStreaming(
-        {
-          host: target.address,
-          user: target.sshUser,
-          port: target.port ?? undefined,
-          password: decPassword,
-          privateKey: decKey,
-          privateKeyPassphrase: decPassphrase,
-          command: command,
-          connectTimeoutSeconds: 30,
-          killAfterSeconds: 100,
-        },
-        target.id,
-      );
-
-      if (code !== 0) anyFailed = true;
-      this.operationLogService.log('system', `${prefix}<<< Finished with exit code ${code}.`, target.id);
-    };
-
-    const concurrency = settings.sshConcurrency;
-    const queue = targetHosts.slice();
-    const workers: Promise<void>[] = [];
-    for (let i = 0; i < Math.max(1, concurrency); i++) {
-      workers.push(
-        (async () => {
-          while (queue.length) {
-            const next = queue.shift();
-            if (!next) break;
-            await runOne(next);
-          }
-        })(),
-      );
-    }
-    await Promise.all(workers);
-
-    // Phase 2: Resolve FRP dependencies after all hosts have been processed
-    // Run dependency resolution even if some individual hosts failed, as long as at least one succeeded
-    if (command === 'internal:discover_containers') {
+      // Only mark as completed after all operations are done
+      await this.operationLogService.updateStatus(opId, anyFailed ? 'ERROR' : 'COMPLETED');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.operationLogService.log('error', `Task execution failed: ${errorMessage}`);
+      
+      // Ensure error status is set even if exception occurs
       try {
-        this.operationLogService.log('system', 'Starting FRP dependency resolution phase...');
-        const result = await this.frpService.resolveFrpDependencies();
-        this.operationLogService.log('system', `FRP dependency resolution completed. Resolved: ${result.resolvedCount}, Failed: ${result.failedCount}, Total: ${result.totalPending}`);
-      } catch (error) {
-        anyFailed = true;
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.operationLogService.log('error', `FRP dependency resolution failed: ${errorMessage}`);
+        await this.operationLogService.updateStatus(opId, 'ERROR');
+      } catch (statusError) {
+        this.operationLogService.log('error', `Failed to update error status for operation ${opId}: ${statusError instanceof Error ? statusError.message : String(statusError)}`);
       }
+      
+      throw error;
     }
-
-    this.operationLogService.log('system', `<<< Task finished. Status: ${anyFailed ? 'failed' : 'succeeded'}`);
-
-    await this.operationLogService.updateStatus(opId, anyFailed ? 'ERROR' : 'COMPLETED');
   }
 }

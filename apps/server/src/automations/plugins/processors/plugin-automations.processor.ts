@@ -121,27 +121,25 @@ export class PluginAutomationsProcessor extends WorkerHost implements OnModuleIn
    */
   private async testRule(ruleId: string, opId: string, customFacts?: Record<string, any>): Promise<void> {
     return this.contextService.run(opId, async () => {
-      let isFailed = false;
-      
       try {
         this.operationLogService.log('info', `开始测试自动化规则 ${ruleId}`);
-        
+
         const result = await this.automationEngine.testRule(ruleId, customFacts, { testMode: true });
-        
+
         this.operationLogService.log('info', `规则名称: ${result.rule.name}`);
         this.operationLogService.log('info', `规则状态: ${result.rule.isEnabled ? '启用' : '禁用'}`);
-        
+
         // Log trigger results
         for (const triggerResult of result.triggerResults) {
-          this.operationLogService.log('info', 
+          this.operationLogService.log('info',
             `触发器 ${triggerResult.triggerType}: ${triggerResult.result.shouldTrigger ? '✓' : '✗'} - ${triggerResult.result.reason || 'No reason provided'}`
           );
         }
-        
+
         // Log event results if rule was triggered
         if (result.triggered && result.eventResults) {
           this.operationLogService.log('info', `规则触发，执行了 ${result.eventResults.length} 个事件`);
-          
+
           for (const eventResult of result.eventResults) {
             const status = eventResult.result.success ? '✓' : '✗';
             const message = eventResult.result.message || eventResult.result.error || 'No message';
@@ -150,21 +148,31 @@ export class PluginAutomationsProcessor extends WorkerHost implements OnModuleIn
         } else {
           this.operationLogService.log('info', '规则条件未满足，未执行任何事件');
         }
-        
+
         this.operationLogService.log('info', `测试完成，执行时间: ${result.executionTime}ms`);
-        
+
+        // Check for errors after all operations are complete
         if (result.error) {
-          isFailed = true;
           this.operationLogService.log('error', `测试错误: ${result.error}`);
+          await this.operationLogService.updateStatus(opId, 'ERROR');
+        } else {
+          // Only mark as completed after all logging and operations are done
+          await this.operationLogService.updateStatus(opId, 'COMPLETED');
         }
-        
+
       } catch (error) {
-        isFailed = true;
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.error(`Error testing rule ${ruleId}: ${errorMessage}`, error);
         this.operationLogService.log('error', `测试失败: ${errorMessage}`);
-      } finally {
-        await this.operationLogService.updateStatus(opId, isFailed ? 'ERROR' : 'COMPLETED');
+
+        // Ensure error status is set even if exception occurs
+        try {
+          await this.operationLogService.updateStatus(opId, 'ERROR');
+        } catch (statusError) {
+          this.logger.error(`Failed to update error status for operation ${opId}: ${statusError}`, statusError);
+        }
+
+        throw error;
       }
     });
   }

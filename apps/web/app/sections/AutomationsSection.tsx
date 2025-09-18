@@ -182,7 +182,8 @@ export default function AutomationsSection() {
         setOpen(true);
         toast.success(`规则测试已启动：${rule.name}`);
       } else {
-        toast.success(`规则测试完成：${rule.name}`);
+        // 不应该发生的情况，但为了防御性编程，显示实际状态
+        toast.info(`规则测试已提交，请在任务列表中查看状态：${rule.name}`);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
