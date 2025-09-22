@@ -1,0 +1,32 @@
+# Docker Compose configuration for MCP Server
+version: '3.8'
+
+services:
+  mcp-server:
+    build: .
+    container_name: selfhost-mcp-server
+    restart: unless-stopped
+    
+    environment:
+      - API_BASE_URL=http://localhost:3002
+      - API_TOKEN=${MCP_API_TOKEN}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MCP_SERVER_NAME=selfhost-serv-agent
+      - API_TIMEOUT=30
+    
+    # 如果需要网络访问
+    networks:
+      - selfhost-network
+    
+    # MCP 服务器使用 stdio 传输，不需要端口暴露
+    # 健康检查通过进程存在性检查
+    healthcheck:
+      test: ["CMD", "ps", "aux", "|", "grep", "python", "main.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  selfhost-network:
+    external: true

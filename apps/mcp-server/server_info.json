@@ -1,0 +1,52 @@
+{
+  "name": "selfhost-serv-agent",
+  "version": "1.0.0",
+  "description": "Self-Host Serv Agent MCP Server - 提供分布式VPS基础设施管理功能",
+  "capabilities": {
+    "resources": {
+      "subscribe": true,
+      "listChanged": true
+    },
+    "tools": {
+      "listChanged": true
+    }
+  },
+  "resources": {
+    "hosts": {
+      "description": "主机管理资源",
+      "endpoints": [
+        "selfhost://hosts/overview - 主机概览仪表板",
+        "selfhost://hosts/summary - 主机汇总统计",
+        "selfhost://hosts/{host_id}/details - 主机详情",
+        "selfhost://hosts/{host_id}/connectivity - 主机连接历史",
+        "selfhost://hosts/by-status/{status} - 按状态过滤主机",
+        "selfhost://hosts/by-tag/{tag} - 按标签过滤主机"
+      ]
+    },
+    "containers": {
+      "description": "容器管理资源",
+      "endpoints": [
+        "selfhost://containers/overview - 容器概览仪表板",
+        "selfhost://containers/summary - 容器汇总统计",
+        "selfhost://containers/{container_id}/details - 容器详情",
+        "selfhost://containers/by-host/{host_id} - 按主机过滤容器",
+        "selfhost://containers/by-status/{status} - 按状态过滤容器",
+        "selfhost://containers/update-status - 容器更新状态"
+      ]
+    }
+  },
+  "mimeTypes": {
+    "text/markdown": "Markdown格式的概览和详情页面",
+    "application/json": "JSON格式的结构化数据",
+    "text/plain": "纯文本格式的日志和输出"
+  },
+  "features": [
+    "实时主机状态监控",
+    "容器生命周期管理",
+    "连接历史跟踪",
+    "更新状态检测",
+    "按状态和标签过滤",
+    "标准化的错误处理",
+    "资源订阅和通知"
+  ]
+}
