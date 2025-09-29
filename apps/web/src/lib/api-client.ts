@@ -125,7 +125,10 @@ class ApiClient {
 }
 
 // Create API client instance
-export const apiClient = new ApiClient('http://localhost:3001')
+// Force same-origin for all browser requests; Next.js rewrites/route handlers will proxy accordingly
+const PUBLIC_API_BASE = ''
+
+export const apiClient = new ApiClient(PUBLIC_API_BASE)
 
 // Convenience methods for common API endpoints
 export const api = {
@@ -156,9 +159,9 @@ export const api = {
     reload: (id: string) => apiClient.post(`/api/v1/plugins/${id}/reload`),
   },
   auth: {
-    validate: () => apiClient.post('/api/auth/validate'),
-    me: () => apiClient.get('/auth/me'),
-    uploadAvatar: (file: File) => apiClient.upload('/auth/avatar', file),
+    validate: () => apiClient.post('/api/v1/auth/validate'),
+    me: () => apiClient.get('/api/v1/auth/me'),
+    uploadAvatar: (file: File) => apiClient.upload('/api/v1/auth/avatar', file),
   }
 }
 

@@ -27,7 +27,7 @@ async function bootstrap(): Promise<void> {
   // Register multipart plugin for file uploads
   await fastifyAdapter.register(fastifyMultipart as any, {
     limits: {
-      fileSize: 1 * 1024 * 1024, // 1MB
+      fileSize: 5 * 1024 * 1024, // 5MB
       fields: 10,
       files: 1,
     },

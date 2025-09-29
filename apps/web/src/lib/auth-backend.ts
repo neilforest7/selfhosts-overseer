@@ -16,41 +16,32 @@ export interface User {
 
 export async function login(username: string, password: string): Promise<LoginResponse> {
   try {
-    const response = await fetch('/api/auth/login', {
+    const response = await fetch('/api/v1/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ username, password }),
-    })
-
-    if (!response.ok) {
-      throw new Error('Login failed')
-    }
-
-    return await response.json()
+    });
+    if (!response.ok) throw new Error('Login failed');
+    const data = await response.json();
+    return data as LoginResponse;
   } catch (error) {
-    console.error('Login error:', error)
-    return {
-      success: false,
-      message: 'Network error occurred',
-    }
+    return { success: false, message: (error as Error)?.message || 'Network error' };
   }
 }
 
 export async function validateToken(token: string): Promise<boolean> {
   try {
-    const response = await fetch('/api/auth/validate', {
+    const response = await fetch('/api/v1/auth/validate', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
       },
-    })
-
-    return response.ok
-  } catch (error) {
-    console.error('Token validation error:', error)
-    return false
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 

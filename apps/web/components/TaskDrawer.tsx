@@ -63,7 +63,8 @@ export function TaskDrawer() {
     if (!socketRef.current || !socketRef.current.connected) {
       if (socketRef.current) socketRef.current.disconnect();
       
-      const s = io('http://localhost:3001', { transports: ['websocket'] });
+      const base = (process.env.NEXT_PUBLIC_WS_BASE || process.env.DEV_NEXT_PUBLIC_WS_BASE || (process.env.NODE_ENV === 'development' ? 'ws://localhost:3001' : '')) as string;
+      const s = base ? io(base, { path: '/socket.io', transports: ['websocket'] }) : io(undefined, { path: '/socket.io', transports: ['websocket'] });
       socketRef.current = s;
 
       s.on('task.logHistory', (data: { taskId: string; entries: OperationLogEntry[] }) => {

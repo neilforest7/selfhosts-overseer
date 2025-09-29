@@ -39,7 +39,7 @@ export default function SettingsSection() {
   const sQuery = useQuery<Settings>({
     queryKey: ['settings'],
     queryFn: async () => {
-      const r = await fetch('http://localhost:3001/api/v1/settings');
+      const r = await fetch('/api/v1/settings');
       if (!r.ok) throw new Error('加载失败');
       return r.json();
     }
@@ -167,7 +167,7 @@ export default function SettingsSection() {
     setProxyTestResult(null);
 
     try {
-      const response = await fetch('http://localhost:3001/api/v1/settings/test-docker-hub-connectivity', {
+      const response = await fetch('/api/v1/settings/test-docker-hub-connectivity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -220,7 +220,7 @@ export default function SettingsSection() {
 
   const save = useMutation({
     mutationFn: async (body: Partial<Settings>) => {
-      const r = await fetch('http://localhost:3001/api/v1/settings', { method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const r = await fetch('/api/v1/settings', { method: 'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
       if (!r.ok) throw new Error('保存失败');
       return r.json() as Promise<Settings>;
     },
@@ -470,7 +470,7 @@ export default function SettingsSection() {
                     size="sm"
                     onClick={async () => {
                       try {
-                        const response = await fetch('http://localhost:3001/api/v1/containers/test-credentials', {
+                        const response = await fetch('/api/v1/containers/test-credentials', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
@@ -557,7 +557,7 @@ export default function SettingsSection() {
                     size="sm"
                     onClick={async () => {
                       try {
-                        const response = await fetch('http://localhost:3001/api/v1/settings/test-ghcr-connectivity', {
+                        const response = await fetch('/api/v1/settings/test-ghcr-connectivity', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({

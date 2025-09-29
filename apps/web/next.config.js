@@ -12,7 +12,8 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:3001/api/:path*',
+        // Forward API to backend inside the same container
+        destination: 'http://127.0.0.1:3001/api/:path*',
       },
     ];
   },
@@ -30,7 +31,6 @@ const nextConfig = {
         buffer: false,
         util: false,
         assert: false,
-        process: false,
       };
     }
 

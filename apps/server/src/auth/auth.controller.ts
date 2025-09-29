@@ -28,7 +28,7 @@ export class LoginResponseDto {
   token?: string;
 }
 
-@Controller('auth')
+@Controller('/api/v1/auth')
 export class AuthController {
   constructor(
     private jwtValidationService: JwtValidationService,

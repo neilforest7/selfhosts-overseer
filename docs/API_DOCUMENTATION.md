@@ -4,12 +4,74 @@
 
 Self-Host Serv Agent provides a comprehensive REST API and WebSocket interface for managing distributed VPS infrastructure. All API endpoints are prefixed with `/api/v1/` and use JSON for request/response payloads.
 
-**Base URL**: `http://localhost:3001/api/v1/`
-**WebSocket URL**: `ws://localhost:3001/`
+**Base URL**: `http://localhost:3001/api/v1/`（生产建议同源反代时使用相对路径 `/api/v1/`）
+**WebSocket**: 同源路径 `/socket.io`（建议）。直连后端容器时可用 `ws://localhost:3001`（路径仍为 `/socket.io`）。
 
 ## Authentication
 
-Currently implements simple authentication without complex RBAC. Future versions may include token-based authentication.
+采用简单的基于 Token 的认证，无复杂 RBAC。
+
+### 登录
+```http
+POST /api/v1/auth/login
+```
+
+请求体：
+```json
+{ "username": "string", "password": "string" }
+```
+
+响应：
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "user": { "id": "string", "username": "string" },
+  "token": "jwt-token"
+}
+```
+
+### 校验 Token
+```http
+POST /api/v1/auth/validate
+```
+
+请求头：`Authorization: Bearer <token>`
+
+响应：
+```json
+{
+  "success": true,
+  "message": "Token is valid",
+  "user": { "id": "string", "username": "string" }
+}
+```
+
+### 获取当前用户
+```http
+GET /api/v1/auth/me
+```
+
+请求头：`Authorization: Bearer <token>`
+
+响应：
+```json
+{ "id": "string", "username": "string", "isActive": true, "lastLoginAt": "2024-01-01T00:00:00Z", "avatarUrl": "string|null" }
+```
+
+### 上传头像
+```http
+POST /api/v1/auth/avatar
+```
+
+请求头：`Authorization: Bearer <token>`
+
+请求体：`multipart/form-data`，字段名 `file`，仅支持图片（JPEG/PNG/GIF/WebP），最大 1MB。
+
+响应：
+```json
+{ "success": true, "message": "Avatar uploaded successfully", "data": { "avatarUrl": "data:image/..." } }
+```
 
 ## REST API Endpoints
 
@@ -939,13 +1001,17 @@ GET /api/v1/health
 
 ## WebSocket Events
 
-The application uses Socket.IO for real-time communication. Connect to `ws://localhost:3001/` with the `websocket` transport.
+使用 Socket.IO 进行实时通信。
+- 推荐：同源连接，路径 `/socket.io`。
+- 直连后端容器：`ws://localhost:3001`，路径 `/socket.io`。
 
 ### Task Execution Monitoring
 
 #### Join Task Room
 ```javascript
-socket.emit('joinTask', { taskId: 'string' });
+import { io } from 'socket.io-client'
+const socket = io(undefined, { path: '/socket.io', transports: ['websocket'] })
+socket.emit('joinTask', { taskId: 'string' })
 ```
 
 #### Task Output Events
@@ -1105,8 +1171,9 @@ const response = await fetch('/api/v1/containers/discover', {
 const { taskId } = await response.json();
 
 // 2. Monitor progress via WebSocket
-const socket = io('ws://localhost:3001');
-socket.emit('joinTask', { taskId });
+import { io } from 'socket.io-client'
+const socket = io(undefined, { path: '/socket.io', transports: ['websocket'] })
+socket.emit('joinTask', { taskId })
 
 socket.on('task:output', (data) => {
   console.log(`[${data.stream}] ${data.content}`);
@@ -1125,19 +1192,20 @@ socket.on('task:end', (data) => {
 ### Real-time Log Monitoring
 
 ```javascript
-const socket = io('ws://localhost:3001');
+import { io } from 'socket.io-client'
+const socket = io(undefined, { path: '/socket.io', transports: ['websocket'] })
 
 // Join application logs
-socket.emit('joinLogs', { kind: 'application', limit: 100 });
+socket.emit('joinLogs', { kind: 'application', limit: 100 })
 
 // Handle incoming log lines
 socket.on('logs.line', (logLine) => {
-  const timestamp = new Date(parseInt(logLine.tsNs) / 1000000);
-  console.log(`[${timestamp.toISOString()}] ${logLine.content}`);
-});
+  const timestamp = new Date(parseInt(logLine.tsNs) / 1000000)
+  console.log(`[${timestamp.toISOString()}] ${logLine.content}`)
+})
 
 // Switch to system logs
-socket.emit('joinLogs', { kind: 'system', limit: 50 });
+socket.emit('joinLogs', { kind: 'system', limit: 50 })
 ```
 
 ### Automation Rule Creation

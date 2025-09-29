@@ -24,25 +24,21 @@ interface User {
 
 async function login(username: string, password: string): Promise<LoginResponse> {
   try {
-    const response = await fetch('/api/auth/login', {
+    const response = await fetch('/api/v1/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ username, password }),
-    })
-
+    });
     if (!response.ok) {
-      throw new Error('Login failed')
+      const error = await response.json().catch(()=>({ message: 'Login failed' }))
+      return { success: false, message: error.message || 'Login failed' }
     }
-
-    return await response.json()
+    const data = await response.json()
+    return data as LoginResponse
   } catch (error) {
-    console.error('Login error:', error)
-    return {
-      success: false,
-      message: 'Network error occurred',
-    }
+    return { success: false, message: (error as Error)?.message || 'Network error' }
   }
 }
 

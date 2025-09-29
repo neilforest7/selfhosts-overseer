@@ -4,8 +4,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     
-    // Forward the request to the backend server
-    const response = await fetch('http://localhost:3001/auth/login', {
+    // Forward the request to the backend server (same container, internal URL)
+    const internalBase = process.env.INTERNAL_API_URL || 'http://127.0.0.1:3001';
+    const response = await fetch(`${internalBase}/api/v1/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

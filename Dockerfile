@@ -11,7 +11,7 @@ ARG BUILD_VERSION=latest
 ARG BUILD_COMMIT=unknown
 ARG BUILD_NODE_ENV=production
 ARG BUILD_NEXT_TELEMETRY_DISABLED=1
-ARG BUILD_NEXT_PUBLIC_WS_URL=ws://localhost:3001
+ARG BUILD_NEXT_PUBLIC_WS_URL
 
 # Configure proxy for network connectivity if provided
 ENV HTTP_PROXY=${BUILD_HTTP_PROXY}
@@ -98,8 +98,8 @@ RUN npm run build
 # === FRONTEND BUILDER STAGE ===
 FROM base AS web-builder
 
-# Set WebSocket URL environment variable for Next.js build
-ENV NEXT_PUBLIC_WS_URL=${BUILD_NEXT_PUBLIC_WS_URL}
+# Set optional WebSocket base for Next.js build (dev only)
+ENV NEXT_PUBLIC_WS_BASE=${BUILD_NEXT_PUBLIC_WS_URL}
 
 # Copy installed dependencies (from app directories where they were installed)
 COPY --from=deps --chown=nextjs:nodejs /app/apps/server/node_modules ./apps/server/node_modules
@@ -182,7 +182,7 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo '' >> /app/start.sh && \
     echo '# Health check function' >> /app/start.sh && \
     echo 'health_check() {' >> /app/start.sh && \
-    echo '    if wget --no-verbose --tries=1 --spider http://localhost:3001/api/v1/health >/dev/null 2>&1; then' >> /app/start.sh && \
+    echo '    if wget --no-verbose --tries=1 --spider http://127.0.0.1:3001/api/v1/health >/dev/null 2>&1; then' >> /app/start.sh && \
     echo '        echo "Backend is healthy"' >> /app/start.sh && \
     echo '    else' >> /app/start.sh && \
     echo '        echo "Backend health check failed"' >> /app/start.sh && \
@@ -244,7 +244,7 @@ if pgrep -f "node.*apps/server/dist/main" >/dev/null && \
    pgrep -f "node.*apps/web/.next/standalone/server.js" >/dev/null; then
     
     # Check HTTP health (more lenient for startup)
-    if wget --timeout=10 --tries=3 --spider http://localhost:3001/api/v1/health >/dev/null 2>&1 || \
+    if wget --timeout=10 --tries=3 --spider http://127.0.0.1:3001/api/v1/health >/dev/null 2>&1 || \
        wget --timeout=10 --tries=3 --spider http://localhost:3000 >/dev/null 2>&1; then
         exit 0
     fi

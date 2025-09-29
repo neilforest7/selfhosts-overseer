@@ -13,8 +13,9 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.substring(7)
     
-    // Forward the validation request to the backend server
-    const response = await fetch('http://localhost:3001/auth/validate', {
+    // Forward the validation request to the backend server (same container, internal URL)
+    const internalBase = process.env.INTERNAL_API_URL || 'http://127.0.0.1:3001';
+    const response = await fetch(`${internalBase}/api/v1/auth/validate`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
