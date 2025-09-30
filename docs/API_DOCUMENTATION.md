@@ -66,7 +66,7 @@ POST /api/v1/auth/avatar
 
 请求头：`Authorization: Bearer <token>`
 
-请求体：`multipart/form-data`，字段名 `file`，仅支持图片（JPEG/PNG/GIF/WebP），最大 1MB。
+请求体：`multipart/form-data`，字段名 `file`，仅支持图片（JPEG/PNG/GIF/WebP），最大 5MB。
 
 响应：
 ```json
@@ -533,10 +533,22 @@ GET /api/v1/topology/graph-data
 GET /api/v1/reverse-proxy/routes?hostId=string
 ```
 
-#### Get Certificates
+#### Sync Routes for a Host
 ```http
-GET /api/v1/certificates
+POST /api/v1/reverse-proxy/sync/:hostId
 ```
+
+#### Sync and Cleanup
+```http
+POST /api/v1/reverse-proxy/sync-and-cleanup/:hostId
+```
+
+#### Cleanup Orphaned Routes
+```http
+POST /api/v1/reverse-proxy/cleanup/orphaned-routes
+```
+
+<!-- 证书模块已移除：相关端点不再提供 -->
 
 ### DNS Management
 

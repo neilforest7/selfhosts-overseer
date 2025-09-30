@@ -140,6 +140,22 @@ ENV NODE_ENV=${BUILD_NODE_ENV:-production} \
     BUILD_DATE=${BUILD_DATE} \
     BUILD_COMMIT=${BUILD_COMMIT}
 
+# Ensure no outbound proxy is used inside the container runtime
+ENV http_proxy= \
+    https_proxy= \
+    HTTP_PROXY= \
+    HTTPS_PROXY= \
+    NO_PROXY=localhost,127.0.0.1
+
+# Install Nginx for in-container reverse proxy on port 80
+RUN apt-get update && \
+    apt-get install -y nginx && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /var/log/nginx /run/nginx
+
+# Remove default site to avoid duplicate default_server conflicts
+RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default || true
+
 # Create non-root user (skip if already exists in base image)
 RUN groupadd -r nodejs -g 1001 2>/dev/null || true && \
     useradd -r -u 1001 -g nodejs nextjs 2>/dev/null || true
@@ -149,8 +165,7 @@ RUN mkdir -p /app/apps/web /app/apps/server /var/log/supervisor /app/.ssh && \
     chown -R nextjs:nodejs /app /var/log/supervisor && \
     chmod 700 /app/.ssh
 
-# Switch to non-root user for application
-USER nextjs
+# Stay as root to allow Nginx to bind port 80
 WORKDIR /app
 
 # Copy built applications with optimized layer ordering
@@ -161,6 +176,9 @@ COPY --from=server-builder --chown=nextjs:nodejs /app/apps/server/prisma ./apps/
 # Copy Next.js output (standalone if available, otherwise regular .next)
 COPY --from=web-builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
 COPY --from=web-builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+
+# Copy embedded Nginx config for same-origin reverse proxy
+COPY --chown=root:root infra/nginx/conf.d/embedded.conf /etc/nginx/conf.d/default.conf
 
 # Copy production package files
 COPY --from=server-builder --chown=nextjs:nodejs /app/apps/server/package.json ./apps/server/
@@ -188,10 +206,10 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo '        echo "Backend health check failed"' >> /app/start.sh && \
     echo '        return 1' >> /app/start.sh && \
     echo '    fi' >> /app/start.sh && \
-    echo '    if wget --no-verbose --tries=1 --spider http://localhost:3000 >/dev/null 2>&1; then' >> /app/start.sh && \
-    echo '        echo "Frontend is healthy"' >> /app/start.sh && \
+    echo '    if wget --no-verbose --tries=1 --spider http://127.0.0.1/ >/dev/null 2>&1; then' >> /app/start.sh && \
+    echo '        echo "Nginx is healthy"' >> /app/start.sh && \
     echo '    else' >> /app/start.sh && \
-    echo '        echo "Frontend health check failed"' >> /app/start.sh && \
+    echo '        echo "Nginx frontend check failed"' >> /app/start.sh && \
     echo '        return 1' >> /app/start.sh && \
     echo '    fi' >> /app/start.sh && \
     echo '    return 0' >> /app/start.sh && \
@@ -210,6 +228,12 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo '    cd /app/apps/web && ${INIT_CMD} npm start &' >> /app/start.sh && \
     echo 'fi' >> /app/start.sh && \
     echo 'WEB_PID=${!}' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo '# Start Nginx reverse proxy on port 80' >> /app/start.sh && \
+    echo '# Ensure default nginx site is disabled (idempotent)' >> /app/start.sh && \
+    echo 'rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default 2>/dev/null || true' >> /app/start.sh && \
+    echo 'nginx -t && ${INIT_CMD} nginx -g "daemon off;" &' >> /app/start.sh && \
+    echo 'NGINX_PID=${!}' >> /app/start.sh && \
     echo '' >> /app/start.sh && \
     echo '# Wait for services to be ready' >> /app/start.sh && \
     echo 'echo "Waiting for services to start..."' >> /app/start.sh && \
@@ -231,6 +255,7 @@ RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'SERVER_EXIT_CODE=${?}' >> /app/start.sh && \
     echo 'echo "Server exited with code ${SERVER_EXIT_CODE}"' >> /app/start.sh && \
     echo 'kill ${WEB_PID} 2>/dev/null || true' >> /app/start.sh && \
+    echo 'kill ${NGINX_PID} 2>/dev/null || true' >> /app/start.sh && \
     echo 'exit ${SERVER_EXIT_CODE}' >> /app/start.sh && \
     chmod +x /app/start.sh
 
@@ -241,11 +266,12 @@ COPY <<EOF /app/healthcheck.sh
 
 # Check if processes are running
 if pgrep -f "node.*apps/server/dist/main" >/dev/null && \
-   pgrep -f "node.*apps/web/.next/standalone/server.js" >/dev/null; then
+   pgrep -f "node.*apps/web/.next/standalone/server.js" >/dev/null && \
+   pgrep -f "nginx: master process" >/dev/null; then
     
     # Check HTTP health (more lenient for startup)
-    if wget --timeout=10 --tries=3 --spider http://127.0.0.1:3001/api/v1/health >/dev/null 2>&1 || \
-       wget --timeout=10 --tries=3 --spider http://localhost:3000 >/dev/null 2>&1; then
+    if wget --timeout=10 --tries=3 --spider http://127.0.0.1:3001/api/v1/health >/dev/null 2>&1 && \
+       wget --timeout=10 --tries=3 --spider http://127.0.0.1/ >/dev/null 2>&1; then
         exit 0
     fi
     
@@ -257,8 +283,8 @@ fi
 exit 1
 EOF
 
-# Expose ports
-EXPOSE 3000 3001
+# Expose only HTTP port 80 (Nginx)
+EXPOSE 80
 
 # Container metadata for Docker Hub
 LABEL org.opencontainers.image.title="Self-Host Serv Agent" \

@@ -24,11 +24,7 @@ export function useActivityLogSocket({
     const base = (() => {
       const envBase = process.env.NEXT_PUBLIC_WS_BASE || process.env.DEV_NEXT_PUBLIC_WS_BASE;
       if (envBase) return envBase as string;
-      if (typeof window !== 'undefined') {
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        if (isLocal && window.location.port === '3000') return 'ws://localhost:3001';
-      }
-      return '' as string;
+      return '' as string; // enforce same-origin
     })();
     const socket = base
       ? io(base, { path: '/socket.io', transports: ['websocket'], upgrade: false })

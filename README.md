@@ -51,47 +51,53 @@ npm run dev
 
 ### 生产部署（Docker Compose）
 ```bash
-# 1. 准备环境文件
+# 1. 准备环境文件（根目录 .env，用于服务端与前端同源部署）
 cp .env.example .env
-# 编辑 .env 文件
+# 必填：DATABASE_URL=postgresql://user:pass@postgres:5432/app?schema=public
+# 可选：REDIS_HOST=redis REDIS_PORT=6379
 
-# 2. 准备 SSH 私钥（权限 0600）
+# 2. 准备 SSH 私钥（权限 0600）并挂载路径
 chmod 600 /path/to/ssh/private/key
+# 在 docker-compose.yml 中将私钥以只读卷挂载到 /ssh/id_rsa
 
-# 3. 启动服务
+# 3. 初始化数据库（首次部署或迁移失败后可执行）
+# 服务会在启动时自动迁移；如需手动：
+npm run db:push
+
+# 4. 启动服务
 docker compose up -d
 
-# 4. 访问控制台
-# 前端：http://localhost:3000
-# 后端 API：http://localhost:3001/api/v1/
-# WebSocket：ws://localhost:3001
+# 5. 配置反向代理（生产建议统一暴露 443，并保持同源访问）
+
+# 6. 验证访问
+# 前端：https://<your-domain>/
+# 后端 API（同源相对路径）：/api/v1/
+# WebSocket（同源）：/socket.io
 ```
+
+#### 端口与同源建议
+- 默认建议通过外部反代统一暴露 443，避免浏览器混合内容与 CORS 问题。
+- 前端请求应使用相对路径 `/api/...`，WebSocket 统一 `/socket.io`，详见 `docs/PORTS_AND_ORIGIN_GUIDE.md`。
+- Compose 中不必对外暴露 3001，交由反代层转发（按需调整）。
 
 ### 初始配置
 访问前端界面后，进行以下配置：
-1. **设置 → 调度与并发**：
-   - SSH 并发：30（10–100）
-   - 命令超时：100s（10–900s）
-   - 容器版本检查：每日 00:45
+1. **设置代理**: 设置代理服务器地址端口以正常访问镜像仓库（可选）
 2. **添加主机**：配置 VPS 连接信息
-3. **可选 NPM 配置**：在主机编辑页面启用 NPM 读取
+3. **同步容器**：在容器页面点击“发现容器”按钮
+4. **可选 NPM 配置**：在主机编辑页面启用 NPM 读取
 
 ## 核心配置（前端可改）
 - 设置 → 调度与并发：并发/超时/版本检查时点
-- VPS → 编辑（可选 NPM）：启用 NPM 读取；类型 sqlite/mysql；连接策略 container-local；容器名；SQLite 路径或 MySQL 环境变量（`DB_MYSQL_*`）
+- 设置 → dockerhub credentials: 设置 dockerhub 凭证（可选）
+- 设置 → ghcr credentials: 设置 ghcr 凭证（可选）
 
 ## 典型用法
 - 容器管理：检查更新、更新/重启；查看 `docker run` 重建命令与 Compose 有效配置
 - 远程执行：并发命令/脚本、rsync 分发、实时输出
-- 观测：Grafana 主机/容器（cAdvisor）/日志（Loki）与 NPM 路由概览
 - 拓扑：通过动态网络视图，洞察“域名→NPM→FRP→服务”的完整流量链路与依赖关系。
 - FRP 同步：支持任意主机发现顺序，自动解析配置依赖，提供健康监控与故障自愈。
-
-## Grafana 预置
-- Dashboards：`infra/observability/grafana/dashboards/*.json`
-- Provisioning：`infra/observability/grafana/provisioning/dashboards/*.yaml`
-- Datasources：`infra/observability/grafana/provisioning/datasources/vm_loki.yml`
-- 预置：System Overview、Host Detail、Container Overview/Detail（cAdvisor）、Logs Explorer、NPM Routes Overview
+- Nginx Proxy Manager 路由同步：支持任意主机发现顺序，自动解析配置依赖，提供健康监控与故障自愈。
 
 ## 开发指南
 

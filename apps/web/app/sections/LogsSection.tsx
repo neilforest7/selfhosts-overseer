@@ -62,7 +62,7 @@ export default function LogsSection() {
   const appLogsQuery = useQuery<{ logs: string[] }>({
     queryKey: ['logs', 'application'],
     queryFn: async () => {
-      const r = await fetch('http://localhost:3001/api/v1/logs/application?limit=200');
+      const r = await fetch('/api/v1/logs/application?limit=200');
       if (!r.ok) throw new Error('获取应用日志失败');
       return r.json();
     },
@@ -73,7 +73,7 @@ export default function LogsSection() {
   const systemLogsQuery = useQuery<{ logs: string[] }>({
     queryKey: ['logs', 'system'],
     queryFn: async () => {
-      const r = await fetch('http://localhost:3001/api/v1/logs/system?lines=100');
+      const r = await fetch('/api/v1/logs/system?lines=100');
       if (!r.ok) throw new Error('获取系统日志失败');
       return r.json();
     },
@@ -84,7 +84,7 @@ export default function LogsSection() {
   const dockerLogsQuery = useQuery<{ logs: string[] }>({
     queryKey: ['logs', 'docker'],
     queryFn: async () => {
-      const r = await fetch('http://localhost:3001/api/v1/logs/docker?lines=100');
+      const r = await fetch('/api/v1/logs/docker?lines=100');
       if (!r.ok) throw new Error('获取Docker日志失败');
       return r.json();
     },
@@ -108,7 +108,14 @@ export default function LogsSection() {
       return;
     }
 
-    const s = io('http://localhost:3001', { transports: ['websocket'] });
+    const base = (() => {
+      const envBase = process.env.NEXT_PUBLIC_WS_BASE || process.env.DEV_NEXT_PUBLIC_WS_BASE;
+      if (envBase) return envBase as string;
+      return '' as string; // same-origin
+    })();
+    const s = base
+      ? io(base, { path: '/socket.io', transports: ['websocket'] })
+      : io(undefined, { path: '/socket.io', transports: ['websocket'] });
     socketRef.current = s;
 
     s.on('connect', () => {

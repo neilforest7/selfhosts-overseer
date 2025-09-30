@@ -94,7 +94,7 @@
      - 通过 `forward_host` 与本机 Docker 网络映射容器（同名服务/容器或容器 IP）；必要时结合 `docker network inspect` 精确匹配到容器实例。
      - 生成“域名/路由 → NPM（VPS）→ 后端容器/端口”的有向边，用于网络拓扑图。
    - 仪表与报表：
-     - 路由总览：按域名/状态/证书有效期分组统计；即将到期证书列表。
+     - 路由总览：按域名与启用状态分组统计。
      - 运行态：基于 Loki 的 NPM 容器日志（或 /data/logs）进行 2xx/4xx/5xx 请求率、P95/P99 延迟（如日志有时延字段）等可视化。
     - 调度：默认每 10 分钟同步一次（可配置）；支持手动触发全量重扫。
     - 面板配置（按 VPS 维度，可在“资产 → VPS 编辑”中设置）：
@@ -137,8 +137,8 @@
 - **`PluginMetadata`**：id、name、displayName、description?、type、version、author?、homepage?、repository?、keywords[]、config(Json?)、createdAt、updatedAt
 - **`OperationLog`**：id、type、status(PENDING|RUNNING|COMPLETED|ERROR)、startedAt?、finishedAt?、automationRuleId?、entries[]
 - **`OperationLogEntry`**：id、timestamp、stream、content、operationLogId、hostId?
-- **`ReverseProxyRoute`**：id、hostId、provider('npm')、type('http'|'stream'|'redirect')、vpsName?、domain、forwardHost?、forwardPort?、enabled、certificateId?、certExpiresAt?、rawAdvancedConfig?、lastSyncedAt?
-- **`Certificate`**：id、provider、cn、sans[]、issuer?、notBefore?、notAfter?、autoRenew、lastSyncedAt?、createdAt
+- **`ReverseProxyRoute`**：id、hostId、provider('npm')、type('http'|'stream'|'redirect')、domain、forwardHost?、forwardPort?、enabled、lastSyncedAt?
+- ~~**`Certificate`**：已移除~~
 - **`HostNpmConfig`**：hostId、enabled、dbType('sqlite'|'mysql')、connectionMode('container-local')、containerName?、sqlitePath?、mysqlUseContainerEnv?、updatedAt
 - **`FrpsConfig`**：id、hostId、containerId、bindPort?、vhostHttpPort?、vhostHttpsPort?、subdomainHost?、rawConfig(Json?)、lastSyncedAt?、proxies[]
 - **`FrpcProxy`**：id、hostId、containerId、frpsConfigId、name、type、localIp、localPort、remotePort、subdomain?、customDomains[]、rawConfig(Json?)、lastSyncedAt?
@@ -204,7 +204,7 @@
   - POST `/api/v1/dns/cleanup`
 - **网络拓扑与反向代理**：
   - GET `/api/v1/topology/graph-data`
-  - GET `/api/v1/reverse-proxy/routes`、`/certificates`
+  - GET `/api/v1/reverse-proxy/routes`
   - POST `/api/v1/reverse-proxy/sync/:hostId`、`/sync-and-cleanup/:hostId`、`/cleanup/orphaned-routes`
 - **FRP 管理**：
   - GET `/api/v1/frp/configs`、`/health`、`/metrics`、`/logs`
