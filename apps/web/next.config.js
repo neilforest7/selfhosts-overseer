@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ['http://192.168.31.7:3000'],
-  outputFileTracingRoot: '/opt/selfhost-serv-agent',
+  outputFileTracingRoot: '/opt/selfhost-overseer',
   output: 'standalone',
   typescript: {
     // Force regeneration of type files

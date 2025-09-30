@@ -1,0 +1,132 @@
+# Simplified build for Selfhost Overseer (Next.js frontend + NestJS backend)
+# Temporarily skips Nginx for easier building
+FROM node:18-slim AS base
+
+# Set working directory
+WORKDIR /app
+
+# Create non-root user
+RUN groupadd -r nodejs -g 1001 2>/dev/null || true && \
+    useradd -r -u 1001 -g nodejs nextjs 2>/dev/null || true
+
+# === DEPENDENCIES STAGE ===
+FROM base AS deps
+
+# Copy root package files
+COPY package.json package-lock.json* ./
+
+# Copy app package files
+COPY apps/web/package.json ./apps/web/
+COPY apps/web/package-lock.json ./apps/web/
+COPY apps/server/package.json ./apps/server/
+COPY apps/server/package-lock.json ./apps/server/
+
+# Install dependencies for each app separately
+WORKDIR /app/apps/server
+RUN npm ci
+
+WORKDIR /app/apps/web
+RUN npm ci
+
+WORKDIR /app
+
+# === BACKEND BUILDER STAGE ===
+FROM base AS server-builder
+
+# Copy installed dependencies
+COPY --from=deps --chown=nextjs:nodejs /app/apps/server/node_modules ./apps/server/node_modules
+COPY --from=deps --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
+
+# Copy source files
+COPY --chown=nextjs:nodejs apps/server ./apps/server
+COPY --chown=nextjs:nodejs apps/server/package.json ./apps/server/
+COPY --chown=nextjs:nodejs apps/server/package-lock.json ./apps/server/
+
+# Generate Prisma client
+WORKDIR /app/apps/server
+RUN npx prisma generate
+
+# Build NestJS application
+RUN npm run build
+
+# === FRONTEND BUILDER STAGE ===
+FROM base AS web-builder
+
+# Copy installed dependencies
+COPY --from=deps --chown=nextjs:nodejs /app/apps/server/node_modules ./apps/server/node_modules
+COPY --from=deps --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
+
+# Copy source files
+COPY --chown=nextjs:nodejs apps/web ./apps/web
+COPY --chown=nextjs:nodejs apps/web/package.json ./apps/web/
+COPY --chown=nextjs:nodejs apps/web/package-lock.json ./apps/web/
+
+# Build Next.js application
+WORKDIR /app/apps/web
+RUN npm run build
+
+# === PRODUCTION RUNNER STAGE ===
+FROM base AS runner
+
+# Set environment variables
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# Create app directories
+RUN mkdir -p /app/apps/web /app/apps/server && \
+    chown -R nextjs:nodejs /app
+
+WORKDIR /app
+
+# Copy built applications
+COPY --from=deps --chown=nextjs:nodejs /app/apps/server/node_modules ./apps/server/node_modules
+COPY --from=deps --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=server-builder --chown=nextjs:nodejs /app/apps/server/dist ./apps/server/dist
+COPY --from=server-builder --chown=nextjs:nodejs /app/apps/server/prisma ./apps/server/prisma
+COPY --from=web-builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
+COPY --from=web-builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+
+# Copy production package files
+COPY --from=server-builder --chown=nextjs:nodejs /app/apps/server/package.json ./apps/server/
+COPY --from=web-builder --chown=nextjs:nodejs /app/apps/web/package.json ./apps/web/
+
+# Create startup script
+RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'set -e' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo '# Start backend server' >> /app/start.sh && \
+    echo 'cd /app/apps/server && npx prisma generate && node dist/main &' >> /app/start.sh && \
+    echo 'SERVER_PID=${!}' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo '# Start frontend server' >> /app/start.sh && \
+    echo 'if [ -f "apps/web/.next/standalone/server.js" ]; then' >> /app/start.sh && \
+    echo '    echo "Starting Next.js standalone server..."' >> /app/start.sh && \
+    echo '    node /app/apps/web/.next/standalone/server.js &' >> /app/start.sh && \
+    echo 'else' >> /app/start.sh && \
+    echo '    echo "Starting Next.js with npm start..."' >> /app/start.sh && \
+    echo '    cd /app/apps/web && npm start &' >> /app/start.sh && \
+    echo 'fi' >> /app/start.sh && \
+    echo 'WEB_PID=${!}' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'echo "Both services are running"' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'wait ${SERVER_PID}' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Container metadata
+LABEL org.opencontainers.image.title="Selfhost Overseer" \
+      org.opencontainers.image.description="Single-user VPS control plane with container management and automation" \
+      org.opencontainers.image.version="latest" \
+      org.opencontainers.image.authors="selfhost-overseer" \
+      org.opencontainers.image.vendor="Selfhost Overseer"
+
+# Start the application
+ENTRYPOINT ["/app/start.sh"]

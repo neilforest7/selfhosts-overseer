@@ -102,7 +102,7 @@ export function LoginForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader className="text-center">
-          <CardTitle className="text-xl">Welcome to Self-Host Serv Agent</CardTitle>
+          <CardTitle className="text-xl">Welcome to Selfhost Overseer</CardTitle>
           <CardDescription>
             Enter your credentials to access the control panel
           </CardDescription>

@@ -1,4 +1,4 @@
-# Multi-stage build for Self-Host Serv Agent (Next.js frontend + NestJS backend)
+# Multi-stage build for Selfhost Overseer (Next.js frontend + NestJS backend)
 # Optimized Industrial Edition
 FROM node:18-slim AS base
 
@@ -287,17 +287,17 @@ EOF
 EXPOSE 80
 
 # Container metadata for Docker Hub
-LABEL org.opencontainers.image.title="Self-Host Serv Agent" \
+LABEL org.opencontainers.image.title="Selfhost Overseer" \
       org.opencontainers.image.description="Single-user VPS control plane with container management and automation" \
       org.opencontainers.image.version="${BUILD_VERSION}" \
-      org.opencontainers.image.authors="selfhost-serv-agent" \
-      org.opencontainers.image.vendor="Self-Host Serv Agent" \
-      org.opencontainers.image.documentation="https://github.com/your-org/selfhost-serv-agent" \
-      org.opencontainers.image.source="https://github.com/your-org/selfhost-serv-agent" \
+      org.opencontainers.image.authors="selfhost-overseer" \
+      org.opencontainers.image.vendor="Selfhost Overseer" \
+      org.opencontainers.image.documentation="https://github.com/your-org/selfhost-overseer" \
+      org.opencontainers.image.source="https://github.com/your-org/selfhost-overseer" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${BUILD_COMMIT}" \
-      maintainer="selfhost-serv-agent <contact@example.com>"
+      maintainer="selfhost-overseer <contact@example.com>"
 
 # Health check configuration (more lenient for startup)
 HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=5 \

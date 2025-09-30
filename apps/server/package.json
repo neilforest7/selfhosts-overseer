@@ -1,5 +1,5 @@
 {
-  "name": "@selfhost-serv-agent/server",
+  "name": "@selfhost-overseer/server",
   "private": true,
   "version": "0.1.0",
   "scripts": {

@@ -1,7 +1,7 @@
 {
-  "name": "selfhost-serv-agent",
+  "name": "selfhost-overseer",
   "version": "1.0.0",
-  "description": "Self-Host Serv Agent MCP Server - 提供分布式VPS基础设施管理功能",
+  "description": "Selfhost Overseer MCP Server - 提供分布式VPS基础设施管理功能",
   "capabilities": {
     "resources": {
       "subscribe": true,

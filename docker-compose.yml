@@ -6,7 +6,7 @@ version: '3.8'
 services:
   # ===== MAIN APPLICATION =====
   app:
-    image: ${IMAGE_NAME:-selfhost-serv-agent}:${IMAGE_TAG:-local}
+    image: ${IMAGE_NAME:-selfhost-overseer}:${IMAGE_TAG:-local}
     container_name: ${CONTAINER_NAME:-selfhost-app}
     restart: ${RESTART_POLICY:-unless-stopped}
 
@@ -272,7 +272,7 @@ services:
 
   # ===== MCP SERVER =====
   mcp-server:
-    image: ${MCP_IMAGE_NAME:-selfhost-mcp-server}:${MCP_IMAGE_TAG:-latest}
+    image: ${MCP_IMAGE_NAME:-selfhost-overseer-mcp-server}:${MCP_IMAGE_TAG:-latest}
     container_name: ${MCP_CONTAINER_NAME:-selfhost-mcp}
     restart: ${RESTART_POLICY:-unless-stopped}
 
@@ -303,7 +303,7 @@ services:
       API_BASE_URL: http://app:3001
 
       # MCP Configuration
-      MCP_SERVER_NAME: ${MCP_SERVER_NAME:-selfhost-serv-agent}
+      MCP_SERVER_NAME: ${MCP_SERVER_NAME:-selfhost-overseer}
       MCP_SERVER_PORT: ${MCP_SERVER_PORT:-3002}
       LOG_LEVEL: ${MCP_LOG_LEVEL:-INFO}
       API_TIMEOUT: ${MCP_API_TIMEOUT:-30}

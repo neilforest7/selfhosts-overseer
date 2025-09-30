@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Self-Host Serv Agent - Optimized Docker Build and Deployment Script
+# Selfhost Overseer - Optimized Docker Build and Deployment Script
 # With separated build/runtime configuration system
 
 set -euo pipefail
 
 # ===== CONFIGURATION =====
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_NAME="selfhost-manage-agent"
+PROJECT_NAME="selfhost-overseer"
 REGISTRY="${DOCKER_REGISTRY:-docker.io}"
 NAMESPACE="${DOCKER_NAMESPACE:-}"
 ENVIRONMENT="${ENVIRONMENT:-production}"
@@ -309,7 +309,7 @@ cleanup_images() {
 
 show_help() {
     cat << EOF
-Self-Host Serv Agent - Docker Build Script
+Selfhost Overseer - Docker Build Script
 
 USAGE:
     $0 [COMMAND] [OPTIONS]

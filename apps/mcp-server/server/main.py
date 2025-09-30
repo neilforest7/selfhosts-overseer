@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server for Self-Host Serv Agent.
 # Using Streamable HTTP transport for both development and production
-mcp = FastMCP(name="selfhost-serv-agent", json_response=False, stateless_http=False, port=3002, host="0.0.0.0")
+mcp = FastMCP(name="selfhost-overseer", json_response=False, stateless_http=False, port=3002, host="0.0.0.0")
 
 # Initialize configuration and API client
 config = ServerConfig()
@@ -29,7 +29,7 @@ api_client = InternalAPIClient(config)
 
 # Server information and capabilities
 SERVER_INFO = {
-    "name": "selfhost-serv-agent",
+    "name": "selfhost-overseer",
     "version": "1.0.0",
     "description": "Self-Host Serv Agent MCP Server - 提供分布式VPS基础设施管理功能",
     "capabilities": {

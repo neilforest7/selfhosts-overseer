@@ -12,7 +12,7 @@ import fastifyMultipart from '@fastify/multipart';
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   
-  logger.log('🚀 Self-Host Serv Agent 正在启动...');
+  logger.log('🚀 Selfhost Overseer 正在启动...');
   
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {

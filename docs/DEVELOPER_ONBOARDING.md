@@ -1,6 +1,6 @@
 # Developer Onboarding Guide
 
-Welcome to the Self-Host Serv Agent development team! This guide will help you get up to speed with our codebase, architecture, and development practices.
+Welcome to the Selfhost Overseer development team! This guide will help you get up to speed with our codebase, architecture, and development practices.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ Welcome to the Self-Host Serv Agent development team! This guide will help you g
 
 ## Project Overview
 
-Self-Host Serv Agent is a single-user, self-hosted cross-VPS control plane for unified monitoring and management of distributed services and containers. The system uses an SSH-based (Agentless) architecture with intelligent automation powered by json-rules-engine.
+Selfhost Overseer is a single-user, self-hosted cross-VPS control plane for unified monitoring and management of distributed services and containers. The system uses an SSH-based (Agentless) architecture with intelligent automation powered by json-rules-engine.
 
 ### Key Technologies
 - **Frontend**: Next.js 15 + App Router + TypeScript + shadcn/ui + React Query
@@ -30,7 +30,7 @@ Self-Host Serv Agent is a single-user, self-hosted cross-VPS control plane for u
 
 ### Monorepo Structure
 ```
-selfhost-serv-agent/
+selfhost-overseer/
 ├── apps/
 │   ├── web/                 # Next.js frontend application
 │   └── server/              # NestJS backend application
@@ -67,7 +67,7 @@ selfhost-serv-agent/
 ```bash
 # 1. Clone the repository
 git clone <repository-url>
-cd selfhost-serv-agent
+cd selfhost-overseer
 
 # 2. Install dependencies
 npm install

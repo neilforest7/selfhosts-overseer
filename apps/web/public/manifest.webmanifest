@@ -1,5 +1,5 @@
 {
-  "name": "Self-Host Serv Agent",
+  "name": "Selfhost Overseer",
   "short_name": "ServAgent",
   "start_url": "/",
   "display": "standalone",

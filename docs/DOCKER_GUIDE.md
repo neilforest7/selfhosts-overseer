@@ -1,4 +1,4 @@
-# Self-Host Serv Agent - Docker 部署指南
+# Selfhost Overseer - Docker 部署指南
 
 ## 🚀 快速开始
 
@@ -180,10 +180,10 @@ docker-compose exec -i postgres psql -U selfhost selfhost < backup.sql
 docker volume ls
 
 # 备份卷
-docker run --rm -v selfhost-serv-agent_postgres_data:/data -v $(pwd):/backup alpine tar czf /backup/postgres_backup.tar.gz -C /data .
+docker run --rm -v selfhost-overseer_postgres_data:/data -v $(pwd):/backup alpine tar czf /backup/postgres_backup.tar.gz -C /data .
 
 # 恢复卷
-docker run --rm -v selfhost-serv-agent_postgres_data:/data -v $(pwd):/backup alpine tar xzf /backup/postgres_backup.tar.gz -C /data
+docker run --rm -v selfhost-overseer_postgres_data:/data -v $(pwd):/backup alpine tar xzf /backup/postgres_backup.tar.gz -C /data
 ```
 
 ## 🔒 安全考虑
@@ -197,7 +197,7 @@ docker run --rm -v selfhost-serv-agent_postgres_data:/data -v $(pwd):/backup alp
 ### 网络安全
 ```bash
 # 检查网络隔离
-docker network inspect selfhost-serv-agent_selfhost-network
+docker network inspect selfhost-overseer_selfhost-network
 
 # 端口访问限制（建议）
 # 前端: 端口 3000 (限制到可信网络)

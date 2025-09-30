@@ -20,7 +20,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
   public readonly name = 'Send Notification';
   public readonly description = 'Sends notifications via various channels';
   public readonly version = '1.0.0';
-  public readonly author = 'Self-Host Serv Agent';
+  public readonly author = 'Selfhost Overseer';
   public readonly tags = ['notification', 'email', 'slack', 'discord', 'webhook'];
   public readonly eventType = 'send-notification';
   
@@ -385,7 +385,7 @@ export class SendNotificationEventPlugin extends BaseEventPlugin {
       });
       
       await transporter.sendMail({
-        from: config.from || 'automation@selfhost-serv-agent.local',
+        from: config.from || 'automation@selfhost-overseer.local',
         to: recipients.join(', '),
         subject: content.subject,
         text: content.message,

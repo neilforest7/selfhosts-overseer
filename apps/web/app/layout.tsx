@@ -3,7 +3,7 @@ import { Toaster } from 'sonner';
 import Providers from './providers';
 
 export const metadata = {
-  title: 'Self-Host Serv Agent',
+  title: 'Selfhost Overseer',
   description: '单用户、自托管的跨 VPS 控制平面',
   manifest: '/manifest.webmanifest'
 };

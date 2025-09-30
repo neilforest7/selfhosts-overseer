@@ -1,4 +1,4 @@
-# Self-Host Serv Agent
+# Selfhost Overseer
 
 单用户、自托管的跨 VPS 控制平面：统一监控、容器管理、批量远程执行，集成 n8n 与 AI Agent。默认 SSH（Agentless），可选轻量 Agent；观测采用 VictoriaMetrics + Grafana（指标 7 天）与 Loki（日志 7 天）。不包含工单/审批、合规审计、SSO/RBAC。
 
@@ -36,7 +36,7 @@
 ```bash
 # 1. 克隆项目
 git clone <repository-url>
-cd selfhost-serv-agent
+cd selfhost-overseer
 
 # 2. 安装依赖
 npm install
@@ -57,14 +57,16 @@ npm run dev
 
 ```bash
 # 1. 拉取最新镜像
-docker pull neilforest/selfhost-manage-agent:latest
+docker pull neilforest/selfhost-overseer:latest
+# 拉取 MCP 服务器镜像（可选）
+docker pull neilforest/selfhost-overseer-mcp-server:latest
 
 # 2. 创建工作目录
-mkdir -p ~/selfhost-manage-agent && cd ~/selfhost-manage-agent
+mkdir -p ~/selfhost-overseer && cd ~/selfhost-overseer
 
 # 3. 下载配置文件
-curl -o .env https://raw.githubusercontent.com/neilforest/selfhost-serv-agent/main/.env.example
-curl -o docker-compose.yml https://raw.githubusercontent.com/neilforest/selfhost-serv-agent/main/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/neilforest7/selfhosts-overseer/main/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/neilforest7/selfhosts-overseer/main/docker-compose.yml
 
 # 4. 配置环境变量
 cp .env.example .env
@@ -89,17 +91,23 @@ docker compose up -d
 
 ```bash
 # 拉取指定版本
-docker pull neilforest/selfhost-manage-agent:v0.1.0
+docker pull neilforest/selfhost-overseer:v0.1.0
+
+# 拉取 MCP 服务器镜像（可选）
+docker pull neilforest/selfhost-overseer-mcp-server:v0.1.0
 
 # 在 docker-compose.yml 中修改镜像版本：
-# image: neilforest/selfhost-manage-agent:v0.1.0
+# image: neilforest/selfhost-overseer:v0.1.0
+# mcp-server 镜像版本：
+# MCP_IMAGE_NAME=neilforest/selfhost-overseer-mcp-server
+# MCP_IMAGE_TAG=v0.1.0
 ```
 
 #### 生产部署（Docker Compose - 源码构建）
 ```bash
 # 1. 克隆项目
 git clone <repository-url>
-cd selfhost-serv-agent
+cd selfhost-overseer
 
 # 2. 准备环境文件
 cp .env.example .env
@@ -149,7 +157,7 @@ docker compose up -d
 
 ### 项目结构
 ```
-selfhost-serv-agent/
+selfhost-overseer/
 ├── apps/
 │   ├── web/                 # Next.js 前端应用
 │   └── server/              # NestJS 后端应用
@@ -198,18 +206,6 @@ npm --workspace apps/server run test:coverage     # 运行测试并生成覆盖�
 
 详细 API 文档见 `docs/API_DOCUMENTATION.md`
 
-## Docker 操作命令一览
-  ┌──────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────┐
-  │ 操作     │ CLI 容器 (Container)                                                                                                                                 │ Compose 项目 (Project/Service)                                                │
-  ├──────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────┤
-  │ 启动     │ docker start <容器名>                                                                                                                                │ docker compose start <服务名>                                                 │
-  │ 停止     │ docker stop <容器名>                                                                                                                                 │ docker compose stop <服务名>                                                  │
-  │ 重启     │ docker restart <容器名>                                                                                                                              │ docker compose restart <服务名>                                               │
-  │ 更新     │ 1. docker pull <镜像><br>2. docker stop <旧容器><br>3. docker rename <旧容器> <备份名><br>4. docker run <新镜像><br>5. 健康检查后 docker rm <备份名> │ 1. docker compose pull <服务名><br>2. docker compose up -d --no-deps <服务名> │
-  │ 查看状态 │ docker ps -a & docker inspect                                                                                                                        │ docker compose ps & docker inspect                                            │
-  │ 清理     │ docker rm <容器名>                                                                                                                                   │ docker compose down                                                           │
-  │ 查看日志 │ docker logs <容器名>                                                                                                                                 │ docker compose logs <服务名>                                                  │
-  └──────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────┘
 
 
 ## 故障排除

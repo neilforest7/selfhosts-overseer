@@ -11,7 +11,7 @@ services:
       - API_BASE_URL=http://localhost:3002
       - API_TOKEN=${MCP_API_TOKEN}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - MCP_SERVER_NAME=selfhost-serv-agent
+      - MCP_SERVER_NAME=selfhost-overseer
       - API_TIMEOUT=30
     
     # 如果需要网络访问

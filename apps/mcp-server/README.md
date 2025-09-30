@@ -1,8 +1,8 @@
-# Self-Host Serv Agent MCP Server - Docker部署指南
+# Selfhost Overseer MCP Server - Docker部署指南
 
 ## 概述
 
-这是 Self-Host Serv Agent 的 MCP (Model Context Protocol) 服务器，为 AI Agents 提供对主机和容器的访问能力。
+这是 Selfhost Overseer 的 MCP (Model Context Protocol) 服务器，为 AI Agents 提供对主机和容器的访问能力。
 
 ## 功能特性
 
@@ -47,7 +47,7 @@ MCP Server现在从根目录的 `.env` 文件读取配置。在项目根目录�
 
 ```env
 # MCP Server 配置
-MCP_SERVER_NAME=selfhost-serv-agent
+MCP_SERVER_NAME=selfhost-overseer
 MCP_SERVER_PORT=3002
 MCP_LOG_LEVEL=INFO
 MCP_API_TIMEOUT=30
@@ -81,7 +81,7 @@ docker run -d \
   --network selfhost-network \
   -p 3002:3002 \
   -e API_BASE_URL=http://app:3001 \
-  -e MCP_SERVER_NAME=selfhost-serv-agent \
+  -e MCP_SERVER_NAME=selfhost-overseer \
   -e MCP_SERVER_PORT=3002 \
   selfhost-mcp-server:latest
 
@@ -100,7 +100,7 @@ docker rm mcp-server
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
 | `API_BASE_URL` | `http://localhost:3001` | 主应用API地址 |
-| `MCP_SERVER_NAME` | `selfhost-serv-agent` | MCP服务器名称 |
+| `MCP_SERVER_NAME` | `selfhost-overseer` | MCP服务器名称 |
 | `MCP_SERVER_PORT` | `3002` | MCP服务器端口 |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `API_TIMEOUT` | `30` | API请求超时时间（秒） |
@@ -124,7 +124,7 @@ mcp-server:
   
     environment:
       API_BASE_URL: http://app:3001
-      MCP_SERVER_NAME: ${MCP_SERVER_NAME:-selfhost-serv-agent}
+      MCP_SERVER_NAME: ${MCP_SERVER_NAME:-selfhost-overseer}
       MCP_SERVER_PORT: ${MCP_SERVER_PORT:-3002}
       LOG_LEVEL: ${MCP_LOG_LEVEL:-INFO}
       API_TIMEOUT: ${MCP_API_TIMEOUT:-30}
