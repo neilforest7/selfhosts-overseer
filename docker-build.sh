@@ -7,7 +7,7 @@ set -euo pipefail
 
 # ===== CONFIGURATION =====
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_NAME="selfhost-serv-agent"
+PROJECT_NAME="selfhost-manage-agent"
 REGISTRY="${DOCKER_REGISTRY:-docker.io}"
 NAMESPACE="${DOCKER_NAMESPACE:-}"
 ENVIRONMENT="${ENVIRONMENT:-production}"

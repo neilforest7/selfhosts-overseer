@@ -49,30 +49,76 @@ cp apps/server/.env.example apps/server/.env
 npm run dev
 ```
 
-### 生产部署（Docker Compose）
+### Docker 快速部署
+
+#### 使用预构建镜像（推荐）
+
+从 Docker Hub 拉取最新版本并一键启动：
+
 ```bash
-# 1. 准备环境文件（根目录 .env，用于服务端与前端同源部署）
+# 1. 拉取最新镜像
+docker pull neilforest/selfhost-manage-agent:latest
+
+# 2. 创建工作目录
+mkdir -p ~/selfhost-manage-agent && cd ~/selfhost-manage-agent
+
+# 3. 下载配置文件
+curl -o .env https://raw.githubusercontent.com/neilforest/selfhost-serv-agent/main/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/neilforest/selfhost-serv-agent/main/docker-compose.yml
+
+# 4. 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，配置数据库连接、认证信息等
+
+# 5. 准备 SSH 私钥（权限 0600）
+chmod 600 /path/to/ssh/private/key
+# 在 docker-compose.yml 中将私钥以只读卷挂载到 /ssh/id_rsa
+
+# 6. 启动服务
+docker compose up -d
+
+# 7. 配置反向代理（生产建议统一暴露 443，并保持同源访问）
+
+# 8. 验证访问
+# 前端：https://<your-domain>/
+# 后端 API（同源相对路径）：/api/v1/
+# WebSocket（同源）：/socket.io
+```
+
+#### 指定版本部署
+
+```bash
+# 拉取指定版本
+docker pull neilforest/selfhost-manage-agent:v0.1.0
+
+# 在 docker-compose.yml 中修改镜像版本：
+# image: neilforest/selfhost-manage-agent:v0.1.0
+```
+
+#### 生产部署（Docker Compose - 源码构建）
+```bash
+# 1. 克隆项目
+git clone <repository-url>
+cd selfhost-serv-agent
+
+# 2. 准备环境文件
 cp .env.example .env
 # 必填：DATABASE_URL=postgresql://user:pass@postgres:5432/app?schema=public
 # 可选：REDIS_HOST=redis REDIS_PORT=6379
 
-# 2. 准备 SSH 私钥（权限 0600）并挂载路径
+# 3. 准备 SSH 私钥
 chmod 600 /path/to/ssh/private/key
 # 在 docker-compose.yml 中将私钥以只读卷挂载到 /ssh/id_rsa
 
-# 3. 初始化数据库（首次部署或迁移失败后可执行）
-# 服务会在启动时自动迁移；如需手动：
-npm run db:push
+# 4. 构建镜像（可选，使用预构建镜像时可跳过）
+./docker-build.sh local
 
-# 4. 启动服务
+# 5. 启动服务
 docker compose up -d
 
-# 5. 配置反向代理（生产建议统一暴露 443，并保持同源访问）
+# 6. 配置反向代理
 
-# 6. 验证访问
-# 前端：https://<your-domain>/
-# 后端 API（同源相对路径）：/api/v1/
-# WebSocket（同源）：/socket.io
+# 7. 验证访问
 ```
 
 #### 端口与同源建议
