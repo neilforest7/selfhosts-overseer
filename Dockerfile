@@ -1,6 +1,6 @@
 # Multi-stage build for Selfhost Overseer (Next.js frontend + NestJS backend)
 # Optimized Industrial Edition
-FROM node:18-slim AS base
+FROM node:22-slim AS base
 
 # Build-time configuration
 ARG BUILD_HTTP_PROXY=

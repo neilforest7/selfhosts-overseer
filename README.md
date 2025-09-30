@@ -26,7 +26,7 @@
 
 ## 前置条件（Prerequisites）
 - **控制平面主机**：Linux x86_64（建议 4 vCPU / 8 GB RAM / 100–200 GB 磁盘）
-- **运行环境**：Node.js >= 18.17.0、Docker + Compose 插件
+- **运行环境**：Node.js >= 22.0.0、Docker + Compose 插件
 - **网络访问**：SSH 私钥可直连
 - **可选组件**：NPM 容器、FRP 服务、DNS 提供商 API
 
